@@ -1,0 +1,2078 @@
+/* ── Bundled monospace fonts ─────────────────────────────────────────
+   Six OFL-licensed monospace families are shipped under /fonts/ so they
+   are guaranteed available to every client (web + Electron) without
+   requiring the user to install anything locally.  See FontPresets.kt
+   for the preset list, NOTICE for licensing, and
+   web/src/jsMain/resources/fonts/*-LICENSE.txt for the full license
+   texts.  Regular (400) and Bold (700) are bundled; heavier/italic
+   weights fall back to synthesised glyphs which is fine for terminal
+   use.  `font-display: swap` avoids a blocking load on cold start. */
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/jetbrains-mono-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/jetbrains-mono-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Fira Code';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/fira-code-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Fira Code';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/fira-code-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Cascadia Code';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/cascadia-code-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Cascadia Code';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/cascadia-code-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/ibm-plex-mono-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/ibm-plex-mono-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/geist-mono-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Geist Mono';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/geist-mono-700.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Source Code Pro';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/source-code-pro-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Source Code Pro';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('fonts/source-code-pro-700.woff2') format('woff2');
+}
+
+/* ── Semantic colour aliases ─────────────────────────────────────────
+   The --t-* custom properties are set dynamically by Kotlin via
+   applyAppearanceClass().  The legacy names (--background, --surface,
+   etc.) are kept as aliases so existing CSS rules work unchanged. */
+:root {
+    --termtastic-orange: var(--t-accent-primary, #F4B869);
+    --termtastic-orange-accent: var(--t-accent-primary, #E89A3C);
+    --background: var(--t-sidebar-bg, #1C1C1E);
+    --surface: var(--t-surface-raised, #2C2C2E);
+    --bg-elevated: var(--t-surface-overlay, #3A3A3C);
+    --text-primary: var(--t-text-primary, #F5F5F5);
+    --text-secondary: var(--t-text-secondary, #8E8E93);
+    --separator: var(--t-border-subtle, rgba(255, 255, 255, 0.1));
+    --terminal-bg: var(--t-terminal-bg, #000000);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+/* Scrollbars — adapt to current appearance. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+body.appearance-light * {
+    scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.32);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+}
+
+body.appearance-light *::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.22);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+}
+
+body.appearance-light *::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.38);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+}
+
+/* When the "new version available" pill is showing (desktop build only,
+   toggled by UpdateLabel.kt), reserve a strip ABOVE the bottom bar so the
+   corner pill never overlaps app content.
+
+   We shrink `.dt-app-frame-body` (the toolkit's sidebars + main-pane row),
+   NOT `#app` or the whole frame. Earlier iterations shrank `#app`, but the
+   Claude-usage bottom bar (`.dt-app-frame-bottombar`) lives INSIDE the frame,
+   so shrinking the frame dragged the usage bar up onto its own line — away
+   from the fixed Termtastic logo it used to share the bottom line with.
+   Margin-bottom on the body row instead lifts only the pane content: the
+   bottom bar stays anchored at the window bottom (the logo's fixed wordmark
+   keeps overlaying it), and the freed strip sits between the panes and the
+   bottom bar, exactly where the pill floats.
+
+   The reserve is published by UpdateLabel.kt as `--tt-update-reserve`,
+   measured at runtime as the distance the pill pokes above the bottom bar
+   (plus a small clearance), so it tracks font scaling and the pill's real
+   height. The 36px fallback covers the brief window before measurement runs. */
+body.tt-update-pill-visible .dt-app-frame-body {
+    margin-bottom: var(--tt-update-reserve, 36px);
+}
+
+/* Claude Code usage bar (bottom of window). Reads its own --t-bottomBar-*
+   tokens with fallbacks to the legacy aliases, so themes that don't set
+   the new slot look exactly as before. */
+.claude-usage-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 3px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--t-bottomBar-text, var(--text-secondary));
+    background: var(--t-bottomBar-bg, var(--background));
+    border-top: 1px solid var(--t-bottomBar-border, var(--separator));
+    white-space: nowrap;
+    user-select: none;
+    flex-shrink: 0;
+    /* Always reserve space at the bottom of the window, even when the server
+       has no Claude usage data to display. The `.claude-usage-bar-empty`
+       variant renders with no content but keeps this minimum height so the
+       bottom bar is continuous across all runtime states and the app logo
+       overlay always has a consistent band to sit against. */
+    min-height: 24px;
+    box-sizing: border-box;
+}
+/* Empty state: no content, just a thin coloured band at the bottom. Kept
+   separate from the normal state so future tweaks (e.g. a subtle gradient,
+   a tagline) can target only the empty case. */
+.claude-usage-bar.claude-usage-bar-empty {
+    padding: 0 12px;
+}
+.claude-usage-bar .usage-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.claude-usage-bar .usage-pct { font-weight: 600; }
+.claude-usage-bar .usage-pct.usage-ok { color: var(--t-semantic-success, #34C759); }
+.claude-usage-bar .usage-pct.usage-warn { color: var(--t-semantic-warn, #FFD60A); }
+.claude-usage-bar .usage-pct.usage-critical { color: var(--t-semantic-danger, #FF6961); }
+.claude-usage-bar .usage-refresh-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.7;
+    margin-left: -10px;
+}
+.claude-usage-bar .usage-refresh-btn:hover { opacity: 1; }
+
+
+
+
+
+
+
+
+
+
+
+.claude-usage-bar.collapsed {
+    display: none;
+}
+
+
+
+
+.terminal-cell {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    /* Chrome frame: the cell fills with the titlebar's chrome colour
+       and the content-body children (.terminal / .md-view / .git-view)
+       are inset via their own margin so a 4px chrome strip shows on
+       their left/right/bottom. The titlebar needs no inset — it sits
+       flush at cell.top and spans cell.width, so its bg paints the
+       same pixels as the cell and there's nothing for the eye to
+       compare against. border-radius + overflow:hidden give subtle
+       rounded corners. Floating panes override the background below
+       to avoid a double frame. */
+    background: var(--t-chrome-titlebar, var(--surface));
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Terminal content panes paint the cell with the same colour as the
+   xterm canvas so the 4px inset strip on the left/bottom blends in
+   instead of reading as a slightly darker chrome frame. The resolver
+   derives `chrome.titlebar = mix(bg, BLACK, 0.06)` in light mode (and
+   mix(bg, fg, 0.12) in dark mode), so for a single-pane terminal app
+   that small offset is visible as a mismatched border around the
+   canvas — not what users expect. File-browser and git panes keep the
+   default chrome frame because their visual hierarchy benefits from
+   the contrast. */
+.terminal-cell[data-content-kind='terminal'] {
+    background: var(--t-terminal-bg, var(--terminal-bg));
+}
+
+/* Inset body kinds on left + bottom to reveal the cell's chrome-titlebar
+   frame around them. Header stays flush at the top. The right side is
+   intentionally flush so the xterm scrollbar sits close to the pane
+   edge rather than floating inside two stacked 4px chrome frames. The
+   outer 4px chrome frame comes from `.dt-pane-content`'s margin in
+   the toolkit; the cell's own background still paints the left/bottom
+   inset so the visual frame stays consistent. */
+.terminal-cell > .terminal,
+.terminal-cell > .md-view,
+.terminal-cell > .git-view {
+    margin: 0 0 4px 4px;
+}
+
+/* Header chrome is now rendered by the toolkit primitive `renderPaneHeader`,
+   which paints `.dt-pane-header`, `.dt-pane-title`, `.dt-pane-title-armed`,
+   `.dt-pane-title-input`, `.dt-pane-actions`, and `.dt-pane-action`.
+   Termtastic-specific overrides for those classes live further below
+   (RTL truncation for path titles, focused/unfocused colour). */
+
+.terminal-cell.pane-dragging {
+    opacity: 0.6;
+}
+
+/* Highlight shown on a pane cell while another pane's icon-drag hovers it,
+   signalling that a drop here will swap the two panes' positions. */
+.terminal-cell.drop-target {
+    box-shadow: inset 0 0 0 2px var(--t-accent-primary, var(--text-primary));
+}
+
+/* Termtastic uses pane titles for filesystem paths. Tail-truncate them
+   (RTL flip) so the leaf segment stays visible when truncated, and clamp
+   to 60% of the header width so action buttons aren't pushed off-screen
+   for long paths. */
+.terminal-cell .dt-pane-title {
+    direction: rtl;
+    text-align: left;
+    max-width: 60%;
+}
+
+/* ── Spinner for "working" state ──
+   Small rotating border circle shown next to pane/tab names when an AI
+   assistant is actively running. Hidden by default; shown via .state-working. */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+
+/* Size variants */
+
+/* Spinners are always visible when a pane is working. */
+
+/* ── Warning icon for "waiting for input" state ──
+   Shows a fading warning triangle in the same position as the spinner.
+   Uses the theme's semantic warning colour. */
+@keyframes fade-warning {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+}
+
+
+
+
+
+
+
+
+
+/* Submenu (e.g. "Set state" debug menu) */
+
+
+
+/* When the submenu would overflow the right edge, flip to the left. */
+
+
+/* Invisible bridge so the mouse can travel from the parent item to the
+   submenu without crossing a dead zone that closes the hover. */
+
+
+
+/* `.pane-actions` (the per-header flex container) is now superseded by
+   the toolkit's `.dt-pane-actions` rendered inside `renderPaneHeader`.
+   `.pane-action-btn` is kept below because GitPane still uses it for its
+   in-content auto-refresh button. */
+
+
+
+
+/* Generic flyout wrapper — used for pane-settings flyouts. */
+
+/* The .terminal element is intentionally just a transparent flex wrapper.
+   We used to put the rounded background, padding, and box-shadow here, but
+   xterm.js writes its own inline `background-color` on the .xterm-viewport
+   inside, and the two backgrounds couldn't be made to match reliably (any
+   subpixel mismatch showed the viewport's bounding box as a visible inner
+   ring — the "double border" issue). Moving the visible card to
+   .terminal-inner instead means there is exactly one rounded surface, and
+   the .xterm-viewport's bg sits flush against the rounded clip with no
+   second edge to show. */
+.terminal {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Tinted overlay drawn on top of the cells that fall outside the
+   authoritative PTY grid (because another attached client — e.g. the
+   Android app — most recently asserted a smaller size). A diagonal hatch
+   in the Termtastic orange makes the "dead" area immediately obvious
+   without hiding the stale content underneath. Pointer-events off so the
+   xterm below still receives clicks, and z-index just above the xterm
+   layer so it sits over the canvas but beneath menus. */
+.oob-overlay {
+    position: absolute;
+    pointer-events: none;
+    display: none;
+    z-index: 3;
+    background-image: repeating-linear-gradient(
+        45deg,
+        rgba(244, 184, 105, 0.22) 0,
+        rgba(244, 184, 105, 0.22) 6px,
+        rgba(244, 184, 105, 0.08) 6px,
+        rgba(244, 184, 105, 0.08) 12px
+    );
+    border: 1px dashed rgba(244, 184, 105, 0.55);
+    border-radius: 2px;
+}
+
+/* Floating "jump to bottom" pill, shown only while the user has scrolled up
+   into the terminal scrollback (xterm.js keeps the viewport put when scrolled
+   up, so new output streams into history without yanking the view). Tapping it
+   scrolls back to the bottom and resumes auto-follow. While paused, if fresh
+   output arrives, `.has-new-output` swaps the label/colour to advertise it.
+   Sits above the OOB overlay (z-index 3) and receives clicks. */
+.scroll-to-bottom-btn {
+    position: absolute;
+    right: 16px;
+    bottom: 12px;
+    z-index: 4;
+    display: none;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border: 1px solid var(--t-border-subtle, var(--separator));
+    border-radius: 999px;
+    background: var(--t-surface-overlay, var(--bg-elevated));
+    color: var(--text-primary);
+    font: 600 12px/1 var(--t-font-ui, system-ui, sans-serif);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    opacity: 0.92;
+    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.scroll-to-bottom-btn:hover { opacity: 1; }
+.scroll-to-bottom-btn.visible { display: inline-flex; }
+.scroll-to-bottom-btn .stb-arrow { font-size: 13px; line-height: 1; }
+.scroll-to-bottom-btn.has-new-output {
+    background: var(--t-accent-primary, var(--termtastic-orange));
+    color: var(--t-accent-onPrimary, #1C1C1E);
+    border-color: transparent;
+}
+
+.terminal-inner {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    background: var(--t-terminal-bg, var(--terminal-bg));
+    /* Fully rectangular: the .terminal-cell frame paints the rounded
+       outer window via its own border-radius + overflow:hidden and the
+       chrome-coloured frame sits between this rectangle and the cell
+       edge. Any radius here would expose tiny curved slivers of chrome
+       through the arc, which reads as a corner artefact. */
+    border-radius: 0;
+    overflow: hidden;
+    /* Inner breathing room so text isn't flush with the rounded edge. The
+       .xterm-viewport inside fills the content area; for this padding strip
+       to be invisible (no second border), the .xterm-viewport's bg must
+       match var(--terminal-bg). main.kt's ensureTerminal forces a theme
+       update after term.open() so xterm.js writes the matching color into
+       the viewport's inline style. Right padding intentionally smaller —
+       the scrollbar lives inside this padding strip, so a narrower right
+       inset pulls the scrollbar visually closer to the pane edge. */
+    padding: 10px 4px 12px 12px;
+}
+
+/* Focus ring is owned by the toolkit's `.dt-pane.dt-pane-focused`
+   outline. We previously also painted an outline on `.terminal-cell`
+   with `outline-offset: 4px` so the ring sat at the chrome edge, but
+   that introduced a second focus signal driven by termtastic's own
+   `markPaneFocused` calls — which the sidebar pane-click path never
+   invokes. The result: clicking a pane in the sidebar moved the
+   toolkit's inner ring but left the prominent cell ring stuck on the
+   previous pane (reported by @soderbjorn as "outline doesn't change
+   but the titlebar shadow/colour does"). Keeping `position: relative`
+   so floating overlays inside the cell still anchor correctly. */
+.terminal-cell {
+    position: relative;
+}
+
+/* ---------- Layout picker dropdown ------------------------------------ */
+
+/* Three-column grid of preview tiles, sized to content so the dropdown is
+   exactly wide enough for the tiles. Falls back to scrolling only when the
+   full palette wouldn't fit the viewport. Uses the #id selector to outrank
+   the generic .dropdown.open .dropdown-menu rule further down this file. */
+
+
+
+
+
+
+
+/* Dropdowns in header */
+
+
+
+
+
+
+
+
+
+
+
+
+/* Legacy half-swatch support for dropdown menus. */
+
+/* Backgrounds are set inline per-theme so each swatch shows its real colors
+   (e.g. Solarized Light's cream background, Ubuntu's eggplant). */
+
+/* Larger swatches inside the dropdown menu so the colors are easier to read. */
+
+
+/* Theme menu lays out as a wide grid so all themes fit without scrolling. */
+
+
+
+#debug-menu {
+    min-width: 160px;
+    overflow: visible;
+}
+
+
+
+
+
+
+#font-size-menu {
+    min-width: 180px;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+}
+
+
+.xterm,
+.xterm-viewport,
+.xterm-screen {
+    height: 100%;
+}
+
+/* Reserve gutter space for the scrollbar so the rightmost column of text
+   never sits under it. FitAddon subtracts `.xterm`'s padding from the width
+   it hands to the column calculation, so padding-right here is the only
+   place a gutter can live that xterm.js will actually honor — padding on
+   `.terminal-inner` just shrinks the whole terminal without creating any
+   gap between the text and the scrollbar. */
+.xterm {
+    padding-right: 14px;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@keyframes tab-enter {
+    from {
+        max-width: 0;
+        opacity: 0;
+        transform: scale(0.6);
+    }
+    60% {
+        opacity: 1;
+    }
+    to {
+        max-width: 240px;
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+
+@keyframes tab-leave {
+    from {
+        max-width: 240px;
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        max-width: 0;
+        opacity: 0;
+        transform: scale(0.6);
+        padding-left: 0;
+        padding-right: 0;
+        margin-left: 0;
+        margin-right: 0;
+    }
+}
+
+
+@keyframes floating-enter {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pane-leave {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(0.92); }
+}
+
+
+
+
+
+/* ---------- Reduced motion -------------------------------------------- */
+
+/* Respect the OS-level "reduce motion" preference. Terminal users sometimes
+   actively prefer instant UIs, and animation can be a vestibular trigger. */
+@media (prefers-reduced-motion: reduce) {
+    .tab-pane,
+    .tab-pane.active,
+    .tab-active-indicator,
+    .tab-button,
+    .tab-button.entering,
+    .tab-button.leaving,
+    .tab-button.flip-animating,
+    .tab-close,
+    .floating-pane,
+    .floating-pane.entering,
+    .floating-pane.leaving,
+    .terminal-wrap,
+    .app-header,
+    .sidebar,
+    .dt-sidebar-section-chevron {
+        transition: none !important;
+        animation: none !important;
+    }
+    .terminal-wrap.booting,
+    .app-header.booting {
+        opacity: 1;
+        transform: none;
+    }
+    .tab-pane {
+        transform: none;
+    }
+}
+
+/* Picker shown inside a freshly-split (empty) pane until the user chooses a kind. */
+
+/* Markdown overview pane: file list (left) + rendered preview (right). */
+.md-view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
+    background: var(--background, #1e1e1e);
+}
+
+
+.md-divider {
+    width: 9px;
+    margin: 0 -2px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+.md-divider::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: var(--separator, #333);
+}
+.md-divider:hover::after,
+.md-divider.dragging::after {
+    background: var(--accent, #0e639c);
+    width: 2px;
+    left: 3.5px;
+}
+
+.md-rendered {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px 10px;
+    color: var(--text-primary, #d4d4d4);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    background: var(--surface, #252526);
+}
+/* Source code / binary view: drop the prose padding so .file-source can use
+   the full viewport. Keeps the markdown padding intact for prose files. */
+.md-rendered.is-source {
+    padding: 0;
+}
+.md-rendered.is-source .md-rendered-empty {
+    padding: 24px;
+}
+/* Inline-rendered HTML files: the iframe paints the page's own background,
+   which clashes with the themed surface around it. A 1px themed border
+   plus a tiny inset visually separates the document from the pane. */
+.file-html-preview {
+    width: 100%;
+    height: 100%;
+    border: 1px solid var(--separator, #333);
+    border-radius: 4px;
+    background: #ffffff;
+    box-sizing: border-box;
+}
+.md-rendered-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary, #888);
+    user-select: none;
+}
+.md-rendered-empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+.md-rendered-empty-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.md-rendered-empty-subtitle { font-size: 13px; opacity: 0.6; }
+.md-rendered h1,
+.md-rendered h2,
+.md-rendered h3,
+.md-rendered h4,
+.md-rendered h5,
+.md-rendered h6 {
+    color: var(--text-primary, #d4d4d4);
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    line-height: 1.25;
+}
+.md-rendered h1 { font-size: 1.8em; border-bottom: 1px solid var(--separator, #333); padding-bottom: 0.3em; }
+.md-rendered h2 { font-size: 1.5em; border-bottom: 1px solid var(--separator, #333); padding-bottom: 0.3em; }
+.md-rendered h3 { font-size: 1.25em; }
+.md-rendered p { margin: 0.75em 0; }
+.md-rendered a { color: var(--accent, #0e639c); text-decoration: none; }
+.md-rendered a:hover { text-decoration: underline; }
+.md-rendered code {
+    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 0.9em;
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--separator);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+}
+.md-rendered pre {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--separator);
+    padding: 12px 14px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.75em 0;
+}
+.md-rendered pre code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 0.9em;
+}
+.md-rendered blockquote {
+    border-left: 3px solid var(--separator, #333);
+    margin: 0.75em 0;
+    padding: 0 1em;
+    color: var(--text-secondary, #888);
+}
+.md-rendered ul,
+.md-rendered ol {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+}
+.md-rendered li { margin: 0.25em 0; }
+.md-rendered table {
+    border-collapse: collapse;
+    margin: 0.75em 0;
+}
+.md-rendered th,
+.md-rendered td {
+    border: 1px solid var(--separator, #333);
+    padding: 6px 10px;
+}
+.md-rendered th { background: var(--surface, #252526); }
+.md-rendered img { max-width: 100%; height: auto; }
+.md-error {
+    color: #d27676;
+    font-size: 13px;
+    padding: 12px 0;
+}
+
+/* ── Pane header icon (terminal / link / markdown) ── */
+
+/* ── Confirm dialog ── */
+
+/* ── Worktree dialog ── */
+.pane-modal.worktree-modal {
+    width: 560px;
+    max-width: 90vw;
+    padding: 18px 20px 20px;
+}
+.pane-modal.worktree-modal .pane-modal-title {
+    font-size: 15px;
+    margin: 0 0 14px;
+}
+.worktree-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #c8c8c8);
+    margin: 0 0 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.worktree-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    border: 1px solid var(--border, #3c3c3c);
+    border-radius: 5px;
+    background: var(--surface, #252526);
+    color: var(--text-primary, #d4d4d4);
+    margin-bottom: 12px;
+    outline: none;
+}
+.worktree-input:focus {
+    border-color: var(--t-accent-primary, #569cd6);
+    box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.25);
+}
+.worktree-input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.worktree-path-preview {
+    font-size: 12px;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    color: var(--text-muted, #888);
+    background: var(--bg-elevated, #2d2d30);
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin-bottom: 14px;
+    word-break: break-all;
+    min-height: 18px;
+}
+.worktree-radio-group {
+    margin-bottom: 14px;
+}
+.worktree-radio-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 5px 0;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary, #d4d4d4);
+}
+.worktree-radio-row input[type="radio"] {
+    margin-top: 3px;
+    accent-color: var(--t-accent-primary, #569cd6);
+}
+.worktree-radio-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.worktree-radio-label {
+    font-weight: 500;
+}
+.worktree-radio-desc {
+    font-size: 11px;
+    color: var(--text-muted, #888);
+}
+.worktree-custom-path {
+    margin-top: 4px;
+    margin-left: 22px;
+    width: calc(100% - 22px);
+}
+.worktree-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-primary, #d4d4d4);
+    margin-bottom: 14px;
+    cursor: pointer;
+}
+.worktree-checkbox-row input[type="checkbox"] {
+    accent-color: var(--t-accent-primary, #569cd6);
+}
+.worktree-error {
+    font-size: 12px;
+    color: #e06c75;
+    margin-bottom: 8px;
+}
+body.appearance-light .worktree-input {
+    background: #fff;
+    border-color: rgba(0,0,0,0.18);
+    color: #333;
+}
+body.appearance-light .worktree-path-preview {
+    background: #f5f5f5;
+    color: #666;
+}
+
+/* ── About dialog ── */
+.pane-modal.about-dialog {
+    width: 480px;
+    min-width: 320px;
+    max-width: 90vw;
+    padding: 24px 28px 28px;
+}
+.about-copyright {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--text-secondary, #999);
+}
+.about-version {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--text-secondary, #999);
+}
+.about-link-row {
+    margin: 0 0 20px;
+}
+.about-link-sep {
+    color: var(--text-secondary, #999);
+    font-size: 13px;
+}
+.about-link {
+    color: var(--accent, #4fc1ff);
+    font-size: 13px;
+    text-decoration: none;
+}
+.about-link:hover {
+    text-decoration: underline;
+}
+.about-section-title {
+    /* Top margin applies to every instance — when the Third-Party Libraries
+       title is the first on the page there's no visual competitor, and when
+       the Bundled Fonts title follows the deps list it needs the gap. */
+    margin: 16px 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #d4d4d4);
+}
+.about-deps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.about-deps li {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border, #3c3c3c);
+}
+.about-deps li:last-child {
+    border-bottom: none;
+}
+.about-dep-name {
+    color: var(--text-primary, #d4d4d4);
+}
+.about-dep-version {
+    color: var(--text-secondary, #999);
+    font-family: monospace;
+}
+.about-fonts-blurb {
+    margin: 0 0 8px;
+    font-size: 11px;
+    color: var(--text-secondary, #999);
+    line-height: 1.4;
+}
+.about-fonts li {
+    /* Font-rendered names can be taller than the default 12px line — give
+       a bit more vertical room so the bundled-font showcase breathes. */
+    padding: 6px 0;
+    font-size: 13px;
+}
+.about-footer {
+    margin: 16px 0 0;
+    font-size: 11px;
+    color: var(--text-secondary, #999);
+    line-height: 1.4;
+}
+body.appearance-light .about-link {
+    color: var(--accent, #0e639c);
+}
+
+/* ── Pane type modal ── */
+
+/* Type picker grid (3 cards) */
+
+/* Back button inside modal */
+
+
+/* Link picker */
+.link-picker-scroll {
+    overflow-y: auto;
+    max-height: 60vh;
+}
+.link-picker-section { margin-bottom: 12px; }
+.link-picker-tab-header {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, #999);
+    padding: 6px 0;
+    cursor: pointer;
+    user-select: none;
+}
+.link-picker-tab-header:hover { color: var(--text-primary, #d4d4d4); }
+.link-picker-tab-arrow {
+    display: inline-block;
+    font-size: 9px;
+    margin-right: 4px;
+}
+.link-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    padding: 4px 0;
+}
+.link-picker-card {
+    background: var(--surface, #252526);
+    border: 1px solid var(--border, #3c3c3c);
+    border-radius: 8px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 80ms ease;
+}
+.link-picker-card:hover {
+    border-color: var(--accent, #0e639c);
+}
+.link-picker-card-title {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-bottom: 1px solid var(--border, #3c3c3c);
+}
+.link-preview-terminal {
+    height: 150px;
+    overflow: hidden;
+    background: var(--bg-primary, #1e1e1e);
+}
+.link-preview-inner {
+    width: 100%;
+    height: 100%;
+}
+.link-preview-inner .xterm {
+    height: 100%;
+}
+.link-preview-inner .xterm-viewport {
+    overflow: hidden !important;
+}
+body.appearance-light .link-picker-card {
+    background: #fff;
+    border-color: rgba(0, 0, 0, 0.15);
+}
+body.appearance-light .link-picker-card:hover {
+    border-color: var(--accent, #0e639c);
+}
+
+/* ===== Git pane ========================================================= */
+
+.git-view {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
+    background: var(--background, #1e1e1e);
+}
+.git-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--surface, #252526);
+    border-right: 1px solid var(--separator, #333);
+}
+.git-list-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--separator, #333);
+    color: var(--text-primary, #d4d4d4);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.git-list-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-list-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.git-list-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 5px 30px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+    transition: background 100ms ease, color 100ms ease;
+}
+.git-list-item:hover {
+    background: var(--separator);
+    color: var(--text-primary);
+}
+.git-list-item.active {
+    background: rgba(244, 184, 105, 0.08);
+    color: var(--termtastic-orange);
+}
+.git-list-item-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-list-empty {
+    padding: 16px 12px;
+    color: var(--text-secondary, #888);
+    font-size: 12px;
+    text-align: center;
+}
+.git-list-section-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    user-select: none;
+    transition: background 100ms ease;
+}
+.git-list-section-header:hover {
+    background: var(--separator);
+}
+.git-list-section-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-list-section-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    transition: transform 150ms ease;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+.git-list-section-header.collapsed-tree .git-list-section-chevron {
+    transform: rotate(-90deg);
+}
+.git-list-section-children {
+    overflow: hidden;
+    transition: var(--git-section-transition, max-height 200ms ease-in-out);
+}
+.git-list-section-children.collapsed-tree {
+    max-height: 0 !important;
+}
+
+/* Status badges */
+.git-status-badge {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.git-status-M { color: #d4a017; }
+.git-status-A { color: #2da44e; }
+.git-status-D { color: #cf222e; }
+.git-status-U { color: #888; }
+.git-status-R { color: #0969da; }
+
+/* Git divider (mirrors .md-divider) */
+.git-divider {
+    width: 9px;
+    margin: 0 -2px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+.git-divider::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: var(--separator, #333);
+}
+.git-divider:hover::after,
+.git-divider.dragging::after {
+    background: var(--accent, #0e639c);
+    width: 2px;
+    left: 3.5px;
+}
+
+/* Diff pane */
+.git-diff-pane {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--surface, #252526);
+}
+.git-mode-btn {
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--separator, #333);
+    cursor: pointer;
+    font-size: 12px;
+    background: transparent;
+    color: var(--text-secondary, #888);
+    font-family: inherit;
+}
+.git-mode-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated, #2d2d30);
+}
+.git-mode-btn.active {
+    background: rgba(244, 184, 105, 0.10);
+    border-color: var(--termtastic-orange, #f4b869);
+    color: var(--termtastic-orange, #f4b869);
+}
+.git-diff-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+.git-diff-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary, #888);
+    user-select: none;
+    padding: 16px;
+}
+.git-diff-empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+.git-diff-empty-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.git-diff-empty-subtitle { font-size: 13px; opacity: 0.6; }
+.git-error {
+    padding: 16px;
+    color: var(--text-secondary, #888);
+    font-size: 13px;
+}
+
+/* Inline diff */
+.git-diff-inline {
+    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: inherit;
+    line-height: inherit;
+    min-width: fit-content;
+    background: var(--t-surface-base, var(--surface, #252526));
+}
+.git-diff-line {
+    display: flex;
+    white-space: pre;
+    line-height: inherit;
+    min-height: 1lh;
+}
+.git-line-no {
+    width: 50px;
+    text-align: right;
+    padding-right: 8px;
+    color: var(--text-secondary, #888);
+    opacity: 0.6;
+    user-select: none;
+    flex-shrink: 0;
+    font-size: 12px;
+}
+.git-line-content {
+    flex: 1;
+    padding: 0 8px;
+    min-width: 0;
+}
+.git-line-add {
+    background: rgba(46, 160, 67, 0.15);
+}
+.git-line-del {
+    background: rgba(248, 81, 73, 0.15);
+}
+
+/* Split diff — single scrollable area, row-based layout */
+.git-diff-split {
+    height: 100%;
+    overflow-y: auto;
+    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: inherit;
+    line-height: inherit;
+    min-width: fit-content;
+    background: var(--t-surface-base, var(--surface, #252526));
+}
+.git-split-row {
+    display: flex;
+}
+.git-split-half {
+    flex: 1;
+    display: flex;
+    white-space: pre;
+    line-height: inherit;
+    min-height: 1lh;
+    min-width: 0;
+    overflow: hidden;
+}
+.git-split-gutter {
+    width: 2px;
+    flex-shrink: 0;
+    background: var(--separator, #333);
+}
+.git-split-placeholder {
+    background: var(--bg-elevated, #2d2d30);
+    opacity: 0.5;
+}
+.git-split-mod {
+    background: rgba(210, 153, 34, 0.15);
+}
+
+/* Graphical diff (P4Merge-style) */
+.git-diff-graphical {
+    display: flex;
+    height: 100%;
+    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: inherit;
+    line-height: inherit;
+}
+.git-graphical-left {
+    flex: 1;
+    /* overflow-y: hidden hides the vertical scrollbar (which would sit
+       next to the SVG connector and look messy); scrollTop still works
+       programmatically, which is how the JS sync drives vertical scroll. */
+    overflow-y: hidden;
+    overflow-x: auto;
+    min-width: 0;
+}
+.git-graphical-right {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    min-width: 0;
+}
+.git-graphical-inner {
+    width: max-content;
+    min-width: 100%;
+    padding-bottom: 14px;
+}
+.git-graphical-connector {
+    width: 80px;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    background: var(--surface, #252526);
+}
+.git-graphical-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+.git-graphical-line {
+    display: flex;
+    white-space: pre;
+    width: max-content;
+    min-width: 100%;
+}
+.git-graphical-line .git-line-content {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+.git-graphical-line.highlight-del {
+    background: rgba(200, 60, 55, 0.20);
+}
+.git-graphical-line.highlight-add {
+    background: rgba(55, 150, 65, 0.18);
+}
+.git-graphical-line.highlight-mod {
+    background: rgba(180, 130, 40, 0.18);
+}
+
+/* Graphical checkbox toggle */
+.git-graphical-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--text-secondary, #999);
+    cursor: pointer;
+    user-select: none;
+}
+.git-graphical-toggle input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Font size and search navigation buttons */
+.git-font-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid var(--separator, #333);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+    color: var(--text-secondary, #888);
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+}
+.git-font-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated, #2d2d30);
+}
+.git-font-label {
+    font-size: 11px;
+    color: var(--text-secondary, #888);
+    min-width: 32px;
+    text-align: center;
+    user-select: none;
+}
+
+/* Diff search controls */
+.git-search-input {
+    width: 140px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--separator, #333);
+    background: var(--bg-elevated, #2d2d30);
+    color: var(--text-primary, #ccc);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+}
+.git-search-input:focus {
+    border-color: var(--termtastic-orange, #f4b869);
+}
+.git-search-input::placeholder {
+    color: var(--text-secondary, #888);
+}
+.git-search-counter {
+    font-size: 11px;
+    color: var(--text-secondary, #888);
+    min-width: 36px;
+    text-align: center;
+    user-select: none;
+}
+.git-search-nav:disabled {
+    opacity: 0.35;
+    cursor: default;
+    pointer-events: none;
+}
+mark.git-search-hit {
+    background: rgba(244, 184, 105, 0.25);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0;
+}
+mark.git-search-hit.git-search-current {
+    background: rgba(244, 184, 105, 0.6);
+}
+
+/* File-browser text preview: reuses the global .hl-* palette for token colors. */
+.file-source {
+    margin: 0;
+    padding: 12px 14px;
+    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-size: inherit;
+    line-height: 1.45;
+    white-space: pre;
+    overflow: auto;
+    background: transparent;
+    color: var(--text-primary, #d4d4d4);
+}
+.file-source code {
+    font-family: inherit;
+    white-space: pre;
+}
+
+
+/* Light mode overrides */
+body.appearance-light .git-line-add {
+    background: rgba(46, 164, 79, 0.12);
+}
+body.appearance-light .git-line-del {
+    background: rgba(207, 34, 46, 0.10);
+}
+body.appearance-light .git-split-mod {
+    background: rgba(210, 153, 34, 0.12);
+}
+body.appearance-light .git-graphical-line.highlight-del {
+    background: rgba(200, 50, 45, 0.15);
+}
+body.appearance-light .git-graphical-line.highlight-add {
+    background: rgba(40, 150, 60, 0.14);
+}
+body.appearance-light .git-graphical-line.highlight-mod {
+    background: rgba(180, 130, 40, 0.14);
+}
+body.appearance-light .git-graphical-connector {
+    background: var(--surface, #f5f5f5);
+}
+body.appearance-light .hl-keyword { color: #0550ae; }
+body.appearance-light .hl-string { color: #0a3069; }
+body.appearance-light .hl-comment { color: #6e7781; }
+body.appearance-light .hl-number { color: #953800; }
+body.appearance-light .hl-tag { color: #6639ba; }
+body.appearance-light .hl-attr { color: #0550ae; }
+body.appearance-light .hl-type { color: #0e6575; }
+body.appearance-light .hl-annotation { color: #9a6700; }
+body.appearance-light .hl-punctuation { color: #6e7781; }
+
+/* ====================================================================== */
+/*  Settings modal                                                         */
+/* ====================================================================== */
+/* The settings sidebar lives inside .dt-app-frame-body as a flex child,
+   just like the left sidebar. It slides in from the right with a CSS
+   transition. */
+
+
+
+
+
+
+
+/* ─── Config category headers and card grid ──────────────────────── */
+
+
+
+
+
+
+
+
+
+
+
+/* Drag-and-drop indicators for config cards */
+
+
+
+/* Config silhouette CSS lives in the toolkit (.dt-config-silhouette /
+   .dt-cs-*) — termtastic delegates rendering via
+   TermtasticThemeManagerHost.renderConfigSilhouetteHtml. */
+
+
+/* Theme config save dialog */
+
+/* "Default" swatch card (no-override) */
+
+/* Choice buttons (appearance, font size, pane status) */
+
+
+
+
+
+
+
+
+/* Server settings button at the bottom of the settings sidebar */
+
+
+/* ─── App Settings sidebar body ──────────────────────────────────────
+   Styles the body element produced by buildAppSettingsContent() in
+   AppSettingsContent.kt. The toolkit owns the surrounding chrome; we
+   only style what's inside .termtastic-app-settings-body. */
+
+.termtastic-app-settings-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 16px 18px 24px;
+    color: var(--t-text-primary, var(--text-primary));
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* Top CTA row: full-width call-to-action button. */
+.termtastic-app-settings-row {
+    display: flex;
+}
+
+.termtastic-app-settings-body .dt-settings-jump-button {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--t-surface-raised, #1c1c1e);
+    background: var(--t-accent-primary, var(--termtastic-orange));
+    border: 1px solid var(--t-accent-primary, var(--termtastic-orange));
+    border-radius: 8px;
+    cursor: pointer;
+    transition: filter 120ms ease, transform 60ms ease, box-shadow 120ms ease;
+}
+
+.termtastic-app-settings-body .dt-settings-jump-button:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--t-accent-primary) 22%, transparent);
+}
+
+.termtastic-app-settings-body .dt-settings-jump-button:active {
+    transform: translateY(1px);
+    filter: brightness(0.95);
+}
+
+.termtastic-app-settings-body .dt-settings-jump-button:focus-visible {
+    outline: 2px solid var(--t-accent-primary);
+    outline-offset: 2px;
+}
+
+/* Grouped section card. */
+.termtastic-app-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 6px 6px;
+    background: color-mix(in srgb, var(--t-surface-raised) 60%, transparent);
+    border: 1px solid var(--t-border-subtle, var(--separator));
+    border-radius: 10px;
+}
+
+.termtastic-app-settings-section-title {
+    margin: 4px 10px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--t-text-secondary, var(--text-secondary));
+}
+
+/* Toggle rows: stacked label + On/Off button pair, mirroring the
+   toolkit's appearance-modal pill rows. The buttons themselves are styled
+   via the toolkit's `dt-settings-choice-btn` rule (selected state draws a
+   coloured rectangle around the chosen option). */
+.termtastic-app-settings-toggle-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 10px;
+    color: var(--t-text-primary, var(--text-primary));
+    user-select: none;
+}
+
+.termtastic-app-settings-toggle-label {
+    font-size: 13px;
+    line-height: 1.35;
+    color: inherit;
+}
+
+/* Light-mode tweaks. */
+body.appearance-light .termtastic-app-settings-body .dt-settings-jump-button {
+    color: #ffffff;
+}
+
+body.appearance-light .termtastic-app-settings-section {
+    background: color-mix(in srgb, var(--t-surface-raised) 70%, #ffffff);
+    border-color: rgba(0, 0, 0, 0.10);
+}
+
+body.appearance-light .termtastic-app-settings-toggle-row:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+
+/* ─── Section theme overrides ─────────────────────────────────────── */
+
+
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   Theme & Color Scheme UX (2026-04)
+   Styles for the Theme Manager sidebar (Tab A Themes + Tab B Color
+   schemes) and the toolbar active-theme button.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Theme Manager modal ──────────────────────────────────────── */
+
+/* ── Theme Manager sidebar (right-docked, single column) ──────────── */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* Let theme/scheme cards lay out horizontally (silhouette left, name right)
+   in the single-column sidebar so each row reads like a list item. */
+
+
+
+/* The "+ New theme" / "+ New colour scheme" tiles share the sidebar's row layout so they
+   match a normal card's size; the plus sign and label sit inline. */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* ── Theme / Scheme editor (right pane) ───────────────────────── */
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* ── Per-section scheme picker (theme editor) ─────────────────────── */
+
+/* Custom popover replacing the native <select> for scheme rows. The
+   trigger shows a mini scheme swatch beside the name so the user can
+   see the colours at a glance; the menu mirrors the same row layout. */
+
+
+
+
+
+/* Shared row primitives — inside both trigger and menu option. */
+
+
+
+/* Popover menu — attached to document.body so z-index must beat
+   .pane-modal-overlay (99998), matching .theme-manager-menu. */
+
+
+
+
+
+
+/* Per-pane palette dropdown — italicized "Default" (clear-action) sits at
+   the top of the menu, separated from the real scheme rows beneath by a
+   hairline so it reads as a distinct action. */
+
+
+
+
+
+
+
+
+
+
+/* ── Scheme editor colour pickers + overrides grid ────────────── */
+
+
+
+
+
+
+
+
+
+
+
+
+/* Padding between the overrides explanation and the grid. */
+
+
+
+
+/* Explicit-override marker: accent ring on pickers the user has set. */
+
+
+
+
+/* ─── App logo overlay ──────────────────────────────────────────────
+   The "Termtastic" wordmark + status dot pinned to the lower-right
+   corner of the window. Painted on top of everything via position:
+   fixed and a high z-index so it's always visible regardless of what
+   tab, modal, or pane is active. pointer-events: none so it never
+   intercepts clicks meant for the UI below it.
+
+   Sits just above the Claude usage bar (which reserves a fixed min
+   height via .claude-usage-bar above), with enough padding that it
+   reads as a badge rather than a footer element. Size is deliberately
+   small-ish — the label should feel like a signature, not a banner —
+   so it doesn't crowd content in the main terminal area.
+
+   The dot mirrors the per-tab spinner/waiting indicators at the
+   aggregate level: blue pulse when any session is "working", red
+   pulse when any session is "waiting for input", dim when idle.
+   See AppLogo.kt / updateAppLogoState() for the state machine. */
+.app-logo {
+    position: fixed;
+    right: 14px;
+    /* The logo lives *inside the Claude usage bar band* at the bottom of the
+       window, NOT floating above it inside the tab content area. Earlier
+       iterations tried 32 px (collided with the bar's content — first
+       @soderbjorn screenshot on #16) and then 44 px (bumped away from the
+       collision but that pushed the overlay up into the terminal tab's
+       rounded bottom-right corner, so it started visually living inside
+       the tab content surface — second @soderbjorn screenshot on #16:
+       "it's not supposed to be inside the tab content area").
+       At 7 px the wordmark (~15 px cap-height) and 13 px dot sit vertically
+       centred within the ~30 px populated bar (24 px min-height + 6 px
+       vertical padding + 1 px top border), and within the 24 px empty-bar
+       band they still only push their pulse halo a few pixels above the
+       bar's top border — i.e. "only minimally overlaying padding" above
+       the bar rather than sitting wholly on top of the tab content. */
+    bottom: 7px;
+    /* Column so the optional "new version available" pill sits on its own line
+       ABOVE the wordmark+dot row, right-aligned with it. */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    pointer-events: none;
+    user-select: none;
+    z-index: 100;
+    /* A soft text shadow so the wordmark stays legible against noisy
+       terminal content underneath (bright ANSI output, light themes,
+       etc.). Tuned low enough that it doesn't look like a drop shadow
+       on quiet backgrounds. */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.app-logo-wordmark {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    /* Use the termtastic-orange token the rest of the UI leans on for
+       brand accents (the tab active indicator fallback, the dt-dragging
+       sidebar resize line, etc.) so the logo feels in-family. */
+    color: var(--termtastic-orange, #F4B869);
+    line-height: 1;
+}
+
+/* "New update available!" label, sitting to the LEFT of the wordmark inside
+   the same fixed logo overlay. Hidden by default (the `hidden` attribute in
+   index.html); UpdateLabel.kt clears it when the shared update checker reports
+   a newer release. Unlike the rest of the overlay (pointer-events: none) this
+   span re-enables pointer events so it is clickable, opening the manifest's
+   "more info" URL in the default browser. */
+/* The wordmark + status dot share one horizontal row inside the column logo. */
+.app-logo-row {
+    display: flex;
+    align-items: center;
+    /* Slightly wider gap to match the bumped-up dot size so the wordmark
+       and dot still read as a balanced pair rather than crowding. */
+    gap: 9px;
+}
+
+/* "New version available" pill on its own line above the wordmark. Mirrors the
+   iOS/Android banners: a faint wash of the brand accent with accent-coloured
+   icon + text + chevron, rounded, in a sans-serif UI font. More prominent than
+   plain text (tinted fill + border + icon) while still in-family. */
+.app-logo-update {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 32%, transparent);
+    color: var(--termtastic-orange, #F4B869);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    /* The pill carries its own fill, so drop the overlay's text shadow that's
+       meant for bare text floating over terminal content. */
+    text-shadow: none;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.app-logo-update:hover {
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 26%, transparent);
+}
+
+.app-logo-update-icon,
+.app-logo-update-chevron {
+    flex: none;
+}
+
+.app-logo-update-chevron {
+    opacity: 0.7;
+}
+
+/* In light appearance, the orange + white-ish text-shadow combo reads
+   as washed out. Swap to a darker shadow so the wordmark still pops. */
+body.appearance-light .app-logo {
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.75), 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+/* The status dot. Base state is idle (solid green, no pulse). The
+   .state-working and .state-waiting modifier classes are added by
+   updateAppLogoState() in AppLogo.kt when any session is in that
+   state — waiting wins over working because it's action-required.
+   Each state has its own keyframe so the colour animates smoothly
+   with the opacity pulse.
+
+   The idle colour is a fixed green (not a theme token) on purpose: the
+   three states — green / blue / red — must be distinguishable regardless
+   of appearance mode, and a theme-derived grey washed out in light mode
+   (see issue/feedback following #16 reintroduction of the logo). */
+.app-logo-dot {
+    display: inline-block;
+    /* Bumped from 10 px → 13 px per @soderbjorn feedback on #16:
+       "make the dot a little bit bigger in relation to the label". 13 px
+       sits at roughly 87% of the 15 px wordmark cap height, which reads as
+       a deliberate circular badge next to the text rather than a small
+       punctuation mark beside it. The glow/pulse ring grows with it (see
+       box-shadow/keyframes below). */
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #34C759;
+    box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.22);
+    flex-shrink: 0;
+    transition: background-color 180ms ease-in-out,
+                box-shadow 180ms ease-in-out;
+}
+
+.app-logo-dot.state-working {
+    background: #4C9AFF;
+    box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25);
+    animation: app-logo-pulse-blue 1.6s ease-in-out infinite;
+}
+
+.app-logo-dot.state-waiting {
+    background: #FF6961;
+    box-shadow: 0 0 0 2px rgba(255, 105, 97, 0.3);
+    animation: app-logo-pulse-red 1.2s ease-in-out infinite;
+}
+
+/* Pulse keyframes: scale + glow breathe to draw the eye without
+   being obnoxious. Shorter period for waiting (red) than for working
+   (blue) because waiting is action-required and should feel more
+   urgent, mirroring the fade-warning on .pane-status-spinner. */
+@keyframes app-logo-pulse-blue {
+    0%, 100% {
+        box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25),
+                    0 0 0 0 rgba(76, 154, 255, 0.45);
+    }
+    50% {
+        /* Outer halo radius bumped 6 px → 8 px in lockstep with the larger
+           13 px dot so the pulse ring stays visually proportional. */
+        box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25),
+                    0 0 0 8px rgba(76, 154, 255, 0);
+    }
+}
+
+@keyframes app-logo-pulse-red {
+    0%, 100% {
+        box-shadow: 0 0 0 2px rgba(255, 105, 97, 0.30),
+                    0 0 0 0 rgba(255, 105, 97, 0.55);
+        transform: scale(1);
+    }
+    50% {
+        /* Outer halo radius bumped 8 px → 10 px in lockstep with the larger
+           13 px dot so the pulse ring stays visually proportional. */
+        box-shadow: 0 0 0 2px rgba(255, 105, 97, 0.30),
+                    0 0 0 10px rgba(255, 105, 97, 0);
+        transform: scale(1.08);
+    }
+}
+
+/* Respect prefers-reduced-motion: keep the colour change but drop the
+   pulse animation, matching the existing motion-reduction hygiene
+   elsewhere in this stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+    .app-logo-dot.state-working,
+    .app-logo-dot.state-waiting {
+        animation: none;
+    }
+}
+

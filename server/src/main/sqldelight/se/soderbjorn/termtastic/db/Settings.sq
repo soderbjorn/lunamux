@@ -1,0 +1,31 @@
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pane_scrollback (
+    leaf_id    TEXT NOT NULL PRIMARY KEY,
+    bytes      BLOB NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+selectByKey:
+SELECT value FROM settings WHERE key = ?;
+
+upsert:
+INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?);
+
+deleteByKey:
+DELETE FROM settings WHERE key = ?;
+
+selectScrollback:
+SELECT bytes FROM pane_scrollback WHERE leaf_id = ?;
+
+upsertScrollback:
+INSERT OR REPLACE INTO pane_scrollback(leaf_id, bytes, updated_at) VALUES (?, ?, ?);
+
+deleteScrollback:
+DELETE FROM pane_scrollback WHERE leaf_id = ?;
+
+selectAllScrollbackLeafIds:
+SELECT leaf_id FROM pane_scrollback;

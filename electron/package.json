@@ -1,0 +1,61 @@
+{
+  "name": "termtastic-electron",
+  "version": "1.0.0",
+  "description": "Electron desktop wrapper for the Termtastic web app",
+  "author": "Robert Söderbjörn",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "se.soderbjorn.termtastic",
+    "productName": "Termtastic",
+    "copyright": "Copyright © 2026 Robert Söderbjörn",
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "resources/main/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/server.jar",
+        "to": "server.jar"
+      },
+      {
+        "from": "resources/jre",
+        "to": "jre"
+      }
+    ],
+    "directories": {
+      "buildResources": "icons",
+      "output": "dist"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "bundleVersion": "2",
+      "bundleShortVersion": "1.0",
+      "identity": "Robert Söderbjörn (CCJP95ZXG4)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "CCJP95ZXG4"
+      }
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

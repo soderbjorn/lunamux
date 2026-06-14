@@ -1,0 +1,218 @@
+/**
+ * Web-side glue for demo mode: URL detection, the demo replacement for the
+ * raw-WebSocket PTY path ([connectDemoPane]), and the demo variant of the
+ * link-picker terminal previews.
+ *
+ * The shared simulation itself lives in `:client`
+ * ([se.soderbjorn.termtastic.client.demo.DemoServer] and friends); this file
+ * only adapts it to the web client's xterm.js plumbing, which talks raw
+ * browser WebSockets instead of [se.soderbjorn.termtastic.client.PtySocket].
+ *
+ * @see detectDemoUrl
+ * @see connectDemoPane
+ * @see connectPane
+ */
+package se.soderbjorn.termtastic
+
+import kotlinx.browser.window
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.add
+import org.khronos.webgl.Int8Array
+import org.khronos.webgl.Uint8Array
+import se.soderbjorn.darkness.core.Appearance
+import se.soderbjorn.darkness.core.PersistKeys
+import se.soderbjorn.darkness.core.ThemeSnapshot
+import se.soderbjorn.darkness.core.UiSettings
+import se.soderbjorn.termtastic.client.demo.DemoTerminalSession
+
+/**
+ * Whether the current page URL asks for demo mode.
+ *
+ * Accepted spellings, so the demo works both when served by a Termtastic
+ * server (SPA fallback routes `/demo` to the bundle) and when the bundle is
+ * hosted statically under an arbitrary path (e.g. inside the marketing
+ * site's iframe):
+ *  - a path of `/demo` (or any path ending in `/demo`),
+ *  - a `demo` query parameter (`?demo` or `?demo=1`),
+ *  - a `#demo` hash.
+ *
+ * Called once from `start()` before the [termtasticClient] is constructed.
+ *
+ * @return `true` when this page should boot against the in-process demo.
+ */
+internal fun detectDemoUrl(): Boolean {
+    val loc = window.location
+    if (loc.pathname == "/demo" || loc.pathname.endsWith("/demo")) return true
+    if (loc.hash == "#demo") return true
+    val query = loc.search.removePrefix("?")
+    return query.split('&').any { it == "demo" || it.startsWith("demo=") }
+}
+
+/**
+ * Build the demo's toolkit-settings snapshot: a dark-appearance
+ * [PersistKeys.UI_SETTINGS] blob plus a `darkness.layoutState` blob
+ * derived from the fixture [se.soderbjorn.termtastic.WindowConfig] so the
+ * toolkit shell mounts in dark mode with the intended pane geometry.
+ *
+ * The demo always boots dark, regardless of the visitor's OS
+ * `prefers-color-scheme`: the marketing hero is designed for a dark
+ * canvas, so a light-mode visitor must not land on a half-lit workspace.
+ * We bake an explicit [Appearance.Dark] [UiSettings] blob into the
+ * snapshot the toolkit chrome reads once at mount; the appVm side is
+ * brought in line by `applyServerUiSettings(...)` over this same object in
+ * [start].
+ *
+ * Pane geometry on web is toolkit-owned: the shell reads
+ * [PersistKeys.LAYOUT_STATE] (shape: `presetByTab` / `paneOrderByTab` /
+ * `geometryByTab`, see toolkit-web's `PersistedLayoutState`) once at mount
+ * through the settings snapshot. Without this seed every demo pane would
+ * paint at the toolkit's default cascade instead of the fixture's
+ * hero-left / grid / split-h arrangements. Deriving the blob from the
+ * config keeps `DemoFixtures.initialConfig()` the single source of truth
+ * for the demo workspace.
+ *
+ * @param config the demo fixture config (already in the window-state
+ *   repo), or `null` if it hasn't been seeded yet — in which case only the
+ *   dark-appearance blob is emitted (the dark default never depends on
+ *   geometry being available).
+ * @return a snapshot object to install as [toolkitSettingsSnapshot].
+ */
+internal fun demoToolkitSettingsSnapshot(config: se.soderbjorn.termtastic.WindowConfig?): JsonObject =
+    buildJsonObject {
+        put(
+            PersistKeys.UI_SETTINGS,
+            UiSettings.defaults().copy(appearance = Appearance.Dark).toJsonString(),
+        )
+        // Seed the Electron custom-title-bar opt-in from the main process's
+        // boot value (mirrored onto `darknessApi.customTitleBar` by the
+        // preload, sourced from the persisted electron-chrome.json). Demo mode
+        // has no server to persist or echo this pref, so without seeding it the
+        // value resets to its default on the renderer reload that toggling the
+        // title bar triggers — reverting the BrowserWindow rebuild and making
+        // the toggle appear to do nothing. Baking it into the THEME_SNAPSHOT
+        // blob lets `applyServerUiSettings` land the right value in one shot (no
+        // transient that would double-rebuild the window). Undefined — and so
+        // `false` — outside Electron, so this is a no-op for the web demo.
+        put(
+            PersistKeys.THEME_SNAPSHOT,
+            ThemeSnapshot(useCustomTitleBar = demoCustomTitleBarBoot())
+                .encodeAsJsonObject().toString(),
+        )
+        if (config == null) return@buildJsonObject
+        put(
+            PersistKeys.LAYOUT_STATE,
+            buildJsonObject {
+                put("presetByTab", buildJsonObject {
+                    for (tab in config.tabs) tab.layoutPreset?.let { put(tab.id, it) }
+                })
+                put("paneOrderByTab", buildJsonObject {
+                    for (tab in config.tabs) {
+                        // Head of the order list is the primary slot —
+                        // the focused pane, then the rest in tab order.
+                        val ordered = tab.panes.sortedByDescending { it.leaf.id == tab.focusedPaneId }
+                        put(tab.id, buildJsonArray { for (p in ordered) add(p.leaf.id) })
+                    }
+                })
+                put("geometryByTab", buildJsonObject {
+                    for (tab in config.tabs) {
+                        put(tab.id, buildJsonObject {
+                            for (p in tab.panes) {
+                                put(p.leaf.id, buildJsonObject {
+                                    put("xPct", p.x)
+                                    put("yPct", p.y)
+                                    put("widthPct", p.width)
+                                    put("heightPct", p.height)
+                                    put("zIndex", p.z.toInt())
+                                    put("isMaximized", p.maximized)
+                                    put("isMinimized", false)
+                                })
+                            }
+                        })
+                    }
+                })
+            },
+        )
+    }
+
+/**
+ * The Electron main process's boot-time custom-title-bar flag, as mirrored
+ * onto `window.darknessApi.customTitleBar` by the preload (see
+ * `electron/preload.js`). Used by [demoToolkitSettingsSnapshot] to seed the
+ * demo's `electronCustomTitleBar` so the toggle survives the renderer reload
+ * that a title-bar change triggers in Electron.
+ *
+ * @return the boot value when running inside Electron; `false` otherwise
+ *   (no preload → no `darknessApi`), making it a no-op for the web demo.
+ */
+private fun demoCustomTitleBarBoot(): Boolean =
+    window.asDynamic().darknessApi?.customTitleBar == true
+
+/** Wrap a Kotlin [ByteArray] as a [Uint8Array] view for `term.write`. */
+private fun toUint8(bytes: ByteArray): Uint8Array {
+    val i8 = bytes.unsafeCast<Int8Array>()
+    return Uint8Array(i8.buffer, i8.byteOffset, i8.length)
+}
+
+/**
+ * Demo-mode replacement for [connectPane]: instead of opening a WebSocket to
+ * `/pty/{sessionId}`, attach the xterm.js terminal to the in-process
+ * [DemoTerminalSession]. The session replays its canned scrollback as one
+ * snapshot frame (just like the server's ring-buffer replay) and then
+ * streams simulated output; keystrokes are fed into its line discipline.
+ *
+ * @param entry the terminal registry entry created by [ensureTerminal].
+ */
+@OptIn(DelicateCoroutinesApi::class)
+internal fun connectDemoPane(entry: TerminalEntry) {
+    val demo = termtasticClient.demoServer ?: return
+    val session = demo.session(entry.sessionId)
+
+    entry.connected = true
+    connectionState[entry.sessionId] = "connected"
+    updateAggregateStatus()
+
+    fun sendInput(data: String) {
+        session.inputText(data)
+    }
+    entry.sendInput = ::sendInput
+    entry.term.onData { data -> sendInput(data) }
+    entry.term.onResize { _ -> updateOobOverlay(entry) }
+
+    entry.demoJob = GlobalScope.launch {
+        session.output().collect { bytes ->
+            writeHoldingScroll(entry, toUint8(bytes))
+        }
+    }
+}
+
+/**
+ * Demo-mode replacement for the link-picker's preview sockets: writes the
+ * simulated session's current scrollback into the (read-only) preview
+ * terminal once, without subscribing to live output — previews are
+ * short-lived and torn down when the modal closes.
+ *
+ * @param previewTerm the small read-only xterm.js instance in the picker card.
+ * @param sessionId the demo session whose scrollback to show.
+ */
+@OptIn(DelicateCoroutinesApi::class)
+internal fun attachDemoPreview(previewTerm: Terminal, sessionId: String) {
+    val demo = termtasticClient.demoServer ?: return
+    val session: DemoTerminalSession = demo.session(sessionId)
+    GlobalScope.launch {
+        // Take just the first frame (the snapshot) and stop collecting.
+        var done = false
+        session.output().collect { bytes ->
+            if (!done) {
+                done = true
+                previewTerm.write(toUint8(bytes))
+                throw kotlinx.coroutines.CancellationException("preview snapshot complete")
+            }
+        }
+    }
+}

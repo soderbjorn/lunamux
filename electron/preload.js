@@ -1,0 +1,268 @@
+/**
+ * @file Termtastic — Electron preload script (context bridge).
+ *
+ * Runs in a sandboxed renderer context with `contextIsolation: true`. Exposes
+ * a minimal `window.electronApi` object to the web app via Electron's
+ * contextBridge, giving the Kotlin/JS frontend access to:
+ *
+ * - **getPathForFile** -- resolves a dragged-and-dropped `File` object to its
+ *   absolute filesystem path (Electron 32+ replacement for the removed
+ *   `File.path` property).
+ *
+ * No Node.js APIs are leaked to the renderer beyond what is listed here.
+ */
+
+const { contextBridge, webUtils, ipcRenderer } = require("electron");
+
+// Authoritative window-chrome flag passed by ElectronMain.kt via
+// `webPreferences.additionalArguments`. Mirrored onto `darknessApi.customTitleBar`
+// below so darkness-toolkit's `autoApplyCustomTitleBarBodyClass` can
+// synchronously toggle `dt-custom-titlebar` on the first frame, before
+// termtastic's server-backed settings hydrate over the WebSocket.
+const customTitleBarArg = (process.argv || []).find(a => a && a.startsWith("--darkness-custom-titlebar="));
+const customTitleBarBoot = customTitleBarArg
+  ? customTitleBarArg.substring("--darkness-custom-titlebar=".length) === "true"
+  : false;
+
+// Desktop app version, forwarded from the main process via
+// `webPreferences.additionalArguments`. `appVersionName` is the
+// human-readable version (CFBundleShortVersionString, e.g. "1.0.1");
+// `appVersionCode` is the build number (CFBundleVersion, e.g. "1"). Both are
+// surfaced to the renderer's in-app About dialog. Empty when not supplied.
+const versionNameArg = (process.argv || []).find(a => a && a.startsWith("--termtastic-version-name="));
+const appVersionName = versionNameArg
+  ? versionNameArg.substring("--termtastic-version-name=".length)
+  : "";
+const versionCodeArg = (process.argv || []).find(a => a && a.startsWith("--termtastic-version-code="));
+const appVersionCode = versionCodeArg
+  ? versionCodeArg.substring("--termtastic-version-code=".length)
+  : "";
+
+contextBridge.exposeInMainWorld("electronApi", {
+  /**
+   * Resolves a drag-and-dropped `File` object to its absolute filesystem path.
+   *
+   * Replacement for the removed `File.path` property (Electron 32+). Used by
+   * the Kotlin/JS drag-and-drop handler to obtain the real path of a dropped
+   * file so the server can open it.
+   *
+   * @param {File} file - A DOM `File` from a drop event's `DataTransfer`.
+   * @returns {string} Absolute path on the local filesystem.
+   */
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+
+  /**
+   * The desktop app's human-readable version name (CFBundleShortVersionString
+   * on macOS, e.g. `"1.0.1"`), forwarded from the main process at boot.
+   * Consumed by the renderer's in-app About dialog. Empty string when running
+   * outside Electron or when the main process did not supply it.
+   *
+   * @type {string}
+   */
+  appVersionName,
+
+  /**
+   * The desktop app's build number / version code (CFBundleVersion on macOS,
+   * e.g. `"1"`), forwarded from the main process at boot. Shown alongside
+   * {@link appVersionName} in the About dialog. Empty string when unavailable.
+   *
+   * @type {string}
+   */
+  appVersionCode,
+
+  /**
+   * Opens an absolute filesystem path with the OS default application,
+   * via `shell.openPath` in the Electron main process. For `.html` paths
+   * this is typically the user's default web browser.
+   *
+   * Called by the file browser pane's "Open in default browser" button
+   * when the renderer is hosted in Electron and the selected file is HTML.
+   *
+   * @param {string} absPath - Absolute filesystem path to open.
+   * @returns {Promise<string>} Resolves to `""` on success or an error
+   *   message string when the OS could not open the path.
+   */
+  openPath: (absPath) => ipcRenderer.invoke("open-path", absPath),
+
+  /**
+   * Opens an external http(s) URL in the user's default web browser via
+   * `shell.openExternal` in the Electron main process, so it never loads
+   * inside the app window.
+   *
+   * Called by the renderer's "New update available!" label (next to the app
+   * logo) with the version manifest's per-platform "more info" URL.
+   *
+   * @param {string} url - Absolute http(s) URL to open externally.
+   * @returns {Promise<string>} Resolves to `""` on success or an error
+   *   message string when the OS could not open the URL.
+   */
+  openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
+
+  // --- Window chrome theming ----------------------------------------------
+
+  /**
+   * Tints the current BrowserWindow's background colour so the native macOS
+   * title bar (which is translucent by default) picks up the theme colour.
+   *
+   * Called by the Kotlin/JS renderer from `applyAppearanceClass` whenever
+   * the theme or appearance changes. The main process resolves which window
+   * to paint from the IPC sender.
+   *
+   * @param {string} color - CSS hex colour like `#002b36` (no alpha).
+   * @returns {Promise<void>}
+   */
+  setWindowBackgroundColor: (color) =>
+    ipcRenderer.invoke("set-window-background-color", color),
+
+  // --- App menu → renderer events -----------------------------------------
+
+  /**
+   * Subscribes to the "show About dialog" event sent by the main process when
+   * the user picks "About Termtastic" from the macOS app menu. The renderer
+   * uses this to open its themed in-app About modal instead of Electron's
+   * default native panel.
+   *
+   * Only the channel name is forwarded; the IPC event object itself is not
+   * leaked into the renderer for context-isolation safety.
+   *
+   * @param {() => void} handler - Called with no arguments on each event.
+   * @returns {() => void} Unsubscribe function that detaches the listener.
+   */
+  onShowAboutDialog: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("show-about-dialog", wrapped);
+    return () => ipcRenderer.removeListener("show-about-dialog", wrapped);
+  },
+
+  /**
+   * Subscribes to the "debug set pane state" event sent by the main
+   * process when the user picks "Pane state: Working/Waiting/Clear"
+   * from the macOS Debug submenu. The handler receives the requested
+   * mode (`"working"`, `"waiting"`, `"auto"`).
+   *
+   * @param {(mode: string) => void} handler
+   * @returns {() => void} Unsubscribe function.
+   */
+  onDebugSetPaneState: (handler) => {
+    const wrapped = (_event, mode) => handler(mode);
+    ipcRenderer.on("debug-set-pane-state", wrapped);
+    return () => ipcRenderer.removeListener("debug-set-pane-state", wrapped);
+  },
+
+  // --- Quit confirmation ---------------------------------------------------
+
+  /**
+   * Subscribes to the "show quit confirmation" event sent by the main
+   * process when the user triggers any quit intent (Cmd-Q, menu Quit,
+   * window close button). The renderer must respond by calling
+   * `respondQuitConfirmation` with the user's choice; the main process
+   * waits for that response before quitting.
+   *
+   * @param {() => void} handler - Called with no arguments on each event.
+   * @returns {() => void} Unsubscribe function.
+   */
+  onShowQuitConfirmation: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("show-quit-confirmation", wrapped);
+    return () => ipcRenderer.removeListener("show-quit-confirmation", wrapped);
+  },
+
+  /**
+   * Sends the user's choice from the quit-confirmation modal back to the
+   * Electron main process. The main process awaits this call; until it
+   * arrives, the quit is held with `event.preventDefault()`.
+   *
+   * @param {{confirmed: boolean, killServer: boolean}} result
+   *   `confirmed=false` cancels the quit and keeps the app open.
+   *   `confirmed=true, killServer=false` quits Electron only (server
+   *   keeps running). `confirmed=true, killServer=true` asks the
+   *   server to gracefully shut down before the app quits.
+   * @returns {Promise<void>}
+   */
+  respondQuitConfirmation: (result) =>
+    ipcRenderer.invoke("quit-confirmation-result", result),
+
+  // --- macOS native fullscreen state ---------------------------------------
+
+  /**
+   * Subscribes to native macOS fullscreen state changes on the current
+   * BrowserWindow. The handler receives `true` on `enter-full-screen`,
+   * `false` on `leave-full-screen`, and once at boot reflecting the
+   * window's initial fullscreen state (macOS may relaunch directly into
+   * a restored fullscreen Space).
+   *
+   * Used by the renderer to toggle the toolkit's `dt-mac-fullscreen`
+   * body class via `setDtMacFullscreenBodyClass`, which suppresses the
+   * 80 px traffic-light reservation on `.dt-topbar` for the duration of
+   * the fullscreen state (the OS hides the traffic-light cluster).
+   *
+   * @param {(enabled: boolean) => void} handler
+   * @returns {() => void} Unsubscribe function.
+   */
+  onFullscreenChange: (handler) => {
+    const wrapped = (_event, enabled) => handler(enabled === true);
+    ipcRenderer.on("fullscreen-changed", wrapped);
+    return () => ipcRenderer.removeListener("fullscreen-changed", wrapped);
+  },
+});
+
+/**
+ * Cross-app `darknessApi` namespace — shared by every Darkness app
+ * (termtastic, notegrow, ...) so the darkness-toolkit's renderer code can
+ * speak to whichever Electron host is hosting it without app-specific
+ * branching. Currently only carries the custom-titlebar toggle; the
+ * toolkit's `AppShellMount` subscriber invokes it whenever the persisted
+ * `ThemeSnapshot.useCustomTitleBar` changes.
+ */
+contextBridge.exposeInMainWorld("darknessApi", {
+  /**
+   * Boot-time custom-titlebar flag from the main process's
+   * `electron-chrome.json` cache. Consumed by darkness-toolkit's
+   * `autoApplyCustomTitleBarBodyClass` to set `dt-custom-titlebar`
+   * synchronously, before server-backed settings hydrate.
+   *
+   * @type {boolean}
+   */
+  customTitleBar: customTitleBarBoot,
+  /**
+   * Toggles the custom (themed) title bar on the Electron main window.
+   *
+   * `titleBarStyle` is a creation-time BrowserWindow option in Electron
+   * and cannot be mutated on an existing window, so the main process
+   * destroys the current window and creates a new one with the requested
+   * style. The server keeps all state (PTYs, layout, settings), so the
+   * reload is purely visual.
+   *
+   * The value is cached in `userData/electron-chrome.json` so the next
+   * cold start opens the window with the right chrome before the
+   * renderer has had a chance to query the server (which remains the
+   * canonical store).
+   *
+   * @param {boolean} enabled `true` to hide the native title bar and
+   *   render the themed window chrome, `false` to show the native OS
+   *   title bar.
+   * @returns {Promise<void>}
+   */
+  setCustomTitleBar: (enabled) =>
+    ipcRenderer.invoke("darkness:setCustomTitleBar", enabled),
+  /**
+   * Subscribe to macOS native fullscreen state changes from the Electron
+   * main process. Mirror of `electronApi.onFullscreenChange` published on
+   * the cross-app `darknessApi` namespace so darkness-toolkit's
+   * `autoWireMacFullscreenBodyClass` (called from
+   * `injectDarknessToolkitStyles`) can pick it up without termtastic
+   * having to manually wire `setDtMacFullscreenBodyClass` in main.kt.
+   *
+   * Fires once at boot reflecting the window's current state and again
+   * on every `enter-full-screen` / `leave-full-screen` BrowserWindow
+   * event.
+   *
+   * @param {(enabled: boolean) => void} handler
+   * @returns {() => void} Unsubscribe function.
+   */
+  onFullscreenChange: (handler) => {
+    const wrapped = (_event, enabled) => handler(enabled === true);
+    ipcRenderer.on("fullscreen-changed", wrapped);
+    return () => ipcRenderer.removeListener("fullscreen-changed", wrapped);
+  },
+});

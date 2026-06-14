@@ -1,0 +1,528 @@
+import SwiftUI
+
+/// Target of an in-flight rename initiated from a row's context menu or
+/// swipe action. Drives the rename alert's text field and commit call.
+private struct RenameTarget: Identifiable {
+    enum Kind { case tab, pane }
+    let kind: Kind
+    let id: String
+    let currentTitle: String
+}
+
+/// Target of an in-flight close confirmation (pane or tab). Closing kills
+/// live sessions, so both get a destructive confirmation dialog first.
+private struct CloseTarget: Identifiable {
+    enum Kind { case tab, pane }
+    let kind: Kind
+    let id: String
+    let title: String
+}
+
+/// Displays the window layout tree — tabs and their panes with state dots —
+/// under a large, collapsing "Sessions" title that mirrors the Hosts screen.
+/// Mirrors the Android `TreeScreen` composable.
+struct TreeView: View {
+    @Bindable var viewModel: TreeViewModel
+    var onOpenTerminal: (String) -> Void
+    var onOpenFileBrowser: (String) -> Void
+    var onOpenGit: (String) -> Void
+    var onDisconnect: () -> Void
+
+    // Creation flow state
+    @State private var showTabNameAlert = false
+    @State private var tabName = ""
+
+    // Rename / close flow state
+    @State private var renameTarget: RenameTarget?
+    @State private var renameText = ""
+    @State private var closeTarget: CloseTarget?
+
+    /// Shared update checker — observed so the "new version" row appears (and
+    /// disappears) reactively without leaving an empty list row behind.
+    @State private var updateVM = UpdateCheckViewModel.shared
+
+    var body: some View {
+        content
+            .navigationTitle("Sessions")
+            // Large, collapsing title — mirrors the Hosts screen so the
+            // session list reads as a peer landing screen. It collapses to an
+            // inline title as the pane list scrolls under the bar.
+            .navigationBarTitleDisplayMode(.large)
+            // Theme the bar dark (its content always sits on the dark sidebar
+            // palette regardless of system appearance) and force light bar
+            // content so the title/buttons stay legible. NOTE: do *not* add
+            // `.toolbarBackground(.visible, …)` here — forcing the bar
+            // background visible suppresses the large title entirely (it
+            // reserves the title's space but never draws the text). Verified on
+            // the simulator: with `.visible` the "Sessions" headline is blank;
+            // without it the large title renders and still collapses on scroll.
+            .toolbarBackground(Palette.background, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar { toolbarItems }
+            .navigationBarBackButtonHidden(true)
+            .onAppear { viewModel.subscribe() }
+            .modifier(TreeDialogsModifier(
+                viewModel: viewModel,
+                showTabNameAlert: $showTabNameAlert,
+                tabName: $tabName,
+                renameTarget: $renameTarget,
+                renameText: $renameText,
+                closeTarget: $closeTarget
+            ))
+    }
+
+    /// Navigation bar items: disconnect on the left, "new tab" on the right.
+    /// Panes are created from each tab's own menu (tap the tab header), so
+    /// the toolbar's "+" only creates tabs.
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                viewModel.disconnect()
+                onDisconnect()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.backward")
+                    Text("Hosts")
+                }
+                .foregroundStyle(Palette.headerAccent)
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                tabName = ""
+                showTabNameAlert = true
+            } label: {
+                Image(systemName: "plus")
+                    .foregroundStyle(Palette.textPrimary)
+            }
+            .accessibilityLabel("New tab")
+        }
+    }
+
+    /// The tree list (or the connecting placeholder) on the themed background.
+    /// Split out of `body` — together with the row builders below — to keep
+    /// each expression small enough for SwiftUI's type checker.
+    private var content: some View {
+        // The List is *always* the top-level content so the scroll view keeps a
+        // stable identity from the very first frame. The window config streams
+        // in asynchronously (rows start empty), and an earlier version swapped
+        // between a non-scrollable "Connecting…" placeholder and this List —
+        // that structural swap reset the navigation bar and made the large
+        // "Sessions" title flash in and immediately collapse. Showing the
+        // placeholder as an overlay instead keeps the title attached to one
+        // unchanging scroll view, so it stays expanded until the user scrolls.
+        List {
+            // Discrete "new version available" row at the top of the pane list;
+            // only present when the shared update checker found a newer build,
+            // so no empty row is left behind.
+            if updateVM.updateAvailable {
+                UpdateBanner()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            ForEach(viewModel.rows) { row in
+                rowView(row)
+            }
+        }
+        .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 44)
+        .scrollContentBackground(.hidden)
+        // Only bleed the themed background into the *bottom* safe area. Letting
+        // it ignore the top safe area too painted opaque black over the large
+        // title's region (which sits at the top of the scroll content), hiding
+        // the "Sessions" headline entirely. The top is covered by the themed
+        // toolbar background instead, so the bar and list still read as one.
+        .background { Palette.background.ignoresSafeArea(edges: .bottom) }
+        .overlay {
+            if viewModel.rows.isEmpty {
+                Text("Connecting\u{2026}")
+                    .foregroundStyle(Palette.textSecondary)
+            }
+        }
+    }
+
+    /// Renders a single tree row (tab header or leaf pane).
+    @ViewBuilder
+    private func rowView(_ row: TreeRow) -> some View {
+        switch row {
+        case .tabHeader(let tabId, let title, let aggState):
+            tabHeaderView(tabId: tabId, title: title, aggState: aggState)
+        case .leaf(let paneId, let sessionId, let title, let kind, let floating):
+            leafView(paneId: paneId, sessionId: sessionId, title: title, kind: kind, floating: floating)
+        }
+    }
+
+    /// A tab header row. Long-pressing it opens the tab's menu (rename, create
+    /// panes inside it, close) — the tab is the creation point for panes,
+    /// so this works for empty tabs too. New panes are placed by the server
+    /// exactly like the web client's "+" button. Uses `.contextMenu` to match
+    /// the pane rows below; the previous `Menu` blanked the label while open.
+    private func tabHeaderView(tabId: String, title: String, aggState: String?) -> some View {
+        TabHeaderRow(title: title, aggregateState: aggState)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Tab \(title), opens tab menu")
+            .accessibilityAddTraits(.isButton)
+            .listRowBackground(Palette.background)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+            .contextMenu { tabMenu(tabId: tabId, title: title) }
+    }
+
+    /// A leaf pane row with tap-to-open, context menu, and swipe actions.
+    private func leafView(
+        paneId: String,
+        sessionId: String,
+        title: String,
+        kind: LeafKind,
+        floating: Bool
+    ) -> some View {
+        Button {
+            switch kind {
+            case .terminal: onOpenTerminal(sessionId)
+            case .fileBrowser: onOpenFileBrowser(paneId)
+            case .git: onOpenGit(paneId)
+            case .empty: break // undecided pane — no action
+            }
+        } label: {
+            LeafRow(
+                title: title,
+                kind: kind,
+                state: viewModel.states[sessionId],
+                floating: floating
+            )
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Palette.background)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+        .contextMenu { paneMenu(paneId: paneId, title: title) }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                closeTarget = CloseTarget(kind: .pane, id: paneId, title: title)
+            } label: {
+                Label("Close", systemImage: "xmark")
+            }
+            Button {
+                beginRename(RenameTarget(kind: .pane, id: paneId, currentTitle: title))
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
+    }
+
+    /// Context menu for a tab header: rename, add panes to this tab, close.
+    @ViewBuilder
+    private func tabMenu(tabId: String, title: String) -> some View {
+        Button {
+            beginRename(RenameTarget(kind: .tab, id: tabId, currentTitle: title))
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        Divider()
+        Button {
+            viewModel.addPaneToTab(tabId: tabId, kindWire: "terminal")
+        } label: {
+            Label("New Terminal", systemImage: "apple.terminal")
+        }
+        Button {
+            viewModel.addPaneToTab(tabId: tabId, kindWire: "fileBrowser")
+        } label: {
+            Label("New File Browser", systemImage: "folder")
+        }
+        Button {
+            viewModel.addPaneToTab(tabId: tabId, kindWire: "git")
+        } label: {
+            Label("New Git", systemImage: "arrow.triangle.branch")
+        }
+        Divider()
+        Button(role: .destructive) {
+            closeTarget = CloseTarget(kind: .tab, id: tabId, title: title)
+        } label: {
+            Label("Close Tab…", systemImage: "xmark")
+        }
+        .disabled(viewModel.tabCount <= 1)
+    }
+
+    /// Context menu for a pane row: rename and close. Pane creation lives on
+    /// the tab's own menu instead, so empty tabs can be filled too.
+    @ViewBuilder
+    private func paneMenu(paneId: String, title: String) -> some View {
+        Button {
+            beginRename(RenameTarget(kind: .pane, id: paneId, currentTitle: title))
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        Button(role: .destructive) {
+            closeTarget = CloseTarget(kind: .pane, id: paneId, title: title)
+        } label: {
+            Label("Close…", systemImage: "xmark")
+        }
+    }
+
+    /// Pre-fills the rename alert's text field and presents it.
+    private func beginRename(_ target: RenameTarget) {
+        renameText = target.currentTitle
+        renameTarget = target
+    }
+}
+
+// MARK: - Dialogs Modifier
+
+/// The tree screen's three presentation flows (new-tab alert, rename alert,
+/// close confirmation) extracted out of `TreeView.body`. SwiftUI's type
+/// checker times out when this many presentation modifiers chain off the
+/// same body (see `HostsAlertsModifier` for the same pattern).
+private struct TreeDialogsModifier: ViewModifier {
+    @Bindable var viewModel: TreeViewModel
+    @Binding var showTabNameAlert: Bool
+    @Binding var tabName: String
+    @Binding var renameTarget: RenameTarget?
+    @Binding var renameText: String
+    @Binding var closeTarget: CloseTarget?
+
+    func body(content: Content) -> some View {
+        content
+            .alert("New Tab", isPresented: $showTabNameAlert) {
+                TextField("Tab name", text: $tabName)
+                Button("Create") {
+                    guard !tabName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    viewModel.addTab(name: tabName)
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert(
+                renameTarget?.kind == .tab ? "Rename Tab" : "Rename Window",
+                isPresented: .init(
+                    get: { renameTarget != nil },
+                    set: { if !$0 { renameTarget = nil } }
+                ),
+                presenting: renameTarget
+            ) { target in
+                TextField("Name", text: $renameText)
+                Button("Rename") {
+                    commitRename(target)
+                    renameTarget = nil
+                }
+                Button("Cancel", role: .cancel) { renameTarget = nil }
+            } message: { target in
+                if target.kind == .pane {
+                    Text("Leave empty to use the window's working directory as its name.")
+                }
+            }
+            .confirmationDialog(
+                closeTarget.map { "Close \u{201C}\($0.title)\u{201D}?" } ?? "",
+                isPresented: .init(
+                    get: { closeTarget != nil },
+                    set: { if !$0 { closeTarget = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: closeTarget
+            ) { target in
+                Button(target.kind == .tab ? "Close Tab" : "Close Window", role: .destructive) {
+                    switch target.kind {
+                    case .tab: viewModel.closeTab(tabId: target.id)
+                    case .pane: viewModel.closePane(paneId: target.id)
+                    }
+                    closeTarget = nil
+                }
+                Button("Cancel", role: .cancel) { closeTarget = nil }
+            } message: { target in
+                Text(target.kind == .tab
+                     ? "All windows in this tab will be closed and their sessions ended."
+                     : "The window's session will be ended.")
+            }
+    }
+
+    /// Commits the rename alert. Tab titles must be non-blank (the server
+    /// rejects empty ones); a blank pane title clears the custom name so the
+    /// pane falls back to its cwd-derived title.
+    private func commitRename(_ target: RenameTarget) {
+        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+        switch target.kind {
+        case .tab:
+            guard !trimmed.isEmpty else { return }
+            viewModel.renameTab(tabId: target.id, title: trimmed)
+        case .pane:
+            viewModel.renamePane(paneId: target.id, title: trimmed)
+        }
+    }
+}
+
+// MARK: - Tab Header Row
+
+private struct TabHeaderRow: View {
+    let title: String
+    let aggregateState: String?
+
+    var body: some View {
+        HStack {
+            // Dim section header — pane rows below carry the bright primary
+            // color, matching the web sidebar's emphasis hierarchy.
+            Text(title.uppercased())
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(Palette.textSecondary)
+                .tracking(0.5)
+            StateIndicator(state: aggregateState, size: 12)
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Leaf Row
+
+private struct LeafRow: View {
+    let title: String
+    let kind: LeafKind
+    let state: String?
+    let floating: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            PaneIcon(kind: kind, floating: floating)
+            StateIndicator(state: state, size: 12)
+            Text(title)
+                .font(.body)
+                .foregroundStyle(Palette.textPrimary)
+                .lineLimit(1)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+                .foregroundStyle(Palette.textSecondary.opacity(0.5))
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(
+            kind == .terminal ? "Opens terminal session" :
+            kind == .fileBrowser ? "Opens file browser" :
+            kind == .git ? "Opens git changes" :
+            "Undecided window"
+        )
+    }
+}
+
+// MARK: - Pane Icon (matches web SVGs: terminal, fileBrowser, empty, floating)
+
+private struct PaneIcon: View {
+    let kind: LeafKind
+    let floating: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let px = w / 16.0
+            let alpha = floating ? 0.9 : 0.6
+            let tint = Palette.textSecondary.opacity(alpha)
+            let stroke = StrokeStyle(lineWidth: 1.3 * px, lineCap: .round, lineJoin: .round)
+
+            switch kind {
+            case .git:
+                // Git branch icon
+                let s = StrokeStyle(lineWidth: 1.3 * px, lineCap: .round, lineJoin: .round)
+                // Main vertical line
+                var trunk = Path()
+                trunk.move(to: CGPoint(x: 8*px, y: 2*px))
+                trunk.addLine(to: CGPoint(x: 8*px, y: 14*px))
+                context.stroke(trunk, with: .color(tint), style: s)
+                // Branch line
+                var branch = Path()
+                branch.move(to: CGPoint(x: 8*px, y: 6*px))
+                branch.addLine(to: CGPoint(x: 12*px, y: 4*px))
+                context.stroke(branch, with: .color(tint), style: s)
+                // Dots
+                let dotSize = 2.5 * px
+                context.fill(Circle().path(in: CGRect(x: 8*px - dotSize, y: 2*px - dotSize, width: dotSize*2, height: dotSize*2)), with: .color(tint))
+                context.fill(Circle().path(in: CGRect(x: 12*px - dotSize, y: 4*px - dotSize, width: dotSize*2, height: dotSize*2)), with: .color(tint))
+                context.fill(Circle().path(in: CGRect(x: 8*px - dotSize, y: 14*px - dotSize, width: dotSize*2, height: dotSize*2)), with: .color(tint))
+
+            case .fileBrowser:
+                // Document with folded corner and two text lines
+                var doc = Path()
+                doc.move(to: CGPoint(x: 3*px, y: 1.75*px))
+                doc.addLine(to: CGPoint(x: 9.5*px, y: 1.75*px))
+                doc.addLine(to: CGPoint(x: 13*px, y: 5.25*px))
+                doc.addLine(to: CGPoint(x: 13*px, y: 14.25*px))
+                doc.addCurve(to: CGPoint(x: 12.5*px, y: 14.75*px),
+                             control1: CGPoint(x: 13*px, y: 14.53*px),
+                             control2: CGPoint(x: 12.78*px, y: 14.75*px))
+                doc.addLine(to: CGPoint(x: 3*px, y: 14.75*px))
+                doc.addCurve(to: CGPoint(x: 2.5*px, y: 14.25*px),
+                             control1: CGPoint(x: 2.72*px, y: 14.75*px),
+                             control2: CGPoint(x: 2.5*px, y: 14.53*px))
+                doc.addLine(to: CGPoint(x: 2.5*px, y: 2.25*px))
+                doc.addCurve(to: CGPoint(x: 3*px, y: 1.75*px),
+                             control1: CGPoint(x: 2.5*px, y: 1.97*px),
+                             control2: CGPoint(x: 2.72*px, y: 1.75*px))
+                doc.closeSubpath()
+                context.stroke(doc, with: .color(tint), style: stroke)
+                // Fold
+                var fold = Path()
+                fold.move(to: CGPoint(x: 9.25*px, y: 1.75*px))
+                fold.addLine(to: CGPoint(x: 9.25*px, y: 5.25*px))
+                fold.addLine(to: CGPoint(x: 13*px, y: 5.25*px))
+                context.stroke(fold, with: .color(tint), style: stroke)
+                // Text lines
+                var line1 = Path()
+                line1.move(to: CGPoint(x: 5*px, y: 8.5*px))
+                line1.addLine(to: CGPoint(x: 10.5*px, y: 8.5*px))
+                context.stroke(line1, with: .color(tint),
+                               style: StrokeStyle(lineWidth: 1.2*px, lineCap: .round))
+                var line2 = Path()
+                line2.move(to: CGPoint(x: 5*px, y: 11*px))
+                line2.addLine(to: CGPoint(x: 10.5*px, y: 11*px))
+                context.stroke(line2, with: .color(tint),
+                               style: StrokeStyle(lineWidth: 1.2*px, lineCap: .round))
+
+            case .empty:
+                // Dashed rounded rect placeholder
+                let rect = CGRect(x: 2*px, y: 2*px, width: 12*px, height: 12*px)
+                context.stroke(RoundedRectangle(cornerRadius: 1.5*px).path(in: rect),
+                               with: .color(tint),
+                               style: StrokeStyle(lineWidth: 1.3*px, dash: [2.5*px, 2*px]))
+
+            case .terminal:
+                if floating {
+                    let rect = CGRect(x: 2*px, y: 1*px, width: 12*px, height: 10*px)
+                    context.stroke(RoundedRectangle(cornerRadius: 1.5*px).path(in: rect),
+                                   with: .color(tint), style: stroke)
+                    var line = Path()
+                    line.move(to: CGPoint(x: 4*px, y: 8*px))
+                    line.addLine(to: CGPoint(x: 10*px, y: 8*px))
+                    context.stroke(line, with: .color(tint),
+                                   style: StrokeStyle(lineWidth: 1.2*px, lineCap: .round))
+                    let taskbar = CGRect(x: 4*px, y: 13*px, width: 8*px, height: 1.2*px)
+                    context.fill(RoundedRectangle(cornerRadius: 0.6*px).path(in: taskbar),
+                                 with: .color(tint.opacity(0.5)))
+                } else {
+                    let rect = CGRect(x: 1*px, y: 2*px, width: 14*px, height: 12*px)
+                    context.stroke(RoundedRectangle(cornerRadius: 1.5*px).path(in: rect),
+                                   with: .color(tint), style: stroke)
+                    var chevron = Path()
+                    chevron.move(to: CGPoint(x: 4*px, y: 7*px))
+                    chevron.addLine(to: CGPoint(x: 6*px, y: 5*px))
+                    chevron.addLine(to: CGPoint(x: 4*px, y: 3*px))
+                    context.stroke(chevron, with: .color(tint), style: stroke)
+                    var line = Path()
+                    line.move(to: CGPoint(x: 7*px, y: 7*px))
+                    line.addLine(to: CGPoint(x: 11*px, y: 7*px))
+                    context.stroke(line, with: .color(tint),
+                                   style: StrokeStyle(lineWidth: 1.2*px, lineCap: .round))
+                }
+            }
+        }
+        .frame(width: 16, height: 16)
+        .accessibilityLabel(
+            kind == .fileBrowser ? "File browser window" :
+            kind == .git ? "Git window" :
+            kind == .empty ? "Undecided window" :
+            floating ? "Floating window" : "Window"
+        )
+    }
+}

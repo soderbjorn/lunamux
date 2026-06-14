@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!--
+		ATS configuration for Termtastic's self-signed TLS endpoints.
+
+		NSAllowsLocalNetworking lets the app reach Bonjour/.local/IP-based
+		hosts (the usual local-server scenario) without going through the
+		standard ATS chain check.
+
+		NSAllowsArbitraryLoads is required so that ATS does NOT reject the
+		self-signed server cert before the URLSessionDelegate installed by
+		:client's PinnedHttpClientFactory.ios gets a chance to inspect the
+		server-trust challenge and either accept (capture/verify path) or
+		cancel (pin mismatch). The delegate is the actual security check;
+		ATS would otherwise pre-empt it with a generic chain failure.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>JetBrainsMono-Regular.ttf</string>
+	</array>
+</dict>
+</plist>

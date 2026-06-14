@@ -1,0 +1,28 @@
+Before installing this update
+
+Termtastic runs a background server that keeps your terminal sessions
+alive across app restarts. Because the server holds files inside the
+Termtastic.app bundle open, macOS will refuse to install a new version
+while it is running.
+
+To install this update:
+
+1. Open Termtastic.
+
+2. Choose Quit Termtastic from the menu (or press Cmd-Q, or click
+   the window's close button).
+
+3. In the confirmation dialog that appears, tick the checkbox
+
+       "Also stop the background server"
+
+   then click Quit. All running terminal sessions will be terminated
+   and any unsaved terminal output will be lost — save your work
+   before clicking Quit.
+
+4. Wait for Termtastic to fully quit.
+
+5. Drag the new Termtastic into the Applications folder.
+
+If you skip the checkbox, the old server keeps running and macOS will
+not allow the new version to be installed.

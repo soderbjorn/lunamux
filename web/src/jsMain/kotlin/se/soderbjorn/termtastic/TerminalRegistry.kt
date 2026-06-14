@@ -1,0 +1,80 @@
+/**
+ * Web-side registry of live xterm.js terminal instances and their
+ * connection-state map, plus the helper that re-fits every visible
+ * terminal to its container.
+ *
+ * Lives next to [WebState] in the same package so all rendering code can
+ * keep reading the unqualified `terminals`, `connectionState`, and
+ * `windowSocketConnected` symbols without any call-site changes.
+ *
+ * @see WebState
+ * @see fitPreservingScroll
+ */
+package se.soderbjorn.termtastic
+
+import org.w3c.dom.HTMLElement
+
+/** Map of paneId → live xterm.js terminal entry, refilled by `renderConfig`. */
+internal val terminals = HashMap<String, TerminalEntry>()
+
+/**
+ * Pane id of the terminal the user most recently interacted with, or
+ * `null` if the user has never focused a terminal in this session.
+ *
+ * Sticky on purpose: set whenever a terminal container fires `focusin`,
+ * but **not** cleared on `focusout`. The whole point is that involuntary
+ * blurs caused by chrome rebuilds (server pushes a new `WindowConfig`
+ * after `cd` updates the leaf title; toolkit replaces pane chrome which
+ * momentarily detaches the xterm `<textarea>`) shouldn't erase the
+ * user's intent. `TermtasticTabSource` reads this field after every
+ * `WindowConfig` push to decide whether to schedule a `term.focus()`
+ * restore. Cleared explicitly only when the corresponding terminal is
+ * removed from the [terminals] map (PTY prune in `renderConfig`).
+ *
+ * @see se.soderbjorn.termtastic.ensureTerminal
+ * @see se.soderbjorn.termtastic.termtasticTabSource
+ */
+internal var lastFocusedTerminalId: String? = null
+
+/**
+ * Pane id of the `.dt-pane` ancestor under the most recent document-level
+ * `pointerdown`, or `null` if the press landed outside any pane (chrome,
+ * sidebar, tab strip) or no press has fired yet.
+ *
+ * Used by the terminal `focusout` safety net in `ensureTerminal` to tell
+ * a real toolkit-driven detach (no preceding mousedown, or mousedown
+ * inside *this* pane) apart from a user clicking a non-focusable element
+ * in a *different* pane (title bar of another pane, file-browser chrome
+ * in another pane). In the latter case the blur is voluntary — the user
+ * is switching panes — and the safety net must not refocus the previous
+ * terminal, because that immediately re-emits `SetFocusedPane` for it
+ * and races the toolkit's just-sent `SetFocusedPane` for the clicked
+ * pane, leaving the user's selection on the *old* pane.
+ *
+ * Set by a single capture-phase document `pointerdown` listener
+ * installed in `main.kt`'s `start()`. Sticky between presses (cleared on
+ * the next press, never on focus events), so a focusout that fires
+ * synchronously inside the press handler chain sees the right value.
+ */
+internal var lastPointerDownPaneId: String? = null
+
+/** Map of paneId → string PTY connection state ("connected", "disconnected", …). */
+internal val connectionState = HashMap<String, String>()
+
+/** Whether the `/window` WebSocket is currently connected. */
+internal var windowSocketConnected = false
+
+/**
+ * Refits all visible terminal instances to their current container sizes.
+ *
+ * Iterates all registered terminals and calls [fitPreservingScroll] on
+ * those whose DOM element has a non-null offsetParent (i.e., is visible).
+ */
+internal fun fitVisible() {
+    for (entry in terminals.values) {
+        val parent = (entry.term.asDynamic().element as? HTMLElement)?.offsetParent
+        if (parent != null) {
+            try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+        }
+    }
+}

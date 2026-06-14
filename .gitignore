@@ -1,0 +1,45 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+!**/src/**/build/**
+
+# Kotlin / KMP
+.kotlin/
+kotlin-js-store/
+*.klib
+local.properties
+
+# IDE — IntelliJ / Android Studio / Fleet
+.idea/
+*.iml
+*.ipr
+*.iws
+.fleet/
+
+# VS Code
+.vscode/
+
+# Claude Code — ignore local config, share commands/skills
+.claude/*
+!.claude/commands/
+!.claude/skills/
+
+# macOS
+.DS_Store
+
+# Xcode / iOS
+xcuserdata/
+*.xcuserstate
+DerivedData/
+iosApp/Pods/
+iosApp/Podfile.lock
+
+# Node / npm (Kotlin/JS toolchain)
+node_modules/
+
+# Logs & temp
+*.log
+*.tmp

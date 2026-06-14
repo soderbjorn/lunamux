@@ -1,0 +1,180 @@
+Termtastic
+Copyright (c) 2026 Robert Söderbjörn
+
+This product includes software developed by third parties. Their licenses
+and copyright notices are listed below. For the full license texts, see the
+referenced files or URLs.
+
+For a comprehensive dependency audit, see docs/third-party-licenses.md.
+
+================================================================================
+VENDORED CODE
+================================================================================
+
+terminal-emulator module (unmodified copy)
+  Original: Terminal Emulator for Android by Jack Palevich
+  Source:   https://github.com/jackpal/Android-Terminal-Emulator
+  Via:      https://github.com/termux/termux-app
+  License:  Apache License 2.0
+  See:      terminal-emulator/LICENSE.md
+
+terminal-view module (modified fork)
+  Original: Terminal Emulator for Android by Jack Palevich
+  Source:   https://github.com/jackpal/Android-Terminal-Emulator
+  Via:      https://github.com/termux/termux-app
+  License:  Apache License 2.0
+  See:      terminal-view/LICENSE.md
+
+================================================================================
+BUNDLED FONTS
+================================================================================
+
+Android (androidApp/src/main/assets/fonts/):
+
+JetBrains Mono
+  Copyright 2020 The JetBrains Mono Project Authors
+  Source:  https://github.com/JetBrains/JetBrainsMono
+  License: SIL Open Font License 1.1
+  See:     androidApp/src/main/assets/fonts/JetBrainsMono-OFL.txt
+
+Iosevka
+  Copyright 2015-2024 Renzhi Li (aka. Belleve Invis)
+  Source:  https://github.com/be5invis/Iosevka
+  License: SIL Open Font License 1.1
+  See:     androidApp/src/main/assets/fonts/Iosevka-OFL.txt
+
+Web / Electron (web/src/jsMain/resources/fonts/):
+
+  Six OFL-licensed monospace families (Regular + Bold, WOFF2) are bundled
+  with the web client and served at /fonts/ so they are available to every
+  user regardless of what is installed locally. Each family ships with its
+  upstream license text as <family>-LICENSE.txt in the same directory.
+
+JetBrains Mono
+  Copyright 2020 The JetBrains Mono Project Authors
+  Source:  https://github.com/JetBrains/JetBrainsMono
+  License: SIL Open Font License 1.1
+
+Fira Code
+  Copyright 2014-2023 The Fira Code Project Authors (Nikita Prokopov)
+  Source:  https://github.com/tonsky/FiraCode
+  License: SIL Open Font License 1.1
+
+Cascadia Code
+  Copyright 2019-2024 Microsoft Corporation
+  Source:  https://github.com/microsoft/cascadia-code
+  License: SIL Open Font License 1.1
+
+IBM Plex Mono
+  Copyright 2017 IBM Corp.
+  Source:  https://github.com/IBM/plex
+  License: SIL Open Font License 1.1
+
+Geist Mono
+  Copyright 2023 Vercel, in collaboration with basement.studio
+  Source:  https://github.com/vercel/geist-font
+  License: SIL Open Font License 1.1
+
+Source Code Pro
+  Copyright 2010-2019 Adobe (https://www.adobe.com/)
+  Source:  https://github.com/adobe-fonts/source-code-pro
+  License: SIL Open Font License 1.1
+
+================================================================================
+LGPL DEPENDENCIES (server-side, dynamically linked via JVM classpath)
+================================================================================
+
+JediTerm Core
+  Copyright JetBrains s.r.o.
+  Source:  https://github.com/JetBrains/jediterm
+  License: GNU Lesser General Public License v3.0 (LGPL-3.0)
+  URL:     https://www.gnu.org/licenses/lgpl-3.0.html
+
+  Users may replace this library with a compatible alternative. The source
+  code is available at the URL above.
+
+Logback Classic
+  Copyright QOS.ch Sarl
+  Source:  https://github.com/qos-ch/logback
+  License: Eclipse Public License 1.0 (EPL-1.0) / GNU Lesser General Public
+           License 2.1 (LGPL-2.1), dual-licensed
+  URL:     https://www.eclipse.org/legal/epl-v10.html
+
+  Used under the EPL 1.0 license.
+
+================================================================================
+APACHE 2.0 DEPENDENCIES
+================================================================================
+
+The following dependencies are used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0):
+
+  Kotlin stdlib, kotlinx-coroutines, kotlinx-serialization
+    Copyright JetBrains s.r.o. and Kotlin Programming Language contributors
+
+  Ktor (Client & Server)
+    Copyright JetBrains s.r.o. and Ktor contributors
+
+  AndroidX libraries (activity-compose, navigation, datastore, webkit,
+  core-ktx, appcompat, annotation)
+    Copyright The Android Open Source Project
+
+  Compose Multiplatform (runtime, foundation, ui, material3, ui-tooling,
+  components-resources)
+    Copyright JetBrains s.r.o. and contributors
+    Source: https://github.com/JetBrains/compose-multiplatform
+
+  JetBrains Lifecycle (lifecycle-viewmodel-compose, lifecycle-runtime-compose)
+    Copyright JetBrains s.r.o.
+    Source: https://github.com/JetBrains/compose-multiplatform-core
+
+  pty4j
+    Copyright JetBrains s.r.o.
+
+  SQLDelight
+    Copyright Square, Inc. / CashApp
+
+  kotlinx-html
+    Copyright JetBrains s.r.o.
+
+================================================================================
+MIT DEPENDENCIES
+================================================================================
+
+The following dependencies are used under the MIT License:
+
+  xterm.js — https://github.com/xtermjs/xterm.js
+  xterm-addon-fit — https://github.com/xtermjs/xterm.js (addons/addon-fit)
+  SwiftTerm — https://github.com/migueldeicaza/SwiftTerm
+  jsoup — https://github.com/jhy/jsoup
+  Electron — https://github.com/electron/electron
+  ws — https://github.com/websockets/ws
+
+================================================================================
+BSD DEPENDENCIES
+================================================================================
+
+  flexmark-all
+    Copyright Vladimir Schneider
+    License: BSD 2-Clause
+    Source:  https://github.com/vsch/flexmark-java
+
+  Chromium (bundled via Electron)
+    Copyright The Chromium Authors
+    License: BSD 3-Clause
+
+================================================================================
+BUNDLED JAVA RUNTIME
+================================================================================
+
+The macOS desktop build bundles a trimmed Java runtime produced with `jlink`
+from an Eclipse Temurin (Adoptium) JDK, used to run the embedded server.
+
+  Eclipse Temurin (OpenJDK)
+    License: GNU General Public License v2 with the Classpath Exception
+             (GPLv2+CE), which permits bundling the runtime with this
+             application regardless of the application's own license.
+    Source:  https://github.com/adoptium/temurin-build
+             https://github.com/openjdk/jdk
+    The runtime's full per-module license texts are included in the app at
+    Contents/Resources/jre/legal/.

@@ -1,0 +1,20 @@
+# This file-Maven-repo is committed so a clone of termtastic alone can build
+# against darkness-toolkit with no sibling checkout. Refresh it from the toolkit
+# with `./gradlew :toolkit-core:publishAllPublicationsToTermtasticLibsRepoRepository`
+# (and the toolkit-store/web/compose equivalents).
+#
+# Keep .pom, .module, and the binary artifacts (.klib/.jar/.aar) — those are what
+# Gradle resolves. Ignore the regenerated noise so republishes produce clean diffs.
+
+# Re-include .klib artifacts: the repo-root .gitignore ignores *.klib globally,
+# but the iOS/JS toolkit variants are published as .klib and MUST be committed.
+!*.klib
+
+# Regenerated noise — not needed to resolve fixed-version deps from a file repo.
+*.md5
+*.sha1
+*.sha256
+*.sha512
+maven-metadata.xml*
+*-sources.jar
+*-kotlin-tooling-metadata.json

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "platforms": {
+    "android": {
+      "latestVersionCode": 2,
+      "latestVersionName": "1.0.0",
+      "url": "https://termtastic.soderbjorn.se/#/download"
+    },
+    "ios": {
+      "latestVersionCode": 2,
+      "latestVersionName": "1.0.0",
+      "url": "https://termtastic.soderbjorn.se/#/download"
+    },
+    "mac": {
+      "latestVersionCode": 2,
+      "latestVersionName": "1.0.0",
+      "url": "https://termtastic.soderbjorn.se/#/download"
+    }
+  }
+}

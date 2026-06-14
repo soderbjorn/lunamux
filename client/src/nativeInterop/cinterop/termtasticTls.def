@@ -1,0 +1,58 @@
+language = Objective-C
+package = se.soderbjorn.termtastic.client.tlsinterop
+compilerOpts = -fobjc-arc
+linkerOpts = -framework Foundation -framework Security
+---
+#import <Foundation/Foundation.h>
+#import <Security/Security.h>
+
+/**
+ * Bridge for NSURLProtectionSpace.serverTrust, which the Kotlin/Native
+ * 2.3.20 Foundation binding does not surface as either a property or a
+ * method on iosArm64 / iosSimulatorArm64. Returns the leaf chain's
+ * SecTrustRef for use with SecTrustGetCertificateAtIndex.
+ *
+ * Returns NULL if the challenge isn't a server-trust challenge or the
+ * protection space has no associated trust.
+ */
+static SecTrustRef _Nullable termtastic_server_trust(
+    NSURLAuthenticationChallenge *_Nonnull challenge
+) {
+    return challenge.protectionSpace.serverTrust;
+}
+
+/**
+ * Disposition constants re-exposed as plain ints. The
+ * NSURLSessionAuthChallengeDisposition typealias in the Foundation klib
+ * commonizes inconsistently between iosMain metadata and the concrete
+ * iosArm64 / iosSimulatorArm64 compile units (Int vs Long), so Ktor's
+ * `handleChallenge` completionHandler signature can't be called with the
+ * raw platform constant directly. These wrappers always return Int.
+ */
+static long termtastic_disposition_use_credential(void) {
+    return (long)NSURLSessionAuthChallengeUseCredential;
+}
+static long termtastic_disposition_perform_default(void) {
+    return (long)NSURLSessionAuthChallengePerformDefaultHandling;
+}
+static long termtastic_disposition_cancel(void) {
+    return (long)NSURLSessionAuthChallengeCancelAuthenticationChallenge;
+}
+
+/**
+ * Bridge for +[NSURLCredential credentialForTrust:], which the Kotlin/Native
+ * 2.3.20 Foundation binding does not surface as a callable companion-object
+ * member on iosArm64 / iosSimulatorArm64. Returns a credential that wraps
+ * the given SecTrustRef so URLSession treats it as "trust accepted by
+ * delegate" rather than re-running default chain validation.
+ *
+ * Pass the result to the handleChallenge completionHandler together with
+ * NSURLSessionAuthChallengeUseCredential — without a real credential
+ * URLSession falls back to system trust evaluation and rejects self-signed
+ * certs with errSSLXCertChainInvalid (-9807).
+ */
+static NSURLCredential * _Nonnull termtastic_credential_for_trust(
+    SecTrustRef _Nonnull trust
+) {
+    return [NSURLCredential credentialForTrust:trust];
+}
