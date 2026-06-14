@@ -5,25 +5,27 @@
       "id": "2026-06-12-welcome",
       "date": "2026-06-19",
       "title": "Welcome to Termtastic news",
-      "body": "The desktop app can now surface short announcements right here. Click the **News** pill any time to catch up, and close a card to dismiss it for good."
+      "body": "The desktop app can now surface short announcements right here. Click the News pill any time to catch up, and close a card to dismiss it for good.",
+      "url": "https://termtastic.soderbjorn.se/"
     },
     {
       "id": "2026-06-22-split-panes",
       "date": "2026-06-22",
       "title": "Split panes",
-      "body": "Split any tab **horizontally** or vertically, then drag the divider to resize. Double-click a divider to reset it to an even split."
+      "body": "Split any tab horizontally or vertically, then drag the divider to resize. Double-click a divider to reset it to an even split."
     },
     {
       "id": "2026-06-25-themes",
       "date": "2026-06-25",
       "title": "Six new bundled themes",
-      "body": "Head to *Settings → Appearance* for Solarized, Gruvbox, and four more. Light and dark slots are picked independently, so each follows your system appearance."
+      "body": "Head to Settings > Appearance for Solarized, Gruvbox, and four more. Light and dark slots are picked independently, so each follows your system appearance."
     },
     {
       "id": "2026-06-28-markdown-preview",
       "date": "2026-06-28",
       "title": "Markdown & git diff previews",
-      "body": "Open a `.md` file in the file browser to see it rendered, and review changes inline in the git diff viewer. See the [docs](https://termtastic.soderbjorn.se/) for more."
+      "body": "Open a .md file in the file browser to see it rendered, and review changes inline in the git diff viewer.",
+      "url": "https://termtastic.soderbjorn.se/"
     }
   ]
 }
