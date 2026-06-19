@@ -1,0 +1,123 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-core/0.1.4/toolkit-core-0.1.4.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.1.4",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "jvmApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-core-jvm-0.1.4.jar",
+          "url": "toolkit-core-jvm-0.1.4.jar",
+          "size": 133316,
+          "sha512": "fac4ada3a278a741c2c9b9683a9d11e4f2f5836df334c6b0a07e3bbc847c31b05ad0efcf328f4eec1193254af798385f368b0a3d98951dca2a77df778ba54e96",
+          "sha256": "96049a71fec0159667de0fadea9a7bdba944b90f4b0d6cb85f667db2cef52ea4",
+          "sha1": "c12b81a6313bad737efa467c3624f44dd9a47f1c",
+          "md5": "d4e49d229404f528f8186bf10b82e707"
+        }
+      ]
+    },
+    {
+      "name": "jvmRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-core-jvm-0.1.4.jar",
+          "url": "toolkit-core-jvm-0.1.4.jar",
+          "size": 133316,
+          "sha512": "fac4ada3a278a741c2c9b9683a9d11e4f2f5836df334c6b0a07e3bbc847c31b05ad0efcf328f4eec1193254af798385f368b0a3d98951dca2a77df778ba54e96",
+          "sha256": "96049a71fec0159667de0fadea9a7bdba944b90f4b0d6cb85f667db2cef52ea4",
+          "sha1": "c12b81a6313bad737efa467c3624f44dd9a47f1c",
+          "md5": "d4e49d229404f528f8186bf10b82e707"
+        }
+      ]
+    },
+    {
+      "name": "jvmSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "files": [
+        {
+          "name": "toolkit-core-jvm-0.1.4-sources.jar",
+          "url": "toolkit-core-jvm-0.1.4-sources.jar",
+          "size": 56147,
+          "sha512": "1d0c38afdb8c994040cb68884e4686103e2fbcb860378f63ba907465df80d7bfceda2c0beb7d74edefa07b4a5055d010fc80f92e586d9f72a5c966c564a893ee",
+          "sha256": "17c71597dad5f3ac723bb13ce7de2783b88b4625f1a5820ffa534a064a2606cb",
+          "sha1": "c518ad71295c7ee773b9c3606c112bf77d6e6d28",
+          "md5": "e25209611a9850f744164a2d1c260c5a"
+        }
+      ]
+    }
+  ]
+}
