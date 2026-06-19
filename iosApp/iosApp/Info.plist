@@ -5,6 +5,16 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!--
+		Export compliance. The app's only cryptography is standard,
+		Apple-OS-provided: TLS via URLSession (Ktor Darwin) and SHA-256
+		fingerprinting via CommonCrypto's CC_SHA256 for TOFU cert pinning.
+		No SSH, VPN, bundled crypto libs, or proprietary algorithms. This
+		qualifies for the Category 5 Part 2 exemption, so no export
+		documentation upload is required at submission.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!--
 		ATS configuration for Termtastic's self-signed TLS endpoints.
 
 		NSAllowsLocalNetworking lets the app reach Bonjour/.local/IP-based

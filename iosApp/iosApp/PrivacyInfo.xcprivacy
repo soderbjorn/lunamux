@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+		Apple Privacy Manifest for Termtastic.
+
+		Lives inside the file-system-synchronized "iosApp" group, so Xcode
+		bundles it into the app automatically (no Copy Bundle Resources edit).
+
+		Termtastic performs no tracking and collects no data on behalf of the
+		developer: on-device state — saved hosts, the onboarding flag, and news
+		bookkeeping — lives in a single private JSON file
+		(Documents/local_state.json), with the device-auth token held separately
+		in the Keychain, and terminal/file/git traffic goes only to the server the
+		user configures. The lone outbound call the developer controls is an
+		unauthenticated GET of versions.json from GitHub, which carries no user
+		data. Hence NSPrivacyTracking=false and empty tracking-domain /
+		collected-data arrays.
+
+		The app touches no required-reason APIs: state is plain file I/O under the
+		app's own Documents directory plus Keychain Services for the auth token —
+		neither UserDefaults nor any other listed required-reason API is used — so
+		NSPrivacyAccessedAPITypes is empty.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>
