@@ -325,15 +325,15 @@ private fun start() {
         // chrome on first frame.
         refreshAndApplyActiveTheme()
 
-        // Cache the Claude usage bar reference so `ClaudeUsageBar.kt`
-        // updates land. The element lives outside `#app` (see index.html),
-        // and the toolkit's bottom-bar leading slot adopts it at mount
-        // time without changing its id.
-        usageBar = document.getElementById("claude-usage-bar") as? HTMLElement
+        // The Claude usage bar element is built and cached into `usageBar` by
+        // `TermtasticToolkitBootstrap.buildSidebarFooter()` when the toolkit
+        // mounts the left-sidebar footer (below), so there's nothing to cache
+        // from `index.html` here anymore.
 
         // Mount the UI through the toolkit's `mountAppShell`. This builds
         // the entire app frame (top bar, tab strip, sidebar, layout root,
-        // pane chrome, bottom bar) inside `#app`. The bespoke chrome that
+        // pane chrome) inside `#app`; the toolkit bottom bar is disabled
+        // (showBottomBar = false). The bespoke chrome that
         // used to live here is gone — see TERMTASTIC-TOOLKIT-MIGRATION.md
         // for the migration boundary and the regressions documented there.
         val appEl = document.getElementById("app") as HTMLElement
@@ -524,9 +524,13 @@ private fun start() {
     // process diffs against its own cache and only rebuilds the window when
     // the value actually flipped.
     if (isElectronClient) {
-        // Start the shared version-update checker for the desktop build and
-        // mirror its result onto the "New update available!" logo label.
-        startUpdateChecker()
+        // Start the shared news/update checker for the desktop build; it
+        // mirrors its result onto both the "New update available!" logo
+        // label and the "News" pill beside it. See NewsLabel.kt. The demo
+        // build runs this too: the news/updates icon and its check are part
+        // of the showcase, so they appear in demo mode just like in a real
+        // build.
+        startNewsUpdatesChecker()
 
         GlobalScope.launch {
             var prev: Boolean? = null
@@ -566,6 +570,13 @@ private fun start() {
     val electronApi = window.asDynamic().electronApi
     if (electronApi?.onShowAboutDialog != null) {
         electronApi.onShowAboutDialog({ showAboutDialog() })
+    }
+
+    // macOS app menu → "Settings…" (⌘,) opens the in-app App Settings
+    // sidebar. Forwarded from the Electron main process via the
+    // `show-settings` IPC.
+    if (electronApi?.onShowSettings != null) {
+        electronApi.onShowSettings({ openAppSettingsSidebar() })
     }
 
     // macOS Debug menu → per-pane state override (Working / Waiting /

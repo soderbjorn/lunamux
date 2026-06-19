@@ -12,13 +12,18 @@ enum LeafKind {
 }
 
 enum TreeRow: Identifiable {
+    /// A standalone group label (currently only "Hidden") separating the
+    /// sidebar-hidden tabs below it from the visible tabs above. Mirrors the
+    /// Android `TreeRow.SectionHeader`.
+    case sectionHeader(title: String)
     case tabHeader(tabId: String, title: String, aggregateState: String?)
-    case leaf(paneId: String, sessionId: String, title: String, kind: LeafKind, floating: Bool)
+    case leaf(paneId: String, sessionId: String, title: String, kind: LeafKind, floating: Bool, minimized: Bool)
 
     var id: String {
         switch self {
+        case .sectionHeader(let title): return "section-\(title)"
         case .tabHeader(let tabId, _, _): return "tab-\(tabId)"
-        case .leaf(let paneId, _, _, _, _): return "leaf-\(paneId)"
+        case .leaf(let paneId, _, _, _, _, _): return "leaf-\(paneId)"
         }
     }
 }
@@ -35,6 +40,10 @@ final class TreeViewModel {
 
     private let flowObserver = Client.FlowObserver()
     private var latestConfig: Client.WindowConfig?
+    /// Pane ids minimized (docked) on the web client. Mobile has no dock,
+    /// so the sessions list dims these rows. Updated live via the
+    /// `WindowStateRepository.minimizedPaneIds` flow.
+    private var minimizedPaneIds: Set<String> = []
 
     func subscribe() {
         guard let client = ConnectionHolder.shared.client else { return }
@@ -43,6 +52,20 @@ final class TreeViewModel {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.latestConfig = value as? Client.WindowConfig
+                self.rebuild()
+            }
+        }
+
+        flowObserver.observe(flow: client.windowState.minimizedPaneIds) { [weak self] value in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let set = value as? Set<String> {
+                    self.minimizedPaneIds = set
+                } else if let arr = value as? [String] {
+                    self.minimizedPaneIds = Set(arr)
+                } else {
+                    self.minimizedPaneIds = []
+                }
                 self.rebuild()
             }
         }
@@ -147,46 +170,74 @@ final class TreeViewModel {
             rows = []
             return
         }
+        // Tabs the user hid from the sidebar are pulled out of the normal flow
+        // and grouped at the bottom under a single "Hidden" header, so the
+        // primary list stays decluttered while the sessions remain reachable —
+        // mirroring the web sidebar (which omits them) and Android's flatten().
+        let visibleTabs = config.tabs.filter { !$0.isHiddenFromSidebar }
+        let hiddenTabs = config.tabs.filter { $0.isHiddenFromSidebar }
+
         var result: [TreeRow] = []
-        for tab in config.tabs {
-            var leaves: [(paneId: String, sessionId: String, title: String, kind: LeafKind, floating: Bool)] = []
-
-            for pane in tab.panes {
-                addLeaf(leaf: pane.leaf, floating: false, out: &leaves)
-            }
-
-            // Aggregate state: "waiting" wins over "working"
-            var tabState: String? = nil
-            for leaf in leaves {
-                switch states[leaf.sessionId] {
-                case "waiting":
-                    tabState = "waiting"
-                case "working":
-                    if tabState != "waiting" { tabState = "working" }
-                default:
-                    break
-                }
-                if tabState == "waiting" { break }
-            }
-
-            result.append(.tabHeader(tabId: tab.id, title: tab.title, aggregateState: tabState))
-            for leaf in leaves {
-                result.append(.leaf(
-                    paneId: leaf.paneId,
-                    sessionId: leaf.sessionId,
-                    title: leaf.title,
-                    kind: leaf.kind,
-                    floating: leaf.floating
-                ))
+        for tab in visibleTabs {
+            appendTab(tab, into: &result)
+        }
+        if !hiddenTabs.isEmpty {
+            result.append(.sectionHeader(title: "Hidden"))
+            for tab in hiddenTabs {
+                appendTab(tab, into: &result)
             }
         }
         rows = result
     }
 
+    /// Appends a tab's header row followed by its leaf rows into `result`,
+    /// computing the tab's aggregate state dot along the way. Shared by both
+    /// the visible and hidden passes of `rebuild()` so the two groups render
+    /// identically.
+    private func appendTab(_ tab: Client.TabConfig, into result: inout [TreeRow]) {
+        var leaves: [(paneId: String, sessionId: String, title: String, kind: LeafKind, floating: Bool, minimized: Bool)] = []
+
+        for pane in tab.panes {
+            addLeaf(
+                leaf: pane.leaf,
+                floating: false,
+                minimized: minimizedPaneIds.contains(pane.leaf.id),
+                out: &leaves
+            )
+        }
+
+        // Aggregate state: "waiting" wins over "working"
+        var tabState: String? = nil
+        for leaf in leaves {
+            switch states[leaf.sessionId] {
+            case "waiting":
+                tabState = "waiting"
+            case "working":
+                if tabState != "waiting" { tabState = "working" }
+            default:
+                break
+            }
+            if tabState == "waiting" { break }
+        }
+
+        result.append(.tabHeader(tabId: tab.id, title: tab.title, aggregateState: tabState))
+        for leaf in leaves {
+            result.append(.leaf(
+                paneId: leaf.paneId,
+                sessionId: leaf.sessionId,
+                title: leaf.title,
+                kind: leaf.kind,
+                floating: leaf.floating,
+                minimized: leaf.minimized
+            ))
+        }
+    }
+
     private func addLeaf(
         leaf: Client.LeafNode,
         floating: Bool,
-        out: inout [(paneId: String, sessionId: String, title: String, kind: LeafKind, floating: Bool)]
+        minimized: Bool,
+        out: inout [(paneId: String, sessionId: String, title: String, kind: LeafKind, floating: Bool, minimized: Bool)]
     ) {
         let kind: LeafKind
         if leaf.content is Client.GitContent {
@@ -198,6 +249,6 @@ final class TreeViewModel {
         } else {
             kind = .empty
         }
-        out.append((paneId: leaf.id, sessionId: leaf.sessionId, title: leaf.title, kind: kind, floating: floating))
+        out.append((paneId: leaf.id, sessionId: leaf.sessionId, title: leaf.title, kind: kind, floating: floating, minimized: minimized))
     }
 }

@@ -61,6 +61,17 @@ external class ResizeObserver(callback: (dynamic, dynamic) -> Unit) {
  * @property demoJob in demo mode, the coroutine mirroring the simulated
  *   session's output into the terminal (see [connectDemoPane]); cancelled on
  *   pane teardown the same way [socket] is closed. `null` outside demo mode.
+ * @property autoReflow the *effective* automatic-reflow setting for this
+ *   pane. Frozen at pane creation to the per-pane override
+ *   ([se.soderbjorn.termtastic.TerminalContent.autoReflow]) if set, otherwise
+ *   a snapshot of the user's global default — so a later "future windows"
+ *   change leaves this open pane untouched. When `false`, the automatic
+ *   reflow paths (geometry change, container resize, tab activation,
+ *   reconnect, font load) skip re-asserting the PTY size, freezing the
+ *   terminal until the user clicks Reformat. Updated only by an explicit
+ *   per-pane override (the "this window" toggle, including its config echo).
+ *   Defaults to `true` so a pane behaves as "reflow on" until told otherwise.
+ *   See [forceReassert] (the manual path, which ignores this flag).
  */
 class TerminalEntry(
     val paneId: String,
@@ -80,6 +91,7 @@ class TerminalEntry(
     var sendInput: ((String) -> Unit)? = null,
     var wasContainerVisible: Boolean = false,
     var demoJob: kotlinx.coroutines.Job? = null,
+    var autoReflow: Boolean = true,
 )
 
 /**

@@ -175,64 +175,75 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     height: 100%;
 }
 
-/* When the "new version available" pill is showing (desktop build only,
-   toggled by UpdateLabel.kt), reserve a strip ABOVE the bottom bar so the
-   corner pill never overlaps app content.
-
-   We shrink `.dt-app-frame-body` (the toolkit's sidebars + main-pane row),
-   NOT `#app` or the whole frame. Earlier iterations shrank `#app`, but the
-   Claude-usage bottom bar (`.dt-app-frame-bottombar`) lives INSIDE the frame,
-   so shrinking the frame dragged the usage bar up onto its own line — away
-   from the fixed Termtastic logo it used to share the bottom line with.
-   Margin-bottom on the body row instead lifts only the pane content: the
-   bottom bar stays anchored at the window bottom (the logo's fixed wordmark
-   keeps overlaying it), and the freed strip sits between the panes and the
-   bottom bar, exactly where the pill floats.
-
-   The reserve is published by UpdateLabel.kt as `--tt-update-reserve`,
-   measured at runtime as the distance the pill pokes above the bottom bar
-   (plus a small clearance), so it tracks font scaling and the pill's real
-   height. The 36px fallback covers the brief window before measurement runs. */
-body.tt-update-pill-visible .dt-app-frame-body {
-    margin-bottom: var(--tt-update-reserve, 36px);
-}
-
-/* Claude Code usage bar (bottom of window). Reads its own --t-bottomBar-*
-   tokens with fallbacks to the legacy aliases, so themes that don't set
-   the new slot look exactly as before. */
+/* Claude Code usage rows (left-sidebar footer — see buildSidebarFooter).
+   A compact vertical stack: a header row (title + refresh) then one row per
+   metric (label, thin severity-coloured fill bar, percentage). The reset and
+   "updated" times are not printed inline — they ride in each row's `title`
+   hover tooltip — so every row stays a single tight line in the narrow bar. */
 .claude-usage-bar {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 3px 12px;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 12px;
     font-size: 11px;
     font-weight: 500;
-    color: var(--t-bottomBar-text, var(--text-secondary));
-    background: var(--t-bottomBar-bg, var(--background));
-    border-top: 1px solid var(--t-bottomBar-border, var(--separator));
+    color: var(--t-sidebar-text, var(--text-secondary));
     white-space: nowrap;
     user-select: none;
     flex-shrink: 0;
-    /* Always reserve space at the bottom of the window, even when the server
-       has no Claude usage data to display. The `.claude-usage-bar-empty`
-       variant renders with no content but keeps this minimum height so the
-       bottom bar is continuous across all runtime states and the app logo
-       overlay always has a consistent band to sit against. */
-    min-height: 24px;
     box-sizing: border-box;
 }
-/* Empty state: no content, just a thin coloured band at the bottom. Kept
-   separate from the normal state so future tweaks (e.g. a subtle gradient,
-   a tagline) can target only the empty case. */
+/* Empty state (no usage data yet): collapse to nothing so the footer shows
+   only the pills — or nothing — until the first /usage envelope arrives. */
 .claude-usage-bar.claude-usage-bar-empty {
-    padding: 0 12px;
+    padding: 0;
 }
-.claude-usage-bar .usage-item {
+.claude-usage-bar .usage-header {
     display: flex;
     align-items: center;
-    gap: 5px;
+    justify-content: space-between;
+    margin-bottom: 1px;
 }
-.claude-usage-bar .usage-pct { font-weight: 600; }
+.claude-usage-bar .usage-title {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+    font-weight: 600;
+    opacity: 0.75;
+}
+.claude-usage-bar .usage-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.claude-usage-bar .usage-label {
+    flex: 0 0 auto;
+    min-width: 48px;
+}
+/* Mini fill bar: a rounded track (a faint wash of the current text colour)
+   with a severity-coloured fill whose width is the percentage (set inline). */
+.claude-usage-bar .usage-bar {
+    flex: 1 1 auto;
+    height: 5px;
+    border-radius: 3px;
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    overflow: hidden;
+}
+.claude-usage-bar .usage-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+}
+.claude-usage-bar .usage-bar-fill.usage-ok { background: var(--t-semantic-success, #34C759); }
+.claude-usage-bar .usage-bar-fill.usage-warn { background: var(--t-semantic-warn, #FFD60A); }
+.claude-usage-bar .usage-bar-fill.usage-critical { background: var(--t-semantic-danger, #FF6961); }
+.claude-usage-bar .usage-pct {
+    flex: 0 0 auto;
+    min-width: 30px;
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
 .claude-usage-bar .usage-pct.usage-ok { color: var(--t-semantic-success, #34C759); }
 .claude-usage-bar .usage-pct.usage-warn { color: var(--t-semantic-warn, #FFD60A); }
 .claude-usage-bar .usage-pct.usage-critical { color: var(--t-semantic-danger, #FF6961); }
@@ -240,11 +251,11 @@ body.tt-update-pill-visible .dt-app-frame-body {
     background: none;
     border: none;
     color: inherit;
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
-    padding: 0 4px;
+    padding: 0 2px;
     opacity: 0.7;
-    margin-left: -10px;
+    line-height: 1;
 }
 .claude-usage-bar .usage-refresh-btn:hover { opacity: 1; }
 
@@ -254,12 +265,84 @@ body.tt-update-pill-visible .dt-app-frame-body {
 
 
 
-
-
-
-
 .claude-usage-bar.collapsed {
     display: none;
+}
+
+/* Consolidated hover popup for the Claude usage bar (ClaudeUsageBar.kt's
+   `buildUsagePopupHtml`). Parented to <body> and fixed-positioned by JS
+   (the `.dt-sidebar` clips with overflow:hidden, so it can't live inside the
+   sidebar footer). Surfaces every metric + reset limit + updated time at once,
+   replacing the old one-metric-at-a-time native `title` tooltips. */
+.usage-popup {
+    position: fixed;
+    z-index: 4000;
+    min-width: 240px;
+    max-width: 340px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--t-chrome-overlay, var(--t-sidebar-surface, #1c1c1e));
+    color: var(--t-sidebar-text, var(--text-primary, #f2f2f2));
+    border: 1px solid var(--t-sidebar-border, color-mix(in srgb, currentColor 14%, transparent));
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+    user-select: none;
+    pointer-events: none; /* never steals the hover from the bar */
+}
+.usage-popup-title {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 10px;
+    font-weight: 700;
+    opacity: 0.7;
+    margin-bottom: 8px;
+}
+.usage-popup-grid {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+}
+.usage-popup-label {
+    font-weight: 600;
+}
+.usage-popup-bar {
+    min-width: 70px;
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    overflow: hidden;
+}
+.usage-popup-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+}
+.usage-popup-bar-fill.usage-ok { background: var(--t-semantic-success, #34C759); }
+.usage-popup-bar-fill.usage-warn { background: var(--t-semantic-warn, #FFD60A); }
+.usage-popup-bar-fill.usage-critical { background: var(--t-semantic-danger, #FF6961); }
+.usage-popup-pct {
+    text-align: right;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.usage-popup-pct.usage-ok { color: var(--t-semantic-success, #34C759); }
+.usage-popup-pct.usage-warn { color: var(--t-semantic-warn, #FFD60A); }
+.usage-popup-pct.usage-critical { color: var(--t-semantic-danger, #FF6961); }
+.usage-popup-reset {
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+.usage-popup-foot {
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--t-sidebar-border, color-mix(in srgb, currentColor 12%, transparent));
+    opacity: 0.65;
+    font-size: 10px;
 }
 
 
@@ -932,11 +1015,108 @@ body.appearance-light .worktree-path-preview {
 }
 
 /* ── About dialog ── */
+/* The quit-confirmation dialog (QuitConfirmationDialog.kt) reuses the toolkit's
+   `.dt-modal-backdrop`, which sits at z-index 10000. That is below termtastic's
+   own modal overlays — `.pane-modal-overlay` (About/News/Worktree) at 99998 and
+   the theme/section menus at 100000. Quit is a top-level intent (Cmd-Q, menu,
+   window close) and must appear above whatever is already on screen; without
+   this override it renders behind an open pane modal's backdrop and never shows.
+   Targeted by id so only the quit dialog is lifted, not other toolkit modals. */
+#quit-confirmation-dialog {
+    z-index: 100001;
+}
 .pane-modal.about-dialog {
     width: 480px;
     min-width: 320px;
     max-width: 90vw;
     padding: 24px 28px 28px;
+}
+/* Tab bar separating the "About" (main) and "Licensing" panels. Sits below the
+   title; the active tab is underlined with the accent colour. */
+.about-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 4px 0 16px;
+    border-bottom: 1px solid var(--border, #3c3c3c);
+}
+.about-tab {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary, #999);
+    cursor: pointer;
+}
+.about-tab:hover {
+    color: var(--text-primary, #d4d4d4);
+}
+.about-tab.active {
+    color: var(--text-primary, #d4d4d4);
+    border-bottom-color: var(--accent, #4fc1ff);
+}
+body.appearance-light .about-tab.active {
+    border-bottom-color: var(--accent, #0e639c);
+}
+/* LAN address block on the About tab: tells the user which host to add from
+   the Android and iOS clients. The value is rendered monospace, one host per
+   line (white-space: pre-line honours the newline join). */
+.about-ip-section {
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    border: 1px solid var(--border, #3c3c3c);
+    border-radius: 6px;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+}
+.about-ip-label {
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: var(--text-secondary, #999);
+}
+.about-ip-value {
+    margin: 0;
+    font-family: monospace;
+    font-size: 14px;
+    white-space: pre-line;
+    color: var(--text-primary, #d4d4d4);
+    user-select: text;
+}
+.about-ip-value.about-ip-empty {
+    font-size: 12px;
+    color: var(--text-secondary, #999);
+}
+/* Connection details laid out as a two-column label/value grid: a narrow
+   auto-width label column (Hostname / IP address / Port) and a value column
+   that fills the rest. The user reads each field distinctly instead of a
+   single merged "host:port" string. */
+.about-ip-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 16px;
+    row-gap: 6px;
+    align-items: baseline;
+}
+/* The loading placeholder and the no-LAN / error message are single elements,
+   not label/value pairs — span the full grid width so they aren't squeezed
+   into the label column. */
+.about-ip-grid > .about-ip-value {
+    grid-column: 1 / -1;
+}
+.about-ip-grid-label {
+    font-size: 12px;
+    color: var(--text-secondary, #999);
+}
+.about-ip-grid-value {
+    font-family: monospace;
+    font-size: 14px;
+    /* Stacked IPs are joined with newlines; honour them so each sits on its
+       own line under the single "IP address" label. */
+    white-space: pre-line;
+    color: var(--text-primary, #d4d4d4);
+    user-select: text;
 }
 .about-copyright {
     margin: 0 0 12px;
@@ -963,6 +1143,14 @@ body.appearance-light .worktree-path-preview {
 .about-link:hover {
     text-decoration: underline;
 }
+/* Each tab's content (About / Licensing) is one scrollable column. Capping the
+   panel height and letting it overflow keeps the whole licensing tab — section
+   titles, libraries, fonts blurb, fonts, and footer — scrolling together as a
+   single unit instead of each list owning its own scrollbar. */
+.about-tab-panel {
+    max-height: 60vh;
+    overflow-y: auto;
+}
 .about-section-title {
     /* Top margin applies to every instance — when the Third-Party Libraries
        title is the first on the page there's no visual competitor, and when
@@ -972,12 +1160,14 @@ body.appearance-light .worktree-path-preview {
     font-weight: 600;
     color: var(--text-primary, #d4d4d4);
 }
+/* The licensing tab scrolls as a single unit (see `.about-tab-panel`), so the
+   individual lists must not introduce their own scroll containers — otherwise
+   each list scrolls independently and the section titles/blurb/footer stay
+   pinned, which reads as "the libraries scroll but the fonts don't". */
 .about-deps {
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 240px;
-    overflow-y: auto;
 }
 .about-deps li {
     display: flex;
@@ -1016,6 +1206,260 @@ body.appearance-light .worktree-path-preview {
 }
 body.appearance-light .about-link {
     color: var(--accent, #0e639c);
+}
+
+/* ── News dialog ──────────────────────────────────────────────────────
+   Modal opened from the "News" pill (desktop build), listing each
+   unconfirmed news item as a card. Reuses the .pane-modal overlay/card
+   chrome (see AboutDialog); these rules style the per-item cards and
+   their dismiss animation. See NewsDialog.kt. */
+.pane-modal.news-dialog {
+    width: 680px;
+    min-width: 320px;
+    max-width: 90vw;
+    /* Fixed size: the dialog is always the same height regardless of how many
+       items it lists, and the card list scrolls inside it. */
+    height: 70vh;
+    max-height: 90vh;
+    /* 28px is the dialog's horizontal inset; .news-list breaks out past it on
+       the right (negative margin) so its scrollbar sits flush to the edge. */
+    --news-inset: 28px;
+    padding: 24px var(--news-inset) 20px;
+    display: flex;
+    flex-direction: column;
+}
+/* Scroll the card list when there are too many items to fit, leaving the
+   title and close button pinned. `min-height: 0` lets the flex child shrink
+   below its content height so the overflow actually scrolls.
+
+   The negative right margin cancels the dialog's right padding so the list box
+   reaches the window edge and its scrollbar sits flush there instead of
+   colliding with the card content; the matching right padding re-insets the
+   cards from the scrollbar, mirroring the left edge. The pinned title and
+   footer keep the dialog's symmetric padding untouched. */
+.news-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0 calc(-1 * var(--news-inset)) 0 0;
+    padding: 0 var(--news-inset) 0 0;
+}
+/* One news item. The collapse animation (opacity + slide + height/spacing
+   to zero) plays when .news-card-dismissing is added; NewsDialog removes
+   the element on transitionend. overflow:hidden lets max-height animate. */
+.news-card {
+    position: relative;
+    /* Raised surface + neutral hairline, mirroring the Android/iOS news cards
+       (surface.raised fill, secondary-text border at ~30% alpha) so each card
+       reads as a distinct card against the near-black modal. */
+    background: var(--t-surface-raised, var(--surface, #2C2C2E));
+    border: 1px solid color-mix(in srgb, var(--text-secondary, #8E8E93) 30%, transparent);
+    border-radius: 10px;
+    padding: 16px 36px 16px 16px;
+    margin-bottom: 14px;
+    max-height: 600px;
+    opacity: 1;
+    overflow: hidden;
+    transition:
+        opacity 160ms ease,
+        transform 160ms ease,
+        max-height 220ms ease,
+        margin 220ms ease,
+        padding 220ms ease,
+        border-width 220ms ease;
+}
+.news-card:last-child {
+    margin-bottom: 0;
+}
+.news-card-dismissing {
+    opacity: 0;
+    transform: translateX(16px);
+    max-height: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+}
+/* Per-card close (×), mirroring .pane-modal-close but scoped to the card's
+   top-right corner. */
+.news-card-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #999);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.news-card-close:hover {
+    color: var(--text-primary, #d4d4d4);
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 16%, transparent);
+}
+.news-card-date {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary, #999);
+    margin-bottom: 4px;
+}
+/* Headline of a news card. Larger and heavier than the body, with a touch of
+   negative letter-spacing, so each item reads as its own distinct headline
+   rather than a run-on of body text. */
+.news-card-title {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    color: var(--text-primary, #d4d4d4);
+}
+/* Plain-text body. `white-space: pre-wrap` preserves any author-intended
+   line breaks while still wrapping long lines. */
+.news-card-body {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary, #d4d4d4);
+    white-space: pre-wrap;
+}
+/* Optional "Learn more" button, shown when the item has a url. Opens the link
+   in the user's default browser (see NewsDialog.kt). */
+.news-card-link {
+    margin-top: 10px;
+    padding: 5px 12px;
+    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 40%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 12%, transparent);
+    color: var(--text-primary, #d4d4d4);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.news-card-link:hover {
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 22%, transparent);
+}
+
+/* Section heading inside the combined News & Updates dialog ("New update" /
+   "News"). Larger than a card title but smaller than the modal title, so the
+   two sections read as distinct headlines — matching the mobile screen. */
+.news-section-header {
+    margin: 0 0 10px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary, #d4d4d4);
+}
+/* The "New update" card: version text + a Download button. A slightly stronger
+   accent border than the news cards marks it out as the primary item, and the
+   bottom margin separates it from the News section that follows. */
+.news-update-card {
+    /* Raised surface (matching the news cards and the mobile update card) with
+       a stronger accent border that marks it out as the primary item. */
+    position: relative;
+    background: var(--t-surface-raised, var(--surface, #2C2C2E));
+    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 45%, transparent);
+    border-radius: 10px;
+    /* Right padding leaves room for the close (×) button. */
+    padding: 14px 36px 14px 14px;
+    margin-bottom: 22px;
+    /* Same collapse animation as the news cards: overflow + max-height let the
+       box animate to zero height when .news-card-dismissing is added. */
+    max-height: 600px;
+    opacity: 1;
+    overflow: hidden;
+    transition:
+        opacity 160ms ease,
+        transform 160ms ease,
+        max-height 220ms ease,
+        margin 220ms ease,
+        padding 220ms ease,
+        border-width 220ms ease;
+}
+/* Close (×) on the update box, mirroring .news-card-close. Dismisses the update
+   ("seen, don't remind me") — see NewsDialog.kt. */
+.news-update-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #999);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.news-update-close:hover {
+    color: var(--text-primary, #d4d4d4);
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 16%, transparent);
+}
+.news-update-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary, #d4d4d4);
+    margin-bottom: 12px;
+}
+/* Prominent filled Download button — more emphasis than the news "Learn more"
+   link — mirroring the mobile screen's primary update action. */
+.news-update-download {
+    padding: 7px 16px;
+    border: none;
+    border-radius: 6px;
+    background: var(--termtastic-orange, #F4B869);
+    color: #1b1b1b;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.news-update-download:hover {
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 85%, #fff);
+}
+
+/* Empty-state placeholder shown when there is no update and no news. The bell is
+   always clickable, so an empty screen is a normal state rather than a closed
+   dialog. Centred, muted, and given some breathing room. */
+.news-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    padding: 24px;
+    color: var(--text-secondary, #8E8E93);
+    font-size: 14px;
+    text-align: center;
+}
+
+/* Pinned footer holding the Restore action, separated from the scrolling list by
+   a hairline. Stays put while .news-list scrolls. */
+.news-dialog-footer {
+    flex: 0 0 auto;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid color-mix(in srgb, var(--text-secondary, #8E8E93) 24%, transparent);
+    display: flex;
+    justify-content: center;
+}
+/* "Restore dismissed news & updates" — a secondary outline button (same visual
+   base as .news-card-link) that brings every dismissed item back. */
+.news-restore-btn {
+    padding: 6px 14px;
+    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 40%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 12%, transparent);
+    color: var(--text-primary, #d4d4d4);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.news-restore-btn:hover {
+    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 22%, transparent);
 }
 
 /* ── Pane type modal ── */
@@ -1647,40 +2091,68 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     line-height: 1.4;
 }
 
-/* Top CTA row: full-width call-to-action button. */
-.termtastic-app-settings-row {
+/* Top navigation: a stack of full-width jump buttons (Themes / Appearance,
+   plus the muted "Open server settings…" button on Electron). */
+.termtastic-app-settings-nav {
     display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
-.termtastic-app-settings-body .dt-settings-jump-button {
-    flex: 1;
+.termtastic-app-settings-nav-button {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 10px 14px;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
     font: inherit;
     font-weight: 600;
-    color: var(--t-surface-raised, #1c1c1e);
-    background: var(--t-accent-primary, var(--termtastic-orange));
-    border: 1px solid var(--t-accent-primary, var(--termtastic-orange));
+    text-align: left;
+    color: var(--t-text-primary, var(--text-primary));
+    background: color-mix(in srgb, var(--t-surface-raised) 70%, transparent);
+    border: 1px solid var(--t-border-subtle, var(--separator));
     border-radius: 8px;
     cursor: pointer;
-    transition: filter 120ms ease, transform 60ms ease, box-shadow 120ms ease;
+    transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
 }
 
-.termtastic-app-settings-body .dt-settings-jump-button:hover {
-    filter: brightness(1.08);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--t-accent-primary) 22%, transparent);
+.termtastic-app-settings-nav-button > svg {
+    flex: 0 0 auto;
 }
 
-.termtastic-app-settings-body .dt-settings-jump-button:active {
+.termtastic-app-settings-nav-label {
+    flex: 1;
+}
+
+.termtastic-app-settings-nav-button:hover {
+    background: color-mix(in srgb, var(--t-accent-primary) 14%, var(--t-surface-raised));
+    border-color: color-mix(in srgb, var(--t-accent-primary) 40%, var(--t-border-subtle, var(--separator)));
+}
+
+.termtastic-app-settings-nav-button:active {
     transform: translateY(1px);
-    filter: brightness(0.95);
 }
 
-.termtastic-app-settings-body .dt-settings-jump-button:focus-visible {
+.termtastic-app-settings-nav-button:focus-visible {
     outline: 2px solid var(--t-accent-primary);
     outline-offset: 2px;
+}
+
+/* Muted variant — the conditional "Open server settings…" jump, made
+   deliberately less prominent than the Themes / Appearance buttons. */
+.termtastic-app-settings-nav-button--muted {
+    padding: 7px 12px;
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--t-text-secondary, var(--text-secondary));
+    background: transparent;
+    border-color: transparent;
+}
+
+.termtastic-app-settings-nav-button--muted:hover {
+    color: var(--t-text-primary, var(--text-primary));
+    background: color-mix(in srgb, var(--t-surface-raised) 60%, transparent);
+    border-color: var(--t-border-subtle, var(--separator));
 }
 
 /* Grouped section card. */
@@ -1725,8 +2197,14 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
 }
 
 /* Light-mode tweaks. */
-body.appearance-light .termtastic-app-settings-body .dt-settings-jump-button {
-    color: #ffffff;
+body.appearance-light .termtastic-app-settings-nav-button {
+    background: color-mix(in srgb, var(--t-surface-raised) 80%, #ffffff);
+    border-color: rgba(0, 0, 0, 0.10);
+}
+
+body.appearance-light .termtastic-app-settings-nav-button--muted {
+    background: transparent;
+    border-color: transparent;
 }
 
 body.appearance-light .termtastic-app-settings-section {
@@ -1872,54 +2350,34 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 
 
 /* ─── App logo overlay ──────────────────────────────────────────────
-   The "Termtastic" wordmark + status dot pinned to the lower-right
-   corner of the window. Painted on top of everything via position:
-   fixed and a high z-index so it's always visible regardless of what
-   tab, modal, or pane is active. pointer-events: none so it never
-   intercepts clicks meant for the UI below it.
-
-   Sits just above the Claude usage bar (which reserves a fixed min
-   height via .claude-usage-bar above), with enough padding that it
-   reads as a badge rather than a footer element. Size is deliberately
-   small-ish — the label should feel like a signature, not a banner —
-   so it doesn't crowd content in the main terminal area.
+   The "Termtastic" wordmark + status dot, slotted into the toolkit's
+   left-sidebar HEADER (top of the sessions list) via buildSidebarLogo().
+   It flows with the sidebar — no longer a fixed lower-right overlay — so
+   it scrolls and collapses along with the sessions tree.
 
    The dot mirrors the per-tab spinner/waiting indicators at the
    aggregate level: blue pulse when any session is "working", red
-   pulse when any session is "waiting for input", dim when idle.
+   pulse when any session is "waiting for input", green when idle.
    See AppLogo.kt / updateAppLogoState() for the state machine. */
+/* The logo now lives in the toolkit's sidebar HEADER slot, at the top of the
+   sessions list — no longer a fixed lower-right overlay. It's a plain block
+   that flows with the sidebar; the wordmark + dot share one row. */
 .app-logo {
-    position: fixed;
-    right: 14px;
-    /* The logo lives *inside the Claude usage bar band* at the bottom of the
-       window, NOT floating above it inside the tab content area. Earlier
-       iterations tried 32 px (collided with the bar's content — first
-       @soderbjorn screenshot on #16) and then 44 px (bumped away from the
-       collision but that pushed the overlay up into the terminal tab's
-       rounded bottom-right corner, so it started visually living inside
-       the tab content surface — second @soderbjorn screenshot on #16:
-       "it's not supposed to be inside the tab content area").
-       At 7 px the wordmark (~15 px cap-height) and 13 px dot sit vertically
-       centred within the ~30 px populated bar (24 px min-height + 6 px
-       vertical padding + 1 px top border), and within the 24 px empty-bar
-       band they still only push their pulse halo a few pixels above the
-       bar's top border — i.e. "only minimally overlaying padding" above
-       the bar rather than sitting wholly on top of the tab content. */
-    bottom: 7px;
-    /* Column so the optional "new version available" pill sits on its own line
-       ABOVE the wordmark+dot row, right-aligned with it. */
+    display: flex;
+    align-items: center;
+    user-select: none;
+}
+
+/* Left-sidebar FOOTER (Claude usage rows), pinned to the bottom of the sidebar
+   by the toolkit's `.dt-sidebar-footer` flex rules. A top hairline separates it
+   from the scrollable sessions list above. (News/updates now live behind the
+   pulsing top-bar bell — see `.tt-news-topbar` below — not a footer pill.) */
+.tt-sidebar-footer {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-    pointer-events: none;
-    user-select: none;
-    z-index: 100;
-    /* A soft text shadow so the wordmark stays legible against noisy
-       terminal content underneath (bright ANSI output, light themes,
-       etc.). Tuned low enough that it doesn't look like a drop shadow
-       on quiet backgrounds. */
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    gap: 8px;
+    padding: 8px 0 12px;
+    border-top: 1px solid var(--t-sidebar-border, color-mix(in srgb, currentColor 12%, transparent));
 }
 
 .app-logo-wordmark {
@@ -1927,6 +2385,10 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.3px;
+    /* The toolkit's `.dt-sidebar-header` slot (which hosts this logo)
+       forces `text-transform: uppercase` on its text; override it back to
+       mixed case so the wordmark reads "Termtastic", not "TERMTASTIC". */
+    text-transform: none;
     /* Use the termtastic-orange token the rest of the UI leans on for
        brand accents (the tab active indicator fallback, the dt-dragging
        sidebar resize line, etc.) so the logo feels in-family. */
@@ -1934,13 +2396,7 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     line-height: 1;
 }
 
-/* "New update available!" label, sitting to the LEFT of the wordmark inside
-   the same fixed logo overlay. Hidden by default (the `hidden` attribute in
-   index.html); UpdateLabel.kt clears it when the shared update checker reports
-   a newer release. Unlike the rest of the overlay (pointer-events: none) this
-   span re-enables pointer events so it is clickable, opening the manifest's
-   "more info" URL in the default browser. */
-/* The wordmark + status dot share one horizontal row inside the column logo. */
+/* The wordmark + status dot share one horizontal row inside the logo. */
 .app-logo-row {
     display: flex;
     align-items: center;
@@ -1949,62 +2405,73 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     gap: 9px;
 }
 
-/* "New version available" pill on its own line above the wordmark. Mirrors the
-   iOS/Android banners: a faint wash of the brand accent with accent-coloured
-   icon + text + chevron, rounded, in a sans-serif UI font. More prominent than
-   plain text (tinted fill + border + icon) while still in-family. */
-.app-logo-update {
+/* ── Top-bar "News & Updates" bell ───────────────────────────────────────────
+   The bell (a toolkit `.dt-topbar-icon-button` whose SVG carries the
+   `.tt-news-topbar` marker class) opens the combined News & Updates screen. It
+   replaces the former sidebar-footer news/update pills, matching the mobile
+   toolbar bell.
+
+   The active/muted look is driven off `document.body[data-tt-news]` (toggled by
+   `refreshNewsTopbarIcon`) rather than mutating the toolkit-owned button, so it
+   survives the toolkit's topbar rerenders. The bell is *always* visible and
+   clickable — so the News & Updates screen (and its Restore button) is always
+   reachable — but renders muted/grayed when there is nothing new. */
+.dt-topbar-icon-button:has(.tt-news-topbar) {
     display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border-radius: 9px;
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 16%, transparent);
-    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 32%, transparent);
-    color: var(--termtastic-orange, #F4B869);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-    white-space: nowrap;
-    /* The pill carries its own fill, so drop the overlay's text shadow that's
-       meant for bare text floating over terminal content. */
-    text-shadow: none;
-    cursor: pointer;
-    pointer-events: auto;
 }
 
-.app-logo-update:hover {
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 26%, transparent);
+/* The bell pulses between the full warning colour and a faded variant to draw
+   the eye. The SVG strokes with `currentColor`, so animating `color` (plus a
+   little opacity) pulses the whole glyph. The pulse is gated on
+   `data-tt-news-pulse` so it only animates when there is actual news; a version
+   update on its own shows the static coloured icon. */
+.tt-news-topbar {
+    color: var(--t-semantic-warn, #FFD60A);
 }
-
-.app-logo-update-icon,
-.app-logo-update-chevron {
-    flex: none;
+/* Nothing new: render the bell muted/grayed (still clickable) so it reads as
+   inactive without disappearing. */
+body:not([data-tt-news="1"]) .tt-news-topbar {
+    color: var(--text-secondary, #8E8E93);
+    opacity: 0.55;
 }
-
-.app-logo-update-chevron {
-    opacity: 0.7;
+body[data-tt-news-pulse="1"] .tt-news-topbar {
+    animation: tt-news-pulse 2.5s ease-in-out infinite;
 }
-
-/* In light appearance, the orange + white-ish text-shadow combo reads
-   as washed out. Swap to a darker shadow so the wordmark still pops. */
-body.appearance-light .app-logo {
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.75), 0 0 1px rgba(0, 0, 0, 0.3);
+@keyframes tt-news-pulse {
+    0%, 100% {
+        color: var(--t-semantic-warn, #FFD60A);
+        opacity: 1;
+    }
+    50% {
+        color: color-mix(in srgb, var(--t-semantic-warn, #FFD60A) 40%, transparent);
+        opacity: 0.55;
+    }
+}
+/* Respect users who prefer reduced motion: keep the warning colour, drop the
+   pulse. */
+@media (prefers-reduced-motion: reduce) {
+    .tt-news-topbar {
+        animation: none;
+    }
 }
 
 /* The status dot. Base state is idle (solid green, no pulse). The
    .state-working and .state-waiting modifier classes are added by
    updateAppLogoState() in AppLogo.kt when any session is in that
    state — waiting wins over working because it's action-required.
-   Each state has its own keyframe so the colour animates smoothly
-   with the opacity pulse.
+   Working and waiting each have their own keyframe so their opacity
+   pulse can run at a distinct cadence (see the keyframes below); idle
+   has no animation. The colour itself is set statically on these rules
+   and swapped with a 180ms transition.
 
    The idle colour is a fixed green (not a theme token) on purpose: the
    three states — green / blue / red — must be distinguishable regardless
    of appearance mode, and a theme-derived grey washed out in light mode
    (see issue/feedback following #16 reintroduction of the logo). */
 .app-logo-dot {
+    /* `relative` so the ::after sonar-ping ring (see below) can be absolutely
+       positioned with inset:0 to sit exactly over the orb. */
+    position: relative;
     display: inline-block;
     /* Bumped from 10 px → 13 px per @soderbjorn feedback on #16:
        "make the dot a little bit bigger in relation to the label". 13 px
@@ -2015,63 +2482,194 @@ body.appearance-light .app-logo {
     width: 13px;
     height: 13px;
     border-radius: 50%;
-    background: #34C759;
-    box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.22);
+    /* Option A — "Glossy orb": instead of a flat fill the disc is a radial
+       gradient with an off-centre specular highlight (light at 32%/28%) that
+       falls off into a dark rim, reading as a polished 3D bead. The inset
+       white box-shadow adds a faint inner sheen; the outer coloured glow is
+       the same ambient halo the flat dot had. The idle (green) orb is static
+       — motion is reserved for working/waiting via the sonar ping. */
+    background: radial-gradient(circle at 32% 28%,
+                  #b7f7c9 0%, #4cd47a 36%, #34C759 68%, #137a39 100%);
+    box-shadow: 0 0 6px 1px rgba(52, 199, 89, 0.45),
+                inset 0 0 3px rgba(255, 255, 255, 0.3);
     flex-shrink: 0;
-    transition: background-color 180ms ease-in-out,
-                box-shadow 180ms ease-in-out;
+    transition: box-shadow 180ms ease-in-out;
+    /* The idle colour is a fixed green (not a theme token) on purpose — see the
+       block comment above. Idle is the calm "nothing pending" state, so the orb
+       sits solid green with no pulse; only the working (blue) and waiting (red)
+       states emit the sonar ping, reserving motion for sessions that are doing
+       or need something. Per @soderbjorn feedback on #16: a green dot should
+       just be green. */
 }
 
+/* The sonar-ping ring: an absolutely-positioned overlay sized to the orb whose
+   box-shadow is a hard ring (0 spread, 0 blur) that, in the keyframes below,
+   expands outward and fades to transparent — a radar "ping" radiating off the
+   bead on every cycle. Idle defines the ring but leaves it un-animated (no
+   ping); only the working/waiting rules start the animation. pointer-events
+   are disabled so the overlay never intercepts clicks/hover. */
+.app-logo-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+/* Working: a deep, saturated royal blue (#143C9E). Successively darkened from
+   the former pale #4C9AFF → #1E66E0 → this, which holds its own next to the
+   bright green wordmark without reading as a washed-out light blue. Same glossy
+   orb treatment, blue-tinted. */
 .app-logo-dot.state-working {
-    background: #4C9AFF;
-    box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25);
-    animation: app-logo-pulse-blue 1.6s ease-in-out infinite;
+    background: radial-gradient(circle at 32% 28%,
+                  #8fb2ff 0%, #3a63d8 36%, #143C9E 68%, #0b1f55 100%);
+    box-shadow: 0 0 6px 1px rgba(20, 60, 158, 0.5),
+                inset 0 0 3px rgba(255, 255, 255, 0.25);
+}
+
+.app-logo-dot.state-working::after {
+    animation: app-logo-sonar-blue 2.6s ease-out infinite;
 }
 
 .app-logo-dot.state-waiting {
-    background: #FF6961;
-    box-shadow: 0 0 0 2px rgba(255, 105, 97, 0.3);
-    animation: app-logo-pulse-red 1.2s ease-in-out infinite;
+    background: radial-gradient(circle at 32% 28%,
+                  #ffb3ad 0%, #ff6f64 36%, #FF453A 68%, #a31f17 100%);
+    box-shadow: 0 0 6px 1px rgba(255, 69, 58, 0.5),
+                inset 0 0 3px rgba(255, 255, 255, 0.3);
 }
 
-/* Pulse keyframes: scale + glow breathe to draw the eye without
-   being obnoxious. Shorter period for waiting (red) than for working
-   (blue) because waiting is action-required and should feel more
-   urgent, mirroring the fade-warning on .pane-status-spinner. */
-@keyframes app-logo-pulse-blue {
-    0%, 100% {
-        box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25),
-                    0 0 0 0 rgba(76, 154, 255, 0.45);
-    }
-    50% {
-        /* Outer halo radius bumped 6 px → 8 px in lockstep with the larger
-           13 px dot so the pulse ring stays visually proportional. */
-        box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25),
-                    0 0 0 8px rgba(76, 154, 255, 0);
-    }
+.app-logo-dot.state-waiting::after {
+    animation: app-logo-sonar-red 1.8s ease-out infinite;
 }
 
-@keyframes app-logo-pulse-red {
-    0%, 100% {
-        box-shadow: 0 0 0 2px rgba(255, 105, 97, 0.30),
-                    0 0 0 0 rgba(255, 105, 97, 0.55);
-        transform: scale(1);
-    }
-    50% {
-        /* Outer halo radius bumped 8 px → 10 px in lockstep with the larger
-           13 px dot so the pulse ring stays visually proportional. */
-        box-shadow: 0 0 0 2px rgba(255, 105, 97, 0.30),
-                    0 0 0 10px rgba(255, 105, 97, 0);
-        transform: scale(1.08);
-    }
+/* Sonar keyframes: the ring grows from 0 to a 10 px spread while fading from a
+   visible coloured edge to fully transparent, then holds transparent for the
+   tail of the cycle so each ping has a clear gap before the next. The orb
+   itself stays solid (no opacity breathe) — motion lives entirely in this
+   expanding ring, which is what makes Option A read as a modern radar ping
+   rather than a dimming disc. All animated values are fixed rgba (no var()),
+   so Chromium interpolates them smoothly. Waiting (red) cycles faster than
+   working (blue) because it is action-required and should feel more urgent,
+   mirroring the fade-warning on .pane-status-spinner. */
+@keyframes app-logo-sonar-blue {
+    0%   { box-shadow: 0 0 0 0    rgba(58, 99, 216, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(58, 99, 216, 0); }
+    100% { box-shadow: 0 0 0 10px rgba(58, 99, 216, 0); }
 }
 
-/* Respect prefers-reduced-motion: keep the colour change but drop the
-   pulse animation, matching the existing motion-reduction hygiene
-   elsewhere in this stylesheet. */
+@keyframes app-logo-sonar-red {
+    0%   { box-shadow: 0 0 0 0    rgba(255, 69, 58, 0.6); }
+    70%  { box-shadow: 0 0 0 10px rgba(255, 69, 58, 0); }
+    100% { box-shadow: 0 0 0 10px rgba(255, 69, 58, 0); }
+}
+
+/* Respect prefers-reduced-motion: keep the colour/orb but drop the sonar ping,
+   matching the existing motion-reduction hygiene elsewhere in this stylesheet. */
 @media (prefers-reduced-motion: reduce) {
-    .app-logo-dot.state-working,
-    .app-logo-dot.state-waiting {
+    .app-logo-dot::after,
+    .app-logo-dot.state-working::after,
+    .app-logo-dot.state-waiting::after {
+        animation: none;
+    }
+}
+
+/* ── Reformat hover popup ──
+   Opened ~1.5s after hovering a pane's Reformat button (see
+   ReformatPopup.kt). Two scope toggles ("This window" / "Future windows")
+   that are deliberately spread out — generous padding, a divider, and large
+   row hit targets — so the two visually similar options can't be hit by
+   mistake. */
+.tt-reformat-popup {
+    position: fixed;
+    z-index: 10000;
+    min-width: 268px;
+    max-width: 320px;
+    padding: 12px 12px 8px;
+    box-sizing: border-box;
+    background: var(--t-surface-overlay, var(--t-surface-raised, #20232b));
+    border: 1px solid var(--t-border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+    font-family: var(--t-font-ui, system-ui, sans-serif);
+    color: var(--t-text-primary, #e8eaed);
+    /* Brief fade-in so it doesn't pop abruptly after the dwell. */
+    animation: tt-reformat-popup-in 90ms ease-out;
+}
+
+@keyframes tt-reformat-popup-in {
+    from { opacity: 0; transform: translateY(-3px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.tt-reformat-popup-heading {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--t-text-secondary, #9aa0aa);
+    padding: 0 6px;
+}
+
+.tt-reformat-popup-hint {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--t-text-secondary, #9aa0aa);
+    padding: 4px 6px 8px;
+}
+
+.tt-reformat-popup-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.tt-reformat-popup-row:hover {
+    background: var(--t-surface-raised, rgba(255, 255, 255, 0.06));
+}
+
+.tt-reformat-popup-checkbox {
+    flex: 0 0 auto;
+    width: 17px;
+    height: 17px;
+    margin: 1px 0 0;
+    cursor: pointer;
+    accent-color: var(--t-accent-primary, #5b8cff);
+}
+
+.tt-reformat-popup-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tt-reformat-popup-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--t-text-primary, #e8eaed);
+}
+
+.tt-reformat-popup-desc {
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: var(--t-text-secondary, #9aa0aa);
+}
+
+/* Clear visual separation between the two scopes so they read as distinct
+   choices rather than a single cluster of checkboxes. */
+.tt-reformat-popup-divider {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--t-border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tt-reformat-popup {
         animation: none;
     }
 }

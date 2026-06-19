@@ -447,6 +447,23 @@ object WindowState {
         return mutateTerminal(paneId) { it.copy(fontSize = clamped) }
     }
 
+    /**
+     * Set the per-pane automatic-reflow override for terminal pane [paneId].
+     *
+     * Called from the [WindowCommand.SetTerminalAutoReflow] dispatch in
+     * `WindowRoutes` when the user toggles "Automatic reformat (this window)"
+     * in the reformat button's hover popup. Persists into
+     * [TerminalContent.autoReflow] so the choice survives reloads.
+     *
+     * @param paneId the terminal pane to update.
+     * @param enabled `true` to keep auto-reflow on for this pane, `false` to
+     *   freeze it until the user manually reformats.
+     * @return the updated [TerminalContent], or `null` if [paneId] is not a
+     *   terminal pane in the current config.
+     */
+    fun setTerminalAutoReflow(paneId: String, enabled: Boolean): TerminalContent? =
+        mutateTerminal(paneId) { it.copy(autoReflow = enabled) }
+
     // ── Git content dispatch ─────────────────────────────────────────
 
     private fun mutateGit(

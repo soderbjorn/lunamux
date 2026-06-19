@@ -92,6 +92,14 @@ fun connectPane(entry: TerminalEntry) {
     var pendingResize: Int? = null
     fun sendResize() {
         if (entry.applyingServerSize) return
+        // Per-pane "stop automatic reflow": when off, never push a resize to
+        // the PTY automatically. This is the single chokepoint every
+        // automatic local refit funnels through (via `term.onResize`), so
+        // gating here freezes the remote PTY size regardless of which
+        // geometry path triggered the local fit. The manual Reformat button
+        // bypasses this by calling `forceReassert`, which sends a
+        // `ForceResize` directly. See [TerminalEntry.autoReflow].
+        if (!entry.autoReflow) return
         if (!isOpen()) return
         val cols = entry.term.cols; val rows = entry.term.rows
         pendingResize?.let { window.clearTimeout(it) }
@@ -131,10 +139,17 @@ fun connectPane(entry: TerminalEntry) {
         // at startup), defer to the hidden→visible edge in the
         // ResizeObserver and keep the existing soft `sendResize` as a
         // best-effort ping while detached.
-        if (entry.container.offsetParent != null) {
-            try { forceReassert(entry) } catch (_: Throwable) {}
-        } else {
-            window.setTimeout({ sendResize() }, 0)
+        //
+        // Skipped entirely when this pane has automatic reflow turned off:
+        // the user has frozen its size, so we leave the PTY at whatever the
+        // server restored it to rather than re-asserting the current grid.
+        // (`sendResize` would self-gate too, but bail early for clarity.)
+        if (entry.autoReflow) {
+            if (entry.container.offsetParent != null) {
+                try { forceReassert(entry) } catch (_: Throwable) {}
+            } else {
+                window.setTimeout({ sendResize() }, 0)
+            }
         }
     }
     socket.onmessage = { event ->
@@ -261,7 +276,10 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
                     // by `ensureTerminal` before this fonts callback
                     // can fire, but during teardown it may already
                     // be gone.
-                    terminals[paneId]?.let { forceReassert(it) }
+                    // Skipped for panes with automatic reflow off — the
+                    // local refit above keeps metrics correct, but the
+                    // frozen PTY is left untouched.
+                    terminals[paneId]?.let { if (it.autoReflow) forceReassert(it) }
                 } else {
                     safeFit(term, fit)
                 }
@@ -320,6 +338,13 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
     })
 
     val entry = TerminalEntry(paneId, sessionId, term, fit, container)
+    // Freeze the effective automatic-reflow flag at creation time: the
+    // per-pane override if the pane carries one, otherwise a *snapshot* of
+    // the current global default. Snapshotting here (rather than evaluating
+    // the global default live on every render) is what keeps already-open
+    // terminals untouched when the user later flips "Automatic reformat
+    // (future windows)" — only panes created afterwards pick up the change.
+    entry.autoReflow = perPaneAutoReflowOverride(paneId) ?: globalAutoReformatDefault()
     entry.scrollButton = scrollBtn
     terminals[paneId] = entry
     connectionState[sessionId] = "connecting"
@@ -341,21 +366,28 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
         try {
             val visible = entry.container.offsetParent != null
             if (visible) {
-                fitPreservingScroll(entry.term, entry.fit)
-                updateOobOverlay(entry)
-                // Hidden→visible transition: the toolkit's pane-chrome
-                // cache reattaches inactive-tab content on first tab
-                // activation, so a pane that was restored at startup
-                // into a not-yet-opened tab gets its first real
-                // dimensions here. Fire a one-shot reassert on each
-                // false→true edge so the PTY catches up to the grid
-                // — same fix as the startup-active-tab case in
-                // `connectPane.onopen`, just deferred to first
-                // activation. Tracking visibility across fires means
-                // a quick hide/show cycle re-fires correctly.
-                if (!entry.wasContainerVisible) {
-                    forceReassert(entry)
+                // When automatic reflow is off, freeze the local grid (no
+                // refit) so the terminal keeps its current cols/rows; the
+                // out-of-bounds overlay below then surfaces the unused space
+                // with its "press Reformat" tooltip as the user grows the
+                // pane, exactly the affordance the manual path expects.
+                if (entry.autoReflow) {
+                    fitPreservingScroll(entry.term, entry.fit)
+                    // Hidden→visible transition: the toolkit's pane-chrome
+                    // cache reattaches inactive-tab content on first tab
+                    // activation, so a pane that was restored at startup
+                    // into a not-yet-opened tab gets its first real
+                    // dimensions here. Fire a one-shot reassert on each
+                    // false→true edge so the PTY catches up to the grid
+                    // — same fix as the startup-active-tab case in
+                    // `connectPane.onopen`, just deferred to first
+                    // activation. Tracking visibility across fires means
+                    // a quick hide/show cycle re-fires correctly.
+                    if (!entry.wasContainerVisible) {
+                        forceReassert(entry)
+                    }
                 }
+                updateOobOverlay(entry)
             }
             entry.wasContainerVisible = visible
         } catch (_: Throwable) {}
@@ -457,9 +489,20 @@ fun mountPaneContent(paneId: String): HTMLElement {
         else -> {
             val sessionId = (leaf.content?.sessionId as? String) ?: (leaf.sessionId as String)
             val entry = ensureTerminal(paneId, sessionId)
+            // Honour an *explicit* per-pane override pushed in the config
+            // (our own "this window" toggle echo, or a change from another
+            // client). When the leaf has no override we deliberately leave
+            // `entry.autoReflow` at the value frozen in `ensureTerminal`, so
+            // a later global-default change never drifts this open pane.
+            (leaf.content?.autoReflow as? Boolean)?.let { entry.autoReflow = it }
             entry.term.options.fontSize = (appVm.stateFlow.value.paneFontSize ?: 14)
             entry.term.options.fontFamily = resolveFontFamilyCss(appVm.stateFlow.value.paneFontFamily)
-            try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+            // Skip the mount-time refit for frozen panes so re-rendering the
+            // chrome (tab switch, sidebar toggle) doesn't silently reformat a
+            // terminal the user pinned; auto-reflow panes refit as before.
+            if (entry.autoReflow) {
+                try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+            }
             cell.appendChild(entry.container)
         }
     }

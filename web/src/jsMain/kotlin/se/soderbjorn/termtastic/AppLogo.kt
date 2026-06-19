@@ -1,18 +1,21 @@
 /**
  * App logo widget for the Termtastic web frontend.
  *
- * Renders the "Termtastic" wordmark and a small status dot in the lower-right
- * corner of the window as a fixed overlay (painted on top of everything). The
- * dot pulsates in three states derived from the aggregate of all per-session
- * states:
+ * Renders the "Termtastic" wordmark and a small status dot pinned to the top
+ * of the left (sessions) sidebar — see `TermtasticToolkitBootstrap.buildSidebarLogo`,
+ * which wires it into the toolkit's `sidebarHeader` slot. The dot shows
+ * three states derived from the aggregate of all per-session states:
  *
  *   - red   — at least one session is "waiting" (e.g. an agent is asking for
  *             input/approval). Waiting dominates because it needs action.
+ *             Pulses fastest since it is action-required.
  *   - blue  — at least one session is "working" (agent is actively running)
- *             and none are waiting.
- *   - green — no session is working or waiting (idle). Green is used instead
- *             of a theme-neutral grey so the three states stay distinguishable
- *             in both dark and light appearance modes.
+ *             and none are waiting. Pulses to read as actively in motion.
+ *   - green — no session is working or waiting (idle). Sits solid green with
+ *             no pulse — motion is reserved for the working/waiting states, so
+ *             a calm "nothing pending" dot just stays green. Green is used
+ *             instead of a theme-neutral grey so the three states stay
+ *             distinguishable in both dark and light appearance modes.
  *
  * The logo brings back an older design element (see issue #14): a "Termtastic"
  * wordmark alongside a coloured dot. In the previous incarnation the dot was
@@ -20,12 +23,13 @@
  * version moves the dot to the right and ties its colour to work state, which
  * is more informative for day-to-day use.
  *
- * The overlay is **always visible** — it lives directly inside `<body>` via
- * an `#app-logo` element declared in `index.html`, so it paints on top of
- * modals, the sidebar, the tab bar, and the main content area. It uses
- * `pointer-events: none` so it never steals clicks from the UI underneath.
+ * The logo is built in Kotlin (`buildSidebarLogo`) and slotted into the
+ * sidebar header, so it scrolls/collapses with the sidebar. The dot element
+ * keeps its `#app-logo-dot` id so [updateStateIndicators] can find and repaint
+ * it on each server state push.
  *
  * @see updateAppLogoState
+ * @see applyLogoDotState
  * @see updateStateIndicators
  */
 package se.soderbjorn.termtastic
@@ -54,6 +58,22 @@ import org.w3c.dom.HTMLElement
  */
 internal fun updateAppLogoState(sessionStates: Map<String, String?>) {
     val dot = document.getElementById("app-logo-dot") as? HTMLElement ?: return
+    applyLogoDotState(dot, sessionStates)
+}
+
+/**
+ * Applies the aggregated work/wait state to a specific dot element.
+ *
+ * Split out from [updateAppLogoState] so [buildSidebarLogo] can paint the dot
+ * at construction time — before it is attached to the DOM, when a
+ * `getElementById` lookup would not yet find it — and so any future caller
+ * holding the element directly can repaint without a query.
+ *
+ * @param dot the `.app-logo-dot` element to repaint.
+ * @param sessionStates the current session-id to state map; states other than
+ *   `"working"` / `"waiting"` (including `null`) count as idle.
+ */
+internal fun applyLogoDotState(dot: HTMLElement, sessionStates: Map<String, String?>) {
     var anyWaiting = false
     var anyWorking = false
     for (state in sessionStates.values) {
@@ -69,6 +89,7 @@ internal fun updateAppLogoState(sessionStates: Map<String, String?>) {
     when {
         anyWaiting -> dot.classList.add("state-waiting")
         anyWorking -> dot.classList.add("state-working")
-        // Idle → no modifier class; the base .app-logo-dot rule paints it green.
+        // Idle → no modifier class; the base .app-logo-dot rule paints it
+        // solid green with no pulse.
     }
 }

@@ -330,6 +330,7 @@ internal suspend fun handleWindowCommand(text: String, ctx: WindowConnectionCont
         is WindowCommand.SetFileBrowserLeftWidth -> WindowState.setFileBrowserLeftWidth(cmd.paneId, cmd.px)
         is WindowCommand.SetFileBrowserFontSize -> WindowState.setFileBrowserFontSize(cmd.paneId, cmd.size)
         is WindowCommand.SetTerminalFontSize -> WindowState.setTerminalFontSize(cmd.paneId, cmd.size)
+        is WindowCommand.SetTerminalAutoReflow -> WindowState.setTerminalAutoReflow(cmd.paneId, cmd.enabled)
         is WindowCommand.SetFileBrowserAutoRefresh -> {
             WindowState.setFileBrowserAutoRefresh(cmd.paneId, cmd.enabled)
         }

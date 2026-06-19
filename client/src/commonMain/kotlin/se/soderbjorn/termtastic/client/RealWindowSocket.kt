@@ -148,6 +148,11 @@ class RealWindowSocket internal constructor(
                             is WindowEnvelope.Config -> client.windowState.updateConfig(envelope.config)
                             is WindowEnvelope.State -> client.windowState.updateStates(envelope.states)
                             is WindowEnvelope.PendingApproval -> client.windowState.setPendingApproval()
+                            // Carries the merged flat-KV blob (incl. the
+                            // toolkit's LAYOUT_STATE) — pull the minimized
+                            // pane set out so the mobile sessions list can dim
+                            // docked panes, live with web minimize/restore.
+                            is WindowEnvelope.UiSettings -> client.windowState.updateUiSettings(envelope.settings)
                             is WindowEnvelope.FileBrowserDir,
                             is WindowEnvelope.FileBrowserContentMsg,
                             is WindowEnvelope.FileBrowserError,
@@ -155,7 +160,6 @@ class RealWindowSocket internal constructor(
                             is WindowEnvelope.GitList,
                             is WindowEnvelope.GitDiffResult,
                             is WindowEnvelope.GitError,
-                            is WindowEnvelope.UiSettings,
                             is WindowEnvelope.WorktreeDefaults,
                             is WindowEnvelope.WorktreeCreated,
                             is WindowEnvelope.WorktreeError -> Unit

@@ -9,8 +9,8 @@ import SwiftUI
 /// the final page's link into a tappable `Link`.
 ///
 /// Presented once by `RootNavigationView` — via `fullScreenCover`, before the
-/// host list — when `OnboardingStore` reports the walkthrough has not yet been
-/// completed. Mirrors the Android `OnboardingScreen`.
+/// host list — when the shared `LocalRepository`'s `onboardingSeen` flag (mirrored
+/// by `OnboardingGate`) is still false. Mirrors the Android `OnboardingScreen`.
 ///
 /// Colours come from `Palette`, which — with no server connection yet — falls
 /// back to the app's default Neon Green theme, so the walkthrough matches the

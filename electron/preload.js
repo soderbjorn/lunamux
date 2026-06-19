@@ -98,6 +98,56 @@ contextBridge.exposeInMainWorld("electronApi", {
    */
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
 
+  // --- Local JSON data files (renderer LocalStore) ------------------------
+
+  /**
+   * Reads a small JSON data file from the app's `userData` directory, backing
+   * the renderer-side `LocalStore` (e.g. `local_state.json`). The renderer has
+   * no filesystem access under context isolation, so the read is serviced by
+   * the Electron main process.
+   *
+   * @param {string} name - File name within `userData` (e.g. `"local_state.json"`).
+   * @returns {Promise<string|null>} Resolves to the UTF-8 file contents, or
+   *   `null` when the file does not exist or could not be read.
+   */
+  readDataFile: (name) => ipcRenderer.invoke("read-data-file", name),
+
+  /**
+   * Writes a small JSON data file to the app's `userData` directory,
+   * overwriting any existing content. Counterpart to {@link readDataFile}.
+   *
+   * @param {string} name - File name within `userData`.
+   * @param {string} text - UTF-8 text to persist.
+   * @returns {Promise<void>} Resolves once the main process has written the file.
+   */
+  writeDataFile: (name, text) => ipcRenderer.invoke("write-data-file", name, text),
+
+  /**
+   * Deletes a data file from the app's `userData` directory. A no-op when the
+   * file does not exist.
+   *
+   * @param {string} name - File name within `userData`.
+   * @returns {Promise<void>} Resolves once the main process has removed the file.
+   */
+  deleteDataFile: (name) => ipcRenderer.invoke("delete-data-file", name),
+
+  // --- Network info --------------------------------------------------------
+
+  /**
+   * Reports the host machine's LAN IPv4 address(es) and the server port,
+   * resolved by the Electron main process via Node's `os.networkInterfaces()`.
+   * The renderer has no Node access under context isolation, so the lookup is
+   * serviced over IPC.
+   *
+   * Called by the renderer's About dialog to tell the user which host to add
+   * from the Android and iOS clients.
+   *
+   * @returns {Promise<{addresses: string[], port: number}>} Resolves to the
+   *   distinct non-loopback IPv4 addresses (empty when there is no LAN
+   *   interface) and the port the bundled server listens on.
+   */
+  getLocalIpAddresses: () => ipcRenderer.invoke("get-local-ip-addresses"),
+
   // --- Window chrome theming ----------------------------------------------
 
   /**
@@ -132,6 +182,23 @@ contextBridge.exposeInMainWorld("electronApi", {
     const wrapped = () => handler();
     ipcRenderer.on("show-about-dialog", wrapped);
     return () => ipcRenderer.removeListener("show-about-dialog", wrapped);
+  },
+
+  /**
+   * Subscribes to the "show settings" event sent by the main process when
+   * the user picks "Settings…" (⌘,) from the macOS app menu. The renderer
+   * uses this to open its in-app App Settings sidebar.
+   *
+   * Only the channel name is forwarded; the IPC event object itself is not
+   * leaked into the renderer for context-isolation safety.
+   *
+   * @param {() => void} handler - Called with no arguments on each event.
+   * @returns {() => void} Unsubscribe function that detaches the listener.
+   */
+  onShowSettings: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("show-settings", wrapped);
+    return () => ipcRenderer.removeListener("show-settings", wrapped);
   },
 
   /**

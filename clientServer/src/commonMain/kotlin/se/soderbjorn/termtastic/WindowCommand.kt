@@ -220,6 +220,23 @@ sealed class WindowCommand {
     data class SetTerminalFontSize(val paneId: String, val size: Int) : WindowCommand()
 
     /**
+     * Enable or disable automatic reflow ("Reformat") for a single terminal
+     * pane. When disabled, the client stops re-asserting the PTY size to the
+     * pane on window/pane resize, tab activation, reconnect and font load;
+     * the explicit Reformat button still works. Sent from the reformat
+     * button's hover popup ("Automatic reformat (this window)") and persisted
+     * in [TerminalContent.autoReflow].
+     *
+     * @param paneId the terminal pane to configure
+     * @param enabled `true` to keep auto-reflow on for this pane, `false` to
+     *   freeze it until the user manually reformats
+     * @see TerminalContent.autoReflow
+     */
+    @Serializable
+    @SerialName("setTerminalAutoReflow")
+    data class SetTerminalAutoReflow(val paneId: String, val enabled: Boolean) : WindowCommand()
+
+    /**
      * Close a single pane. If the pane is a terminal, its PTY session is
      * terminated (unless other linked views still reference it).
      *

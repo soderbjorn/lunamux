@@ -41,9 +41,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import se.soderbjorn.termtastic.android.data.OnboardingPreferences
+import se.soderbjorn.termtastic.android.data.AppLocalRepository
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
 import se.soderbjorn.termtastic.client.TermtasticThemeConfig
 import se.soderbjorn.termtastic.client.fetchThemeConfig
@@ -73,23 +74,20 @@ import se.soderbjorn.termtastic.client.fetchThemeConfig
  */
 @Composable
 fun TermtasticApp(applicationContext: Context) {
-    // First-launch onboarding gate. `showOnboarding` is null while the
-    // persisted flag is still loading (render nothing rather than flashing the
-    // host list), then resolves to true on a fresh install or false once the
-    // walkthrough has been completed.
-    val onboardingPrefs = remember { OnboardingPreferences(applicationContext) }
+    // First-launch onboarding gate, sourced from the shared LocalRepository.
+    // `showOnboarding` is null while local_state.json is still hydrating (render
+    // nothing rather than flashing the host list), then resolves to true on a
+    // fresh install or false once the walkthrough has been completed.
+    val repository = remember { AppLocalRepository.instance }
     val onboardingScope = rememberCoroutineScope()
-    var showOnboarding by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(Unit) {
-        showOnboarding = !onboardingPrefs.hasSeen()
-    }
+    val localState by repository.state.collectAsState()
+    val showOnboarding = localState?.let { !it.onboardingSeen }
     when (showOnboarding) {
         null -> return
         true -> {
             OnboardingScreen(
                 onFinish = {
-                    onboardingScope.launch { onboardingPrefs.markSeen() }
-                    showOnboarding = false
+                    onboardingScope.launch { repository.setOnboardingSeen(true) }
                 },
             )
             return
@@ -175,6 +173,7 @@ fun TermtasticApp(applicationContext: Context) {
                         connectionGeneration++
                         navController.navigate("tree")
                     },
+                    onOpenNews = { navController.navigate("news") },
                 )
             }
             composable("tree") {
@@ -192,7 +191,11 @@ fun TermtasticApp(applicationContext: Context) {
                         themeConfig = null
                         navController.popBackStack("hosts", inclusive = false)
                     },
+                    onOpenNews = { navController.navigate("news") },
                 )
+            }
+            composable("news") {
+                NewsUpdatesScreen(onBack = { navController.popBackStack() })
             }
             composable(
                 route = "terminal/{sessionId}",

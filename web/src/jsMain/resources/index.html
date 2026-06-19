@@ -11,40 +11,20 @@
     Termtastic now mounts its UI through `darkness-toolkit`'s
     `mountAppShell` (see `TermtasticToolkitBootstrap.kt`). The toolkit
     builds the entire frame — top bar, tab strip, sidebar, layout root,
-    pane chrome, bottom bar — inside `#app`. Everything that used to
+    pane chrome — inside `#app` (the toolkit bottom bar is disabled via
+    `showBottomBar = false`). Everything that used to
     live here (header, tab bar, dividers, sidebar shell) has moved into
     the toolkit; the markup is intentionally near-empty.
 -->
 <div id="app"></div>
 <!--
-    The Claude usage bar lives outside `#app` because the bootstrap
-    re-parents it into the toolkit's bottom-bar leading slot at mount
-    time. ClaudeUsageBar.kt continues to address this element by id;
-    once mounted the toolkit's bottom-bar chrome owns its layout.
+    The app logo (wordmark + work-state dot), the Claude usage rows, and the
+    optional update / news pills are no longer declared here. They are built in
+    Kotlin and slotted into the toolkit's left-sidebar header / footer:
+      - logo  → TermtasticToolkitBootstrap.buildSidebarLogo()  (AppShellSpec.sidebarHeader)
+      - usage + pills → buildSidebarFooter() (AppShellSpec.sidebarFooter)
+    See ClaudeUsageBar.kt, AppLogo.kt, UpdateLabel.kt, NewsLabel.kt.
 -->
-<footer id="claude-usage-bar" class="claude-usage-bar claude-usage-bar-empty" hidden></footer>
-<!-- App logo overlay. Painted on top of everything via position:fixed in the
-     lower-right corner, so it stays visible regardless of modals, the
-     sidebar, or which tab is active. The dot to the right of the wordmark
-     pulsates blue when any tab is working and red when any tab is waiting
-     for input; see AppLogo.kt and updateStateIndicators(). -->
-<div id="app-logo" class="app-logo" aria-hidden="true">
-    <!-- "New version available" notification, on its own line ABOVE the
-         wordmark. Hidden until the shared update checker (desktop build) finds
-         a newer release. Styled to mirror the iOS/Android banners — accent
-         tint, up-arrow icon, version text, chevron. Clickable (pointer-events
-         re-enabled in CSS) — opens the manifest's "more info" URL in the
-         default browser; see UpdateLabel.kt. -->
-    <div id="app-logo-update" class="app-logo-update" hidden>
-        <svg class="app-logo-update-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12l4 4 4-4"/><path d="M12 8v8"/></svg>
-        <span id="app-logo-update-text" class="app-logo-update-text">New version available</span>
-        <svg class="app-logo-update-chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-    </div>
-    <div class="app-logo-row">
-        <span class="app-logo-wordmark">Termtastic</span>
-        <span id="app-logo-dot" class="app-logo-dot"></span>
-    </div>
-</div>
 <script type="application/javascript" src="web.js"></script>
 </body>
 </html>

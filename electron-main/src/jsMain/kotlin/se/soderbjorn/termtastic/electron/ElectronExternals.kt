@@ -40,6 +40,7 @@ external interface ElectronApp {
     fun setName(name: String)
     fun getName(): String
     fun getVersion(): String
+    fun getAppPath(): String
     fun getPath(name: String): String
     fun setPath(name: String, path: String)
     fun requestSingleInstanceLock(): Boolean

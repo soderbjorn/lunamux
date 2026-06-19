@@ -353,10 +353,10 @@ internal fun applyAppearanceClass() {
             kotlinx.browser.document.getElementById("tab-bar") as? HTMLElement,
         )
         if (tabsEls.isNotEmpty()) put("tabs", tabsEls)
-        val bottomBarEls = listOfNotNull(
-            kotlinx.browser.document.getElementById("claude-usage-bar") as? HTMLElement,
-        )
-        if (bottomBarEls.isNotEmpty()) put("bottomBar", bottomBarEls)
+        // The Claude usage bar moved from the bottom bar into the left-sidebar
+        // footer (see buildSidebarFooter), so it no longer needs a dedicated
+        // "bottomBar" section stamp — it inherits the `--t-sidebar-*` palette
+        // from its `.dt-sidebar` ancestor, which the toolkit paints directly.
         queryElements(".terminal-cell").takeIf { it.isNotEmpty() }?.let { put("windows", it) }
         queryElements(".terminal-cell[data-content-kind='terminal'] > .terminal").takeIf { it.isNotEmpty() }?.let { put("terminal", it) }
         queryElements(".terminal-cell[data-content-kind='fileBrowser'] > .md-view").takeIf { it.isNotEmpty() }?.let { put("fileBrowser", it) }

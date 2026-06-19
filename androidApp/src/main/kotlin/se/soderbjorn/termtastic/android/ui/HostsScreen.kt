@@ -2,12 +2,13 @@
  * Hosts/servers list screen for the Termtastic Android app.
  *
  * This is the app's landing screen. It displays the user's saved server
- * entries from [se.soderbjorn.termtastic.android.data.HostsRepository] and
- * provides add/edit/delete dialogs. Tapping a host initiates a WebSocket
- * connection via [se.soderbjorn.termtastic.android.net.ConnectionHolder] and,
- * on success, navigates to the [TreeScreen] overview.
+ * entries from the shared [se.soderbjorn.termtastic.client.storage.LocalRepository]
+ * (via [se.soderbjorn.termtastic.android.data.AppLocalRepository]) and provides
+ * add/edit/delete dialogs. Tapping a host initiates a WebSocket connection via
+ * [se.soderbjorn.termtastic.android.net.ConnectionHolder] and, on success,
+ * navigates to the [TreeScreen] overview.
  *
- * @see se.soderbjorn.termtastic.android.data.HostsRepository
+ * @see se.soderbjorn.termtastic.android.data.AppLocalRepository
  * @see se.soderbjorn.termtastic.android.net.ConnectionHolder
  * @see TreeScreen
  */
@@ -53,7 +54,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,13 +82,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
 import kotlinx.coroutines.launch
 import se.soderbjorn.termtastic.SERVER_TLS_PORT
-import se.soderbjorn.termtastic.android.data.ConnectionRepository
+import se.soderbjorn.termtastic.android.data.AppLocalRepository
 import se.soderbjorn.termtastic.client.HostEntry
-import se.soderbjorn.termtastic.android.data.HostsRepository
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
+import se.soderbjorn.termtastic.android.net.NewsUpdatesController
 import se.soderbjorn.termtastic.client.ServerUrl
 import se.soderbjorn.termtastic.client.demo.DEMO_HOST
-import se.soderbjorn.termtastic.client.getOrCreateToken
 
 /**
  * Sentinel id used in the `connectingId` state for the built-in demo row —
@@ -124,9 +123,12 @@ private sealed interface EditTarget {
  * Shows a "Waiting for approval..." label when the server has a pending
  * device-approval dialog for this client.
  *
- * @param applicationContext Android application context for repository instantiation.
+ * @param applicationContext Android application context, forwarded to the
+ *   [se.soderbjorn.termtastic.android.net.NewsUpdatesController].
  * @param onConnected callback invoked after a successful connection to a host.
- * @see se.soderbjorn.termtastic.android.data.HostsRepository
+ * @param onOpenNews callback invoked when the toolbar bell is tapped; opens the
+ *   "News & Updates" screen.
+ * @see se.soderbjorn.termtastic.android.data.AppLocalRepository
  * @see se.soderbjorn.termtastic.android.net.ConnectionHolder
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -134,12 +136,15 @@ private sealed interface EditTarget {
 fun HostsScreen(
     applicationContext: Context,
     onConnected: () -> Unit,
+    onOpenNews: () -> Unit,
 ) {
-    val hostsRepo = remember { HostsRepository(applicationContext) }
-    val connectionRepo = remember { ConnectionRepository(applicationContext) }
+    val repository = remember { AppLocalRepository.instance }
     val scope = rememberCoroutineScope()
 
-    var hosts by remember { mutableStateOf<List<HostEntry>?>(null) }
+    // Null while local_state.json is still hydrating (render nothing rather than
+    // flashing the empty state), then the persisted host list.
+    val localState by repository.state.collectAsState()
+    val hosts = localState?.hosts
     var editTarget by remember { mutableStateOf<EditTarget?>(null) }
     var deleteTarget by remember { mutableStateOf<HostEntry?>(null) }
     var connectingId by remember { mutableStateOf<String?>(null) }
@@ -151,9 +156,10 @@ fun HostsScreen(
         ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(Unit) {
-        hostsRepo.hosts.collect { hosts = it }
-    }
+    // Shared news/update checker — drives the toolbar bell's visibility (shown
+    // only when there is news or an available update).
+    val newsUpdatesVm = remember { NewsUpdatesController.ensureStarted(applicationContext) }
+    val newsUpdatesState by newsUpdatesVm.stateFlow.collectAsState()
 
     // Connect to the built-in demo "server": the magic demo host makes the
     // shared client run against its in-process simulation, so this never
@@ -199,6 +205,11 @@ fun HostsScreen(
             LargeTopAppBar(
                 title = { Text("Hosts") },
                 actions = {
+                    NewsBellButton(
+                        onClick = onOpenNews,
+                        shouldPulse = newsUpdatesState.hasNews,
+                        muted = !newsUpdatesState.hasContent,
+                    )
                     IconButton(onClick = { editTarget = EditTarget.Add }) {
                         Icon(
                             Icons.Filled.Add,
@@ -224,9 +235,6 @@ fun HostsScreen(
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
-            // Discreet "new version available" bar; renders nothing unless the
-            // shared update checker has found a newer published build.
-            UpdateBanner()
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val list = hosts
                 when {
@@ -245,7 +253,7 @@ fun HostsScreen(
                                     connectingId = entry.id
                                     scope.launch {
                                         runCatching {
-                                            val token = getOrCreateToken(connectionRepo.authTokenStore())
+                                            val token = repository.getOrCreateAuthToken()
                                             val client = ConnectionHolder.connect(
                                                 serverUrl = ServerUrl(
                                                     host = entry.host,
@@ -260,7 +268,7 @@ fun HostsScreen(
                                             // connect runs in strict-verify mode.
                                             if (entry.pinnedFingerprintHex == null) {
                                                 client.observedFingerprint.value?.let { fp ->
-                                                    hostsRepo.update(entry.copy(pinnedFingerprintHex = fp))
+                                                    repository.updateHost(entry.copy(pinnedFingerprintHex = fp))
                                                 }
                                             }
                                         }.onSuccess {
@@ -308,9 +316,9 @@ fun HostsScreen(
             onSave = { label, host, port ->
                 scope.launch {
                     if (initial == null) {
-                        hostsRepo.add(label, host, port)
+                        repository.addHost(label, host, port)
                     } else {
-                        hostsRepo.update(initial.copy(label = label, host = host, port = port))
+                        repository.updateHost(initial.copy(label = label, host = host, port = port))
                     }
                     editTarget = null
                 }
@@ -324,7 +332,7 @@ fun HostsScreen(
             onDismiss = { deleteTarget = null },
             onConfirm = {
                 scope.launch {
-                    hostsRepo.delete(entry.id)
+                    repository.deleteHost(entry.id)
                     deleteTarget = null
                 }
             },
@@ -339,13 +347,13 @@ fun HostsScreen(
                 scope.launch {
                     // Clear the stored pin so the next tap runs first-connect
                     // (capture mode + server ApprovalDialog) again.
-                    hostsRepo.update(entry.copy(pinnedFingerprintHex = null))
+                    repository.updateHost(entry.copy(pinnedFingerprintHex = null))
                     pinMismatchEntry = null
                 }
             },
             onForget = {
                 scope.launch {
-                    hostsRepo.delete(entry.id)
+                    repository.deleteHost(entry.id)
                     pinMismatchEntry = null
                 }
             },

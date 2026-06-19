@@ -20,6 +20,8 @@ private struct CloseTarget: Identifiable {
 
 /// Displays the window layout tree — tabs and their panes with state dots —
 /// under a large, collapsing "Sessions" title that mirrors the Hosts screen.
+/// Tabs the user hid from the sidebar (`TabConfig.isHiddenFromSidebar`) are
+/// grouped at the bottom under a "Hidden" headline rather than interleaved.
 /// Mirrors the Android `TreeScreen` composable.
 struct TreeView: View {
     @Bindable var viewModel: TreeViewModel
@@ -27,6 +29,7 @@ struct TreeView: View {
     var onOpenFileBrowser: (String) -> Void
     var onOpenGit: (String) -> Void
     var onDisconnect: () -> Void
+    var onOpenNews: () -> Void
 
     // Creation flow state
     @State private var showTabNameAlert = false
@@ -37,9 +40,9 @@ struct TreeView: View {
     @State private var renameText = ""
     @State private var closeTarget: CloseTarget?
 
-    /// Shared update checker — observed so the "new version" row appears (and
-    /// disappears) reactively without leaving an empty list row behind.
-    @State private var updateVM = UpdateCheckViewModel.shared
+    /// Shared news/update checker — observed so the toolbar bell appears (and
+    /// disappears) reactively when there is news or an available update.
+    @State private var newsVM = NewsUpdatesViewModel.shared
 
     var body: some View {
         content
@@ -89,6 +92,13 @@ struct TreeView: View {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
+            NewsBellButton(
+                action: onOpenNews,
+                shouldPulse: newsVM.hasNews,
+                muted: !newsVM.hasContent
+            )
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             Button {
                 tabName = ""
                 showTabNameAlert = true
@@ -113,15 +123,6 @@ struct TreeView: View {
         // placeholder as an overlay instead keeps the title attached to one
         // unchanging scroll view, so it stays expanded until the user scrolls.
         List {
-            // Discrete "new version available" row at the top of the pane list;
-            // only present when the shared update checker found a newer build,
-            // so no empty row is left behind.
-            if updateVM.updateAvailable {
-                UpdateBanner()
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
             ForEach(viewModel.rows) { row in
                 rowView(row)
             }
@@ -147,11 +148,23 @@ struct TreeView: View {
     @ViewBuilder
     private func rowView(_ row: TreeRow) -> some View {
         switch row {
+        case .sectionHeader(let title):
+            sectionHeaderView(title: title)
         case .tabHeader(let tabId, let title, let aggState):
             tabHeaderView(tabId: tabId, title: title, aggState: aggState)
-        case .leaf(let paneId, let sessionId, let title, let kind, let floating):
-            leafView(paneId: paneId, sessionId: sessionId, title: title, kind: kind, floating: floating)
+        case .leaf(let paneId, let sessionId, let title, let kind, let floating, let minimized):
+            leafView(paneId: paneId, sessionId: sessionId, title: title, kind: kind, floating: floating, minimized: minimized)
         }
+    }
+
+    /// A standalone, non-interactive group label (currently only "Hidden")
+    /// separating the sidebar-hidden tabs from the visible ones above. Carries
+    /// the same themed list-row chrome as the other rows.
+    private func sectionHeaderView(title: String) -> some View {
+        SectionHeaderRow(title: title)
+            .listRowBackground(Palette.background)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
     }
 
     /// A tab header row. Long-pressing it opens the tab's menu (rename, create
@@ -176,7 +189,8 @@ struct TreeView: View {
         sessionId: String,
         title: String,
         kind: LeafKind,
-        floating: Bool
+        floating: Bool,
+        minimized: Bool
     ) -> some View {
         Button {
             switch kind {
@@ -192,6 +206,9 @@ struct TreeView: View {
                 state: viewModel.states[sessionId],
                 floating: floating
             )
+            // Dim minimized (docked-on-web) panes so the row reads as
+            // "parked"; it stays fully tappable. Mirrors the web sidebar.
+            .opacity(minimized ? 0.45 : 1)
         }
         .buttonStyle(.plain)
         .listRowBackground(Palette.background)
@@ -348,6 +365,32 @@ private struct TreeDialogsModifier: ViewModifier {
         case .pane:
             viewModel.renamePane(paneId: target.id, title: trimmed)
         }
+    }
+}
+
+// MARK: - Section Header Row
+
+/// A dim uppercase caption preceded by a hairline rule, used to label the
+/// "Hidden" group of sidebar-hidden tabs. Purely decorative — it has no tap
+/// target. Mirrors the Android `SectionHeaderRow` composable.
+private struct SectionHeaderRow: View {
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .overlay(Palette.textSecondary.opacity(0.18))
+            Text(title.uppercased())
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundStyle(Palette.textSecondary.opacity(0.7))
+                .tracking(1)
+                .padding(.top, 16)
+                .padding(.bottom, 4)
+        }
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 

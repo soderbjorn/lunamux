@@ -8,6 +8,11 @@
  * "waiting" — see [StateIndicator]) reflecting the server-pushed session state. Tapping a leaf navigates to [TerminalScreen], [FileBrowserListScreen],
  * or [GitListScreen] depending on the pane type.
  *
+ * Tabs the user has hidden from the sidebar on the web client
+ * (`TabConfig.isHiddenFromSidebar`) are grouped at the bottom of the list under
+ * a "Hidden" headline rather than being interleaved or dropped, keeping their
+ * sessions reachable while decluttering the main list.
+ *
  * Also hosts the "+" button for creating a new tab. Panes are created from
  * each tab header's menu (see [TabNameDialog], [RenameDialog],
  * [ConfirmCloseDialog] in PaneActions.kt).
@@ -29,6 +34,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -64,6 +70,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -78,9 +85,11 @@ import kotlinx.coroutines.launch
 import se.soderbjorn.termtastic.GitContent
 import se.soderbjorn.termtastic.LeafNode
 import se.soderbjorn.termtastic.FileBrowserContent
+import se.soderbjorn.termtastic.TabConfig
 import se.soderbjorn.termtastic.TerminalContent
 import se.soderbjorn.termtastic.WindowConfig
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
+import se.soderbjorn.termtastic.android.net.NewsUpdatesController
 import se.soderbjorn.termtastic.client.addPaneToTab
 import se.soderbjorn.termtastic.client.addTab
 import se.soderbjorn.termtastic.client.closePane
@@ -91,11 +100,22 @@ import se.soderbjorn.termtastic.client.renameTab
 // Palette tokens live in SidebarPalette.kt — shared with MarkdownListScreen.
 
 /**
- * Sealed hierarchy representing the two kinds of rows in the tree list.
+ * Sealed hierarchy representing the kinds of rows in the tree list.
  *
- * [TabHeader] is a section header for a tab; [Leaf] is a clickable pane row.
+ * [SectionHeader] is a standalone divider label (e.g. "Hidden") grouping the
+ * tabs below it; [TabHeader] is a section header for a tab; [Leaf] is a
+ * clickable pane row.
  */
 private sealed class TreeRow {
+    /**
+     * A standalone group label separating a run of tabs from the ones above
+     * it — currently only used for the "Hidden" group that collects tabs the
+     * user hid from the sidebar (see [TabConfig.isHiddenFromSidebar]).
+     *
+     * @property title the uppercase-rendered label, e.g. "Hidden".
+     */
+    data class SectionHeader(val title: String) : TreeRow()
+
     /**
      * Section header for a tab, showing the tab title and an aggregate state dot.
      *
@@ -125,6 +145,12 @@ private sealed class TreeRow {
         val title: String,
         val kind: LeafKind,
         val floating: Boolean,
+        /**
+         * `true` when this pane is minimized (docked) on the web client.
+         * Mobile has no dock, so the row is dimmed to signal the pane is
+         * parked. Sourced from [WindowStateRepository.minimizedPaneIds].
+         */
+        val minimized: Boolean,
     ) : TreeRow()
 }
 
@@ -141,11 +167,19 @@ private data class CollectedLeaf(
     val title: String,
     val kind: LeafKind,
     val floating: Boolean,
+    val minimized: Boolean,
 )
 
 /**
  * Flattens the hierarchical [WindowConfig] into a linear list of [TreeRow] items
  * suitable for a [LazyColumn].
+ *
+ * Tabs the user has chosen to hide from the sidebar
+ * ([TabConfig.isHiddenFromSidebar]) are pulled out of the normal flow and
+ * grouped at the bottom under a single "Hidden" [TreeRow.SectionHeader], so the
+ * primary list stays decluttered while the hidden sessions remain reachable —
+ * mirroring the web sidebar, which omits them entirely. Tab order within each
+ * group is preserved.
  *
  * For each tab, collects all leaves, computes an aggregate state dot
  * (waiting > working > null), and emits a [TreeRow.TabHeader] followed by
@@ -153,37 +187,74 @@ private data class CollectedLeaf(
  *
  * @param config the current window configuration from the server.
  * @param states map of session ID to state string ("working", "waiting", or null).
- * @return ordered list of tree rows.
+ * @param minimizedPaneIds ids of panes minimized on the web client (dimmed here).
+ * @return ordered list of tree rows: visible tabs, then (if any) a "Hidden"
+ *   header followed by the sidebar-hidden tabs.
  */
-private fun flatten(config: WindowConfig, states: Map<String, String?>): List<TreeRow> {
+private fun flatten(
+    config: WindowConfig,
+    states: Map<String, String?>,
+    minimizedPaneIds: Set<String>,
+): List<TreeRow> {
     val rows = mutableListOf<TreeRow>()
-    for (tab in config.tabs) {
-        val leaves = mutableListOf<CollectedLeaf>()
-        for (p in tab.panes) addLeaf(p.leaf, floating = false, out = leaves)
+    val (hiddenTabs, visibleTabs) = config.tabs.partition { it.isHiddenFromSidebar }
 
-        // "waiting" wins over "working" — matches updateStateIndicators() in WebState.kt.
-        var tabState: String? = null
-        for (leaf in leaves) {
-            when (states[leaf.sessionId]) {
-                "waiting" -> { tabState = "waiting"; break }
-                "working" -> if (tabState != "working") tabState = "working"
-            }
-        }
-
-        rows.add(TreeRow.TabHeader(tab.id, tab.title, tabState))
-        for (leaf in leaves) {
-            rows.add(
-                TreeRow.Leaf(
-                    paneId = leaf.paneId,
-                    sessionId = leaf.sessionId,
-                    title = leaf.title,
-                    kind = leaf.kind,
-                    floating = leaf.floating,
-                )
-            )
+    for (tab in visibleTabs) {
+        appendTab(tab, states, minimizedPaneIds, rows)
+    }
+    if (hiddenTabs.isNotEmpty()) {
+        rows.add(TreeRow.SectionHeader("Hidden"))
+        for (tab in hiddenTabs) {
+            appendTab(tab, states, minimizedPaneIds, rows)
         }
     }
     return rows
+}
+
+/**
+ * Emits a tab's [TreeRow.TabHeader] followed by its [TreeRow.Leaf] rows into
+ * [rows], computing the tab's aggregate state dot along the way. Shared by both
+ * the visible and hidden passes of [flatten] so the two groups render
+ * identically.
+ *
+ * @param tab the tab to flatten.
+ * @param states map of session ID to state string ("working", "waiting", or null).
+ * @param minimizedPaneIds ids of panes minimized on the web client.
+ * @param rows accumulator the header and leaf rows are appended to.
+ */
+private fun appendTab(
+    tab: TabConfig,
+    states: Map<String, String?>,
+    minimizedPaneIds: Set<String>,
+    rows: MutableList<TreeRow>,
+) {
+    val leaves = mutableListOf<CollectedLeaf>()
+    for (p in tab.panes) {
+        addLeaf(p.leaf, floating = false, minimized = p.leaf.id in minimizedPaneIds, out = leaves)
+    }
+
+    // "waiting" wins over "working" — matches updateStateIndicators() in WebState.kt.
+    var tabState: String? = null
+    for (leaf in leaves) {
+        when (states[leaf.sessionId]) {
+            "waiting" -> { tabState = "waiting"; break }
+            "working" -> if (tabState != "working") tabState = "working"
+        }
+    }
+
+    rows.add(TreeRow.TabHeader(tab.id, tab.title, tabState))
+    for (leaf in leaves) {
+        rows.add(
+            TreeRow.Leaf(
+                paneId = leaf.paneId,
+                sessionId = leaf.sessionId,
+                title = leaf.title,
+                kind = leaf.kind,
+                floating = leaf.floating,
+                minimized = leaf.minimized,
+            )
+        )
+    }
 }
 
 /**
@@ -195,7 +266,12 @@ private fun flatten(config: WindowConfig, states: Map<String, String?>): List<Tr
  * @param floating whether this leaf is inside a floating window.
  * @param out accumulator list for collected leaves.
  */
-private fun addLeaf(leaf: LeafNode, floating: Boolean, out: MutableList<CollectedLeaf>) {
+private fun addLeaf(
+    leaf: LeafNode,
+    floating: Boolean,
+    minimized: Boolean,
+    out: MutableList<CollectedLeaf>,
+) {
     val kind = when (leaf.content) {
         is TerminalContent, null -> LeafKind.TERMINAL
         is FileBrowserContent -> LeafKind.FILE_BROWSER
@@ -208,6 +284,7 @@ private fun addLeaf(leaf: LeafNode, floating: Boolean, out: MutableList<Collecte
             title = leaf.title,
             kind = kind,
             floating = floating,
+            minimized = minimized,
         )
     )
 }
@@ -228,6 +305,8 @@ private fun addLeaf(leaf: LeafNode, floating: Boolean, out: MutableList<Collecte
  * @param onOpenFileBrowser callback invoked with a pane ID to open the file browser.
  * @param onOpenGit callback invoked with a pane ID to open the git view.
  * @param onDisconnect callback invoked when the user disconnects from the server.
+ * @param onOpenNews callback invoked when the toolbar bell is tapped; opens the
+ *   "News & Updates" screen.
  * @see TerminalScreen
  * @see FileBrowserListScreen
  * @see GitListScreen
@@ -239,6 +318,7 @@ fun TreeScreen(
     onOpenFileBrowser: (paneId: String) -> Unit,
     onOpenGit: (paneId: String) -> Unit,
     onDisconnect: () -> Unit,
+    onOpenNews: () -> Unit,
 ) {
     val client = ConnectionHolder.client()
     if (client == null) {
@@ -248,7 +328,14 @@ fun TreeScreen(
 
     val config by client.windowState.config.collectAsStateWithLifecycle()
     val states by client.windowState.states.collectAsStateWithLifecycle()
+    val minimizedPaneIds by client.windowState.minimizedPaneIds.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    // Shared news/update checker — drives the toolbar bell's visibility (shown
+    // only when there is news or an available update).
+    val context = LocalContext.current
+    val newsUpdatesVm = remember { NewsUpdatesController.ensureStarted(context) }
+    val newsUpdatesState by newsUpdatesVm.stateFlow.collectAsStateWithLifecycle()
 
     // --- Creation dialog state ---
     var showTabName by remember { mutableStateOf(false) }
@@ -349,6 +436,11 @@ fun TreeScreen(
                 },
                 title = { Text("Sessions", color = SidebarTextPrimary) },
                 actions = {
+                    NewsBellButton(
+                        onClick = onOpenNews,
+                        shouldPulse = newsUpdatesState.hasNews,
+                        muted = !newsUpdatesState.hasContent,
+                    )
                     IconButton(onClick = { showTabName = true }) {
                         Icon(
                             Icons.Filled.Add,
@@ -382,22 +474,21 @@ fun TreeScreen(
             return@Scaffold
         }
 
-        val rows = flatten(cfg, states)
+        val rows = flatten(cfg, states, minimizedPaneIds)
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
-            // Discrete "new version available" bar at the top of the pane list;
-            // renders nothing unless the shared update checker found a newer build.
-            item { UpdateBanner() }
             items(rows, key = { row ->
                 when (row) {
+                    is TreeRow.SectionHeader -> "section-${row.title}"
                     is TreeRow.TabHeader -> "tab-${row.tabId}"
                     is TreeRow.Leaf -> "leaf-${row.paneId}"
                 }
             }) { row ->
                 when (row) {
+                    is TreeRow.SectionHeader -> SectionHeaderRow(row)
                     is TreeRow.TabHeader -> TabHeaderRow(
                         row = row,
                         closeEnabled = cfg.tabs.size > 1,
@@ -427,6 +518,34 @@ fun TreeScreen(
             }
         }
     }
+}
+
+/**
+ * Renders a standalone group label (currently only "Hidden") that separates the
+ * sidebar-hidden tabs from the visible ones above them. Non-interactive — it is
+ * purely a visual divider with a dim uppercase caption, preceded by a hairline
+ * rule so the grouping reads at a glance even when the list is long.
+ *
+ * @param row the section header data carrying the label text.
+ * @see flatten for where the "Hidden" group is assembled.
+ */
+@Composable
+private fun SectionHeaderRow(row: TreeRow.SectionHeader) {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 12.dp),
+        color = SidebarTextSecondary.copy(alpha = 0.18f),
+    )
+    Text(
+        text = row.title.uppercase(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 4.dp),
+        style = MaterialTheme.typography.labelMedium.copy(
+            color = SidebarTextSecondary.copy(alpha = 0.7f),
+            letterSpacing = 1.sp,
+            fontWeight = FontWeight.SemiBold,
+        ),
+    )
 }
 
 /**
@@ -553,6 +672,10 @@ private fun LeafRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // Dim minimized (docked-on-web) panes so the row reads as
+                // "parked"; the row stays fully interactive (tap still opens
+                // the pane). Mirrors the web sidebar's dimmed minimized row.
+                .alpha(if (row.minimized) 0.45f else 1f)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = {

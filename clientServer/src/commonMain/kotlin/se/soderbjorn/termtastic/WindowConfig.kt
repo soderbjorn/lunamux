@@ -199,6 +199,20 @@ data class TerminalContent(
     val sessionId: String,
     /** Font size in pixels. Null = client default (13). */
     val fontSize: Int? = null,
+    /**
+     * Per-pane override for automatic reflow (a.k.a. "Reformat"): when `true`
+     * the client re-asserts the PTY size to match the pane on every window /
+     * pane resize, tab activation, reconnect and font load; when `false` the
+     * terminal is frozen at its current size and only the explicit "Reformat"
+     * button reflows it. `null` means "inherit the user's global default"
+     * (the `autoReformatDefault` UI setting, itself defaulting to `true` so
+     * the factory behaviour stays "reflow every new pane").
+     *
+     * Toggled via [WindowCommand.SetTerminalAutoReflow] from the reformat
+     * button's hover popup ("Automatic reformat (this window)"). Persisted as
+     * part of the window config alongside the other per-pane session settings.
+     */
+    val autoReflow: Boolean? = null,
 ) : LeafContent()
 
 /**

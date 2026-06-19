@@ -15,7 +15,7 @@
  * layout. Engine selection is done per-target rather than via Ktor's automatic
  * resolution because the latter is not reliable on Kotlin/Native.
  *
- * @see UpdateCheckViewModel
+ * @see se.soderbjorn.termtastic.client.newsupdates.NewsUpdatesBackingViewModel
  */
 package se.soderbjorn.termtastic.client.update
 
@@ -42,7 +42,7 @@ internal fun applyUpdateClientConfig(config: HttpClientConfig<*>) {
  * public version manifest. No certificate pinning is installed.
  *
  * @return a configured [HttpClient]; the caller owns its lifecycle. In practice
- *   [UpdateCheckViewModel] keeps it for the life of the app, so it is never
- *   explicitly closed.
+ *   [se.soderbjorn.termtastic.client.newsupdates.NewsUpdatesBackingViewModel]
+ *   keeps it for the life of the app, so it is never explicitly closed.
  */
 expect fun createPlainHttpClient(): HttpClient

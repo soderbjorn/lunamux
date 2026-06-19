@@ -26,6 +26,7 @@ package se.soderbjorn.termtastic.auth
 import se.soderbjorn.darkness.core.*
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -794,21 +796,33 @@ object DeviceAuth {
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = selectedApprove == true,
+                                    onClick = { selectedApprove = true },
+                                    role = Role.RadioButton,
+                                ),
                         ) {
                             RadioButton(
                                 selected = selectedApprove == true,
-                                onClick = { selectedApprove = true },
+                                onClick = null,
                             )
                             Text("Approve this device (save as trusted)", fontSize = 14.sp)
                         }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = selectedApprove == false,
+                                    onClick = { selectedApprove = false },
+                                    role = Role.RadioButton,
+                                ),
                         ) {
                             RadioButton(
                                 selected = selectedApprove == false,
-                                onClick = { selectedApprove = false },
+                                onClick = null,
                             )
                             Text("Deny this device (close the connection)", fontSize = 14.sp)
                         }

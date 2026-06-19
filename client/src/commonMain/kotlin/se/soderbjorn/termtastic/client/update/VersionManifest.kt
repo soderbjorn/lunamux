@@ -10,10 +10,10 @@
  * These classes intentionally mirror the on-disk JSON one-to-one (see the
  * repo-root `versions.json`) and live in the shared `client` module so all
  * three platforms parse the same shape — the comparison and notification logic
- * in [UpdateCheckViewModel] is written once here rather than duplicated in
- * Kotlin and Swift.
+ * in [se.soderbjorn.termtastic.client.newsupdates.NewsUpdatesBackingViewModel]
+ * is written once here rather than duplicated in Kotlin and Swift.
  *
- * @see UpdateCheckViewModel
+ * @see se.soderbjorn.termtastic.client.newsupdates.NewsUpdatesBackingViewModel
  */
 package se.soderbjorn.termtastic.client.update
 
@@ -24,9 +24,9 @@ import kotlinx.serialization.Serializable
  *
  * The strings match the JSON keys under [VersionManifest.platforms]. Each
  * client passes the constant for the platform it is running on to
- * [UpdateCheckViewModel] so the right entry is consulted. Note there is no
- * `web` entry — a plain browser tab shows no update notification; the macOS
- * Electron desktop app uses [MAC].
+ * [se.soderbjorn.termtastic.client.newsupdates.NewsUpdatesBackingViewModel] so
+ * the right entry is consulted. Note there is no `web` entry — a plain browser
+ * tab shows no update notification; the macOS Electron desktop app uses [MAC].
  */
 object UpdatePlatform {
     /** The Android app, published to the Play Store. */

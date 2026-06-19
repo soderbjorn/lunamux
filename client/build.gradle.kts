@@ -65,6 +65,9 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // Backs the Android `SecureStore` actual (EncryptedSharedPreferences)
+            // that holds the device-auth token outside the plain local_state.json.
+            implementation(libs.androidx.security.crypto)
         }
         jvmMain.dependencies {
             implementation(libs.ktor.client.cio)

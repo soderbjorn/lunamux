@@ -85,6 +85,13 @@ private data class ChromePrefs(val customTitleBar: Boolean)
 
 private fun chromePrefsPath(): String = NodePath.join(app.getPath("userData"), "electron-chrome.json")
 
+/**
+ * Absolute path to a renderer [LocalStore][se.soderbjorn.termtastic.client.storage.LocalStore]
+ * data file under the app's `userData` directory (e.g. `local_state.json`).
+ * Serviced by the `read/write/delete-data-file` IPC handlers below.
+ */
+private fun dataFilePath(name: String): String = NodePath.join(app.getPath("userData"), name)
+
 private fun loadChromePrefs(): ChromePrefs = try {
     val raw = NodeFs.readFileSync(chromePrefsPath(), "utf8")
     val parsed: dynamic = js("JSON.parse(raw)")
@@ -94,18 +101,71 @@ private fun loadChromePrefs(): ChromePrefs = try {
 }
 
 /**
- * Reads the macOS bundle build number (`build.mac.bundleVersion` in
- * `package.json`, surfaced as `CFBundleVersion` in the packaged app) so the
- * renderer's About dialog can show a "version code" alongside the
+ * Reads the macOS bundle build number (version code) so the renderer can pass
+ * it to the update checker and show it in the About dialog alongside the
  * human-readable version name from `app.getVersion`.
  *
+ * The build number is what the update checker actually compares against the
+ * version manifest, so a bumped code must surface a "new version available"
+ * prompt **even when the version name is unchanged**. That makes reading the
+ * real shipped value (not a dev-only config field) essential.
+ *
+ * Source of truth differs by launch mode:
+ *  - **Packaged app** (`app.isPackaged`): electron-builder strips the `build`
+ *    block (including `build.mac.bundleVersion`) out of the `package.json` it
+ *    writes into `app.asar`, so that field is gone at runtime. The value does
+ *    survive as `CFBundleVersion` in `Contents/Info.plist`, which is the real
+ *    shipped build number — so we read it there. See [readBundleVersionFromPlist].
+ *  - **Dev launch** (`npm start`, not packaged): there is no app bundle /
+ *    Info.plist, but the full source `package.json` *is* present, so we read
+ *    `build.mac.bundleVersion` from it. See [readBundleVersionFromPackageJson].
+ *
  * Called by [createWindow] when assembling the preload `additionalArguments`.
+ *
+ * @return the bundle version string (e.g. `"2"`), or `""` if it cannot be read
+ *   (the renderer treats a blank code as "no known build").
+ */
+private fun readBundleVersion(): String =
+    (if (app.isPackaged) readBundleVersionFromPlist() else "")
+        .ifEmpty { readBundleVersionFromPackageJson() }
+
+/**
+ * Reads `CFBundleVersion` from the packaged macOS app's `Contents/Info.plist`,
+ * the real shipped build number electron-builder wrote from
+ * `build.mac.bundleVersion`.
+ *
+ * `app.getAppPath()` returns `…/Termtastic.app/Contents/Resources/app.asar`,
+ * so `Info.plist` sits two directories up. The plist is plain XML text; we
+ * extract the value with a focused regex rather than pulling in a plist parser.
+ *
+ * Called by [readBundleVersion] for packaged launches.
+ *
+ * @return the `CFBundleVersion` string, or `""` if the plist is missing or
+ *   the key is absent.
+ */
+private fun readBundleVersionFromPlist(): String = try {
+    val plistPath = NodePath.join(app.getAppPath(), "..", "..", "Info.plist")
+    val raw = NodeFs.readFileSync(plistPath, "utf8")
+    Regex("""<key>CFBundleVersion</key>\s*<string>([^<]*)</string>""")
+        .find(raw)?.groupValues?.get(1)?.trim() ?: ""
+} catch (_: Throwable) {
+    ""
+}
+
+/**
+ * Reads `build.mac.bundleVersion` from the source `package.json` — the dev
+ * fallback used when the app is not packaged (no Info.plist exists yet).
+ *
  * The `package.json` sits two directories above the compiled main script
  * (mirrors the relative path used for `preload.js`).
  *
- * @return the bundle version string (e.g. `"1"`), or `""` if it cannot be read.
+ * Called by [readBundleVersion] for dev launches, or as a fallback if the
+ * packaged plist read fails.
+ *
+ * @return the bundle version string, or `""` if it cannot be read (e.g. in a
+ *   packaged app, where the `build` block has been stripped).
  */
-private fun readBundleVersion(): String = try {
+private fun readBundleVersionFromPackageJson(): String = try {
     val pkgPath = NodePath.join(__dirname, "..", "..", "package.json")
     val raw = NodeFs.readFileSync(pkgPath, "utf8")
     val parsed: dynamic = js("JSON.parse(raw)")
@@ -478,6 +538,46 @@ private fun requestQuit() {
     }
 }
 
+// ── Network info ─────────────────────────────────────────────────────
+
+/**
+ * Enumerates the host's non-internal IPv4 addresses (the LAN addresses other
+ * devices on the same network can reach this machine on).
+ *
+ * Called by the `get-local-ip-addresses` IPC handler in [main] to populate the
+ * renderer's About dialog. Loopback and IPv6 addresses are filtered out: the
+ * About dialog's whole point is telling the user the address to type into the
+ * Android/iOS host list, and those clients connect over the LAN.
+ *
+ * @return the distinct non-loopback IPv4 addresses, in interface order. Empty
+ *   when the machine has no LAN interface (or enumeration fails).
+ * @see NodeOs.networkInterfaces
+ */
+private fun localIpv4Addresses(): List<String> {
+    val out = mutableListOf<String>()
+    try {
+        val ifaces: dynamic = NodeOs.networkInterfaces()
+        val names = js("Object.keys(ifaces)") as Array<String>
+        for (name in names) {
+            val records: dynamic = ifaces[name] ?: continue
+            val len = (records.length as? Int) ?: 0
+            for (i in 0 until len) {
+                val rec: dynamic = records[i]
+                val family = rec.family
+                // Node ≥18 reports family as the string "IPv4"; older builds use
+                // the number 4. Accept both so the dialog works across versions.
+                val isV4 = family == "IPv4" || family == 4
+                val internal = rec.internal == true
+                val addr = rec.address as? String
+                if (isV4 && !internal && !addr.isNullOrEmpty()) out.add(addr)
+            }
+        }
+    } catch (_: Throwable) {
+        // Best-effort: an empty list renders as "no LAN interface" in the dialog.
+    }
+    return out.distinct()
+}
+
 // ── About dialog dispatch ────────────────────────────────────────────
 
 private fun showAboutDialog() {
@@ -491,6 +591,25 @@ private fun showAboutDialog() {
     target.webContents.send("show-about-dialog")
 }
 
+// ── Settings dispatch ────────────────────────────────────────────────
+
+/**
+ * Surfaces the in-app App Settings sidebar in response to the macOS
+ * "Settings…" app-menu item (⌘,). Mirrors [showAboutDialog]: focus (and if
+ * needed reveal) the target window, then send the `show-settings` IPC the
+ * renderer listens for to open the sidebar.
+ */
+private fun showSettings() {
+    val focused = BrowserWindow.getFocusedWindow()
+    val mw = mainWindow
+    val target: BrowserWindow = focused
+        ?: (if (mw != null && !mw.isDestroyed()) mw else null)
+        ?: return
+    if (!target.isVisible()) target.show()
+    target.focus()
+    target.webContents.send("show-settings")
+}
+
 // ── Application menu ─────────────────────────────────────────────────
 
 private fun buildAppMenu() {
@@ -502,6 +621,15 @@ private fun buildAppMenu() {
         aboutItem.label = "About $APP_NAME"
         aboutItem.click = { showAboutDialog() }
 
+        // macOS convention: a "Settings…" item bound to ⌘, sits directly
+        // below "About <App>" in the app menu. (Apple renamed the historic
+        // "Preferences…" to "Settings…" in macOS Ventura; we follow the
+        // current naming.) It opens the in-app App Settings sidebar.
+        val settingsItem: dynamic = js("({})")
+        settingsItem.label = "Settings…"
+        settingsItem.accelerator = "Command+,"
+        settingsItem.click = { showSettings() }
+
         val loginItem: dynamic = js("({})")
         loginItem.label = "Launch at Login"
         loginItem.type = "checkbox"
@@ -510,6 +638,8 @@ private fun buildAppMenu() {
 
         val appSubmenu = arrayOf<dynamic>(
             aboutItem,
+            js("({type:'separator'})"),
+            settingsItem,
             js("({type:'separator'})"),
             loginItem,
             js("({type:'separator'})"),
@@ -588,6 +718,22 @@ private fun createWindow() {
     opts.title = "Termtastic"
     opts.icon = NodePath.join(__dirname, "..", "..", "icons", "icon.png")
     opts.titleBarStyle = if (chromePrefs.customTitleBar) "hiddenInset" else "default"
+    // Give the window an opaque dark default background. The corner
+    // bleed-through we used to fix by disabling `roundedCorners` was really
+    // a transparency problem: with the dark custom title bar the rounded
+    // corner pixels were transparent, so light/colour from whatever sat
+    // behind Termtastic showed through the four corners. We solve that here
+    // by painting an opaque background instead — the renderer re-tints this
+    // to the live theme colour via the `set-window-background-color` IPC,
+    // but this default keeps the corners (and the first frame) opaque.
+    //
+    // We deliberately do NOT set `roundedCorners = false`: on macOS that
+    // option is implemented with a borderless style mask, which also
+    // removes the three native traffic-light buttons (close / minimise /
+    // zoom). Keeping the standard rounded macOS corners is what restores
+    // them. (`backgroundColor` is a no-op corner-wise on Windows / Linux,
+    // where corners are already square.)
+    opts.backgroundColor = "#1e1e1e"
     val webPrefs = js("({})")
     webPrefs.preload = NodePath.join(__dirname, "..", "..", "preload.js")
     webPrefs.contextIsolation = true
@@ -925,6 +1071,57 @@ fun main() {
             if (old != null && !old.isDestroyed()) old.destroy()
         }
         Unit
+    }
+
+    // IPC: read/write/delete a small JSON data file under the app's userData
+    // directory, backing the renderer-side LocalStore (e.g. `local_state.json`).
+    // The renderer runs with context isolation and no node integration, so it
+    // cannot touch the filesystem itself — these handlers service its file IO.
+    ipcMain.handle("read-data-file") { _, name ->
+        val fileName = name as? String ?: return@handle null
+        try {
+            val path = dataFilePath(fileName)
+            if (NodeFs.existsSync(path)) NodeFs.readFileSync(path, "utf8") else null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+    ipcMain.handle("write-data-file") { _, name, text ->
+        val fileName = name as? String
+        val content = text as? String
+        if (fileName != null && content != null) {
+            try {
+                NodeFs.mkdirSync(app.getPath("userData"), js("({recursive: true})"))
+                NodeFs.writeFileSync(dataFilePath(fileName), content)
+            } catch (_: Throwable) {
+                // Best-effort; the renderer keeps its authoritative in-memory state.
+            }
+        }
+        Unit
+    }
+    ipcMain.handle("delete-data-file") { _, name ->
+        val fileName = name as? String
+        if (fileName != null) {
+            try {
+                NodeFs.rmSync(dataFilePath(fileName), js("({force: true})"))
+            } catch (_: Throwable) {
+                // Best-effort.
+            }
+        }
+        Unit
+    }
+
+    // IPC: report the machine's LAN IPv4 address(es), its hostname, and the
+    // server port so the renderer's About dialog can tell the user which host
+    // to add from the Android and iOS clients (by IP or by name). The renderer
+    // has no Node access under context isolation, so the enumeration happens
+    // here in the main process.
+    ipcMain.handle("get-local-ip-addresses") { _, _ ->
+        val result: dynamic = js("({})")
+        result.addresses = localIpv4Addresses().toTypedArray()
+        result.hostname = NodeOs.hostname()
+        result.port = SERVER_PORT
+        result
     }
 
     // Accept the server's self-signed TLS cert silently when (and only when)

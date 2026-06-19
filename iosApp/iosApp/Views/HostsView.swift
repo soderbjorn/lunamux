@@ -11,13 +11,14 @@ import Client
 struct HostsView: View {
     @Bindable var viewModel: HostsViewModel
     var onConnected: () -> Void
+    var onOpenNews: () -> Void
 
     @State private var editTarget: HostEntryLocal?
     @State private var showAddSheet = false
     @State private var deleteTarget: HostEntryLocal?
-    /// Shared update checker — observed so the "new version" row appears (and
-    /// disappears) reactively without leaving an empty list row behind.
-    @State private var updateVM = UpdateCheckViewModel.shared
+    /// Shared news/update checker — observed so the toolbar bell appears (and
+    /// disappears) reactively when there is news or an available update.
+    @State private var newsVM = NewsUpdatesViewModel.shared
 
     var body: some View {
         baseView
@@ -51,6 +52,13 @@ struct HostsView: View {
         }
         .navigationTitle("Hosts")
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NewsBellButton(
+                    action: onOpenNews,
+                    shouldPulse: newsVM.hasNews,
+                    muted: !newsVM.hasContent
+                )
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showAddSheet = true } label: {
                     Label("Add Host", systemImage: "plus")
@@ -92,12 +100,6 @@ struct HostsView: View {
 
     private var hostsList: some View {
         List {
-            if updateVM.updateAvailable {
-                UpdateBanner()
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
             ForEach(viewModel.hosts) { entry in
                 HostRow(
                     entry: entry,

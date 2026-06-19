@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import se.soderbjorn.termtastic.android.ui.TermtasticApp
+import se.soderbjorn.termtastic.client.storage.LocalStoreContext
 
 /** Dark Material 3 colour scheme using amber as the primary accent and green as secondary. */
 private val TermtasticDarkColorScheme = darkColorScheme(
@@ -78,6 +79,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Provide the process-wide application context to the shared LocalStore
+        // (the Android `actual` reads it lazily on first file access).
+        LocalStoreContext.appContext = applicationContext
         setContent {
             val colorScheme = if (isSystemInDarkTheme()) TermtasticDarkColorScheme else TermtasticLightColorScheme
             MaterialTheme(colorScheme = colorScheme) {

@@ -2,11 +2,18 @@ import Foundation
 import Observation
 import Client
 
-/// Manages the hosts list and connection state. Wraps `HostsStore` for
-/// persistence and `ConnectionHolder` for WebSocket lifecycle.
+/// Manages the hosts list and connection state. Observes the shared
+/// `LocalRepository` (the single `local_state.json` store) for persistence and
+/// wraps `ConnectionHolder` for WebSocket lifecycle.
+///
+/// The host list is mirrored from `LocalState.hosts` via a `FlowObserver`, and
+/// every mutation (add/edit/delete, TOFU pin capture, re-pair) is written back
+/// through the repository's suspend API. Mirrors the Android `HostsScreen`,
+/// which observes the same shared repository.
 @Observable
 final class HostsViewModel {
-    var hosts: [HostEntryLocal] { HostsStore.shared.hosts }
+    /// The saved hosts, mirrored from the repository's `LocalState.hosts`.
+    var hosts: [HostEntryLocal] = []
     var connectingId: String?
     var errorMessage: String?
     /// Set when the latest connect attempt failed because the server's leaf
@@ -21,6 +28,23 @@ final class HostsViewModel {
     /// is not a persisted host entry. Drives the row's progress spinner and
     /// disables the rest of the list during the (instant) demo connect.
     static let demoConnectingId = "builtin-demo"
+
+    private let repository = AppRepository.shared
+    private let flowObserver = Client.FlowObserver()
+
+    init() {
+        // Mirror the persisted host list into `hosts`. The value is `LocalState?`
+        // (nil until hydration completes); an empty list is published until then.
+        flowObserver.observe(flow: repository.state) { [weak self] value in
+            let state = value as? Client.LocalState
+            let mapped = (state?.hosts ?? []).map { HostEntryLocal(from: $0) }
+            DispatchQueue.main.async { self?.hosts = mapped }
+        }
+    }
+
+    deinit {
+        flowObserver.clear()
+    }
 
     /// Connect to the built-in demo "server": the magic demo host makes the
     /// shared client run against its in-process simulation, so this never
@@ -58,7 +82,7 @@ final class HostsViewModel {
         errorMessage = nil
         Task {
             do {
-                let token = Client.AuthTokenKt.getOrCreateToken(store: KeychainAuthTokenStore.shared)
+                let token = try await repository.getOrCreateAuthToken()
                 let serverUrl = Client.ServerUrl(
                     host: entry.host,
                     port: entry.port
@@ -76,7 +100,7 @@ final class HostsViewModel {
                    let captured = client.observedFingerprint.value as? String {
                     var updated = entry
                     updated.pinnedFingerprintHex = captured
-                    HostsStore.shared.update(updated)
+                    try? await repository.updateHost(entry: updated.toShared())
                 }
                 // Fetch the user's theme settings so all views use the
                 // selected theme from the start. Palette.settings is a
@@ -101,15 +125,15 @@ final class HostsViewModel {
     }
 
     func addHost(label: String, host: String, port: Int32) {
-        HostsStore.shared.add(label: label, host: host, port: port)
+        Task { try? await repository.addHost(label: label, host: host, port: port) }
     }
 
     func updateHost(_ entry: HostEntryLocal) {
-        HostsStore.shared.update(entry)
+        Task { try? await repository.updateHost(entry: entry.toShared()) }
     }
 
     func deleteHost(id: String) {
-        HostsStore.shared.delete(id: id)
+        Task { try? await repository.deleteHost(id: id) }
     }
 
     /// Clear the stored pin so the next connect attempt re-runs the TOFU
@@ -120,7 +144,7 @@ final class HostsViewModel {
     func repairPin(_ entry: HostEntryLocal) {
         var updated = entry
         updated.pinnedFingerprintHex = nil
-        HostsStore.shared.update(updated)
+        Task { try? await repository.updateHost(entry: updated.toShared()) }
         pinMismatchEntry = nil
     }
 
@@ -128,7 +152,7 @@ final class HostsViewModel {
     /// Distinct from `deleteHost(id:)` only in that it also clears the
     /// alert state.
     func forgetHost(_ entry: HostEntryLocal) {
-        HostsStore.shared.delete(id: entry.id)
+        Task { try? await repository.deleteHost(id: entry.id) }
         pinMismatchEntry = nil
     }
 }

@@ -15,6 +15,12 @@ package se.soderbjorn.termtastic.client
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
+import se.soderbjorn.darkness.core.PersistKeys
 import se.soderbjorn.termtastic.WindowConfig
 
 /**
@@ -38,6 +44,19 @@ class WindowStateRepository {
     private val _states = MutableStateFlow<Map<String, String?>>(emptyMap())
     /** Observable map of session ID to human-readable state label. */
     val states: StateFlow<Map<String, String?>> = _states.asStateFlow()
+
+    /**
+     * Ids of panes the (web) client has minimized — parked in its dock and
+     * excluded from layout. Mobile doesn't draw the dock, but it dims these
+     * panes' rows in the sessions list so the state is visible cross-device.
+     *
+     * Sourced from the toolkit-owned `LAYOUT_STATE` geometry blob, which the
+     * server merges into the UI-settings blob and broadcasts over `/window`
+     * — so this updates live whenever a pane is minimized/restored anywhere.
+     */
+    private val _minimizedPaneIds = MutableStateFlow<Set<String>>(emptySet())
+    /** Observable set of currently-minimized pane ids (see backing field). */
+    val minimizedPaneIds: StateFlow<Set<String>> = _minimizedPaneIds.asStateFlow()
 
     /** Whether the server has sent a `PendingApproval` envelope (device not
      *  yet approved). */
@@ -77,5 +96,58 @@ class WindowStateRepository {
      */
     fun setPendingApproval() {
         _pendingApproval.value = true
+    }
+
+    /**
+     * Refresh [minimizedPaneIds] from a server-pushed UI-settings blob.
+     *
+     * Called by [WindowSocket] when a `UiSettings` envelope arrives (on
+     * connect and on every settings write, including web minimize/restore,
+     * which merge `LAYOUT_STATE` through the same broadcast path).
+     *
+     * @param settings the complete UI-settings JSON object.
+     */
+    fun updateUiSettings(settings: JsonObject) {
+        _minimizedPaneIds.value = parseMinimizedPaneIds(settings)
+    }
+
+    /**
+     * Extracts the set of minimized pane ids from a UI-settings blob by
+     * reading the toolkit's `LAYOUT_STATE` entry's
+     * `geometryByTab[tab][pane].isMinimized` flags.
+     *
+     * The `LAYOUT_STATE` value normally arrives as a JSON-encoded *string*
+     * (the toolkit persister writes a stringified blob into the flat-KV);
+     * some seed paths inline it as an object. Both shapes are handled, and
+     * any malformed/missing data degrades to an empty set.
+     *
+     * @param settings the UI-settings JSON object.
+     * @return ids of every pane whose `isMinimized` flag is set.
+     */
+    private fun parseMinimizedPaneIds(settings: JsonObject): Set<String> {
+        val raw = settings[PersistKeys.LAYOUT_STATE] ?: return emptySet()
+        val layout: JsonObject = when {
+            raw is JsonObject -> raw
+            raw is JsonPrimitive && raw.isString ->
+                runCatching { layoutJson.parseToJsonElement(raw.content).jsonObject }.getOrNull()
+                    ?: return emptySet()
+            else -> return emptySet()
+        }
+        val geometryByTab = (layout["geometryByTab"] as? JsonObject) ?: return emptySet()
+        val minimized = mutableSetOf<String>()
+        for ((_, panesEl) in geometryByTab) {
+            val panes = panesEl as? JsonObject ?: continue
+            for ((paneId, geomEl) in panes) {
+                val geom = geomEl as? JsonObject ?: continue
+                val isMin = (geom["isMinimized"] as? JsonPrimitive)?.booleanOrNull ?: false
+                if (isMin) minimized.add(paneId)
+            }
+        }
+        return minimized
+    }
+
+    private companion object {
+        /** Lenient parser for the embedded `LAYOUT_STATE` blob. */
+        private val layoutJson = Json { ignoreUnknownKeys = true }
     }
 }

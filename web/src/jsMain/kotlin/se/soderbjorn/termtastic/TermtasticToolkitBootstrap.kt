@@ -12,8 +12,9 @@
  *   - app-specific pane action buttons (worktree, reformat, copy-path)
  *     via [termtasticPaneActions]
  *   - app-specific topbar trailing actions (settings, about, debug)
- *   - the Claude usage bar (in `bottomBarLeading`) and a connection-state
- *     dot (in `bottomBarTrailing`)
+ *   - the app logo in the left-sidebar header (`sidebarHeader`) and the
+ *     Claude usage rows in its footer (`sidebarFooter`); news/updates
+ *     live behind the pulsing top-bar bell action
  *
  * Pane geometry is toolkit-owned post-migration: drag/resize/maximize
  * gestures persist as `LAYOUT_STATE` blobs through the
@@ -50,6 +51,15 @@ import se.soderbjorn.darkness.web.hotkey.installCheatsheetHotkey
 /** Info "i in a circle" — opens the About dialog. */
 private const val ICON_ABOUT =
     """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>"""
+
+/**
+ * Bell — opens the combined "News & Updates" screen. Carries the `tt-news-topbar`
+ * marker class so CSS can (a) pulse it in the warning colour and (b) show/hide
+ * its toolbar button via `:has()` keyed off `document.body[data-tt-news]` (see
+ * `styles.css` and [refreshNewsTopbarIcon]).
+ */
+private const val ICON_NEWS =
+    """<svg class="tt-news-topbar" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>"""
 
 /** Material Symbols "content_copy" — file-browser path-copy action. */
 private const val PA_ICON_COPY =
@@ -225,7 +235,7 @@ fun termtasticPaneActions(paneId: String): List<PaneAction> {
     if (contentKind == "terminal" && sessionId != null) {
         actions += PaneAction(
             iconHtml = PA_ICON_REFORMAT,
-            tooltip = "Reformat",
+            tooltip = "Reflow",
             handler = {
                 val entry = terminals[paneId] ?: return@PaneAction
                 forceReassert(entry)
@@ -345,6 +355,28 @@ private fun buildAboutTopbarAction(): TopbarAction = TopbarAction(
 )
 
 /**
+ * Builds the "News & Updates" trailing topbar action — a bell that opens the
+ * combined [showNewsDialog] screen. Sits immediately right of the About action.
+ *
+ * The button stays in the DOM at all times; CSS hides it until there is content
+ * to show (an available update or unread news), driven by [refreshNewsTopbarIcon]
+ * toggling `document.body[data-tt-news]`. The bell pulses in the warning colour
+ * via the `tt-news-topbar` marker class on its SVG. Replaces the former
+ * sidebar-footer news/update pills, matching the mobile toolbar bell.
+ *
+ * @return the bell topbar action; its click opens the screen using the shared
+ *   [newsUpdatesViewModel]'s current state (a no-op before the checker starts).
+ */
+private fun buildNewsTopbarAction(): TopbarAction = TopbarAction(
+    id = "tt-topbar-news",
+    iconHtml = ICON_NEWS,
+    label = "News & updates",
+    onActivate = {
+        newsUpdatesViewModel?.let { showNewsDialog(it, it.stateFlow.value) }
+    },
+)
+
+/**
  * Apply a Working / Waiting / Clear pane-state override to the
  * currently-focused terminal pane. Invoked from the macOS Debug menu
  * (Electron) and from `window.__ttDebugSetPaneState` (browser console).
@@ -362,63 +394,99 @@ fun applyDebugPaneStateOverride(mode: String) {
 }
 
 /* -------------------------------------------------------------------- */
-/* Bottom-bar slots — Claude usage bar in the leading slot, connection  */
-/* status dot in the trailing slot.                                     */
+/* Left-sidebar header / footer slots — the app logo rides at the top   */
+/* of the sessions list, and the Claude usage rows sit pinned at the     */
+/* bottom. The toolkit bottom bar is disabled                           */
+/* (`showBottomBar = false`), so there is no bottom-bar slot to fill.    */
 /* -------------------------------------------------------------------- */
 
 /**
- * Builds the Claude usage bar element for the toolkit's bottom-bar
- * leading slot.
- *
- * Invoked by `mountAppShell` on every shell rerender (tab switch,
- * sidebar toggle, theme apply, geometry change …) because
- * `AppShellMount.rerender()` clears the bottom-bar slot via
- * `bottomSlot.innerHTML = ""` and rebuilds it from scratch. That means
- * the previous footer is detached on every rerender, so the original
- * `<footer id="claude-usage-bar">` from `index.html` is only good for
- * the very first mount — after that, looking it up by id returns
- * `null` and the leading slot stays empty forever, with the cached
- * `usageBar` reference dangling.
- *
- * Build a fresh element each time, refresh the [usageBar] cache so
- * subsequent [updateClaudeUsageBadge] writes land in the newly-mounted
- * footer, and immediately repaint the last-known `claudeUsage` from
- * [appVm] state so a rerender doesn't blank the bar for up to 10
- * minutes (the next `/usage` poll interval).
+ * Cached app-logo element for the sidebar header slot. Built once and
+ * re-served on every rerender so the toolkit re-parents the same element
+ * (preserving the `#app-logo-dot` that [updateStateIndicators] repaints in
+ * place) instead of orphaning a freshly-built one.
  */
-private fun buildClaudeUsageBarLeading(): HTMLElement? {
-    val fresh = document.createElement("footer") as HTMLElement
-    fresh.id = "claude-usage-bar"
-    fresh.className = "claude-usage-bar claude-usage-bar-empty"
-    usageBar = fresh
+private var sidebarLogoEl: HTMLElement? = null
+
+/**
+ * Cached sidebar-footer element (Claude usage rows).
+ * Cached for the same reason as [sidebarLogoEl]: the persistent [usageBar]
+ * (addressed by id from `ClaudeUsageBar`) must survive toolkit rerenders, which
+ * it does when the toolkit re-parents one stable element rather than rebuilding
+ * it each time.
+ */
+private var sidebarFooterEl: HTMLElement? = null
+
+/**
+ * Builds (once) the app logo — "Termtastic" wordmark + work-state dot — for
+ * the toolkit's `sidebarHeader` slot at the top of the sessions list.
+ *
+ * Invoked by `mountAppShell` on every shell rerender, but returns the cached
+ * element after the first build so the `#app-logo-dot` that
+ * [updateStateIndicators] mutates in place is never discarded. The dot is
+ * painted from the current session-state snapshot at construction time via
+ * [applyLogoDotState] (the element isn't attached yet, so a `getElementById`
+ * repaint would miss it).
+ *
+ * @return the persistent logo element for the sidebar header.
+ * @see applyLogoDotState
+ */
+private fun buildSidebarLogo(): HTMLElement {
+    sidebarLogoEl?.let { return it }
+    val logo = document.createElement("div") as HTMLElement
+    logo.id = "app-logo"
+    logo.className = "app-logo"
+    logo.setAttribute("aria-hidden", "true")
+    val row = document.createElement("div") as HTMLElement
+    row.className = "app-logo-row"
+    val wordmark = document.createElement("span") as HTMLElement
+    wordmark.className = "app-logo-wordmark"
+    wordmark.textContent = "Termtastic"
+    val dot = document.createElement("span") as HTMLElement
+    dot.id = "app-logo-dot"
+    dot.className = "app-logo-dot"
+    applyLogoDotState(dot, currentSessionStates())
+    row.appendChild(wordmark)
+    row.appendChild(dot)
+    logo.appendChild(row)
+    sidebarLogoEl = logo
+    return logo
+}
+
+/**
+ * Builds (once) the sidebar footer for the toolkit's `sidebarFooter` slot: the
+ * Claude usage rows. (News and updates now live behind the pulsing top-bar bell
+ * — see [buildNewsTopbarAction] — not a footer pill.)
+ *
+ * The Claude usage bar element keeps its `claude-usage-bar` id and is cached
+ * into [usageBar] so subsequent [updateClaudeUsageBadge] writes land here; the
+ * last-known `claudeUsage` from [appVm] is repainted immediately so the rows
+ * aren't blank until the next `/usage` poll.
+ *
+ * Returns the cached element after the first build so the persistent usage bar
+ * survives toolkit rerenders.
+ *
+ * @return the persistent sidebar footer element.
+ */
+private fun buildSidebarFooter(): HTMLElement {
+    sidebarFooterEl?.let { return it }
+    val footer = document.createElement("div") as HTMLElement
+    footer.className = "tt-sidebar-footer"
+
+    val usage = document.createElement("div") as HTMLElement
+    usage.id = "claude-usage-bar"
+    usage.className = "claude-usage-bar claude-usage-bar-empty"
+    usageBar = usage
     val last = appVm.stateFlow.value.claudeUsage
     if (last != null) {
         val json = windowJson.encodeToString(WindowEnvelope.ClaudeUsage(last))
         val dyn = js("JSON.parse(json)")
         updateClaudeUsageBadge(dyn.usage)
     }
-    return fresh
-}
+    footer.appendChild(usage)
 
-/**
- * Returns an empty placeholder for the bottom-bar trailing slot.
- *
- * Termtastic's lower-right indicator is the AppLogo dot
- * (`#app-logo-dot` in `index.html`), driven by [updateAppLogoState] off
- * aggregated session work/wait state — that's the single source of
- * truth for the corner status dot. The trailing slot used to host a
- * second connection-status dot, but two dots stacked in the same
- * corner read as a duplicate (reported by @soderbjorn).
- *
- * The slot is still occupied by an (empty) span so the toolkit's
- * default `spec.title` fallback doesn't kick in and re-introduce the
- * small "Termtastic" wordmark behind the AppLogo overlay.
- */
-private fun buildConnectionStatusTrailing(): HTMLElement {
-    val wrap = document.createElement("span") as HTMLElement
-    wrap.className = "tt-connection-status"
-    wrap.style.display = "inline-flex"
-    return wrap
+    sidebarFooterEl = footer
+    return footer
 }
 
 /* -------------------------------------------------------------------- */
@@ -627,10 +695,19 @@ fun bootViaToolkitShell(root: HTMLElement) {
             // tab-row aggregate is rendered there.
             tabTrailingBadge = { tabId -> buildTabStatusBadge(tabId) },
             extraTopbarTrailing = buildList {
+                add(buildNewsTopbarAction())
                 add(buildAboutTopbarAction())
             },
-            bottomBarLeading = { buildClaudeUsageBarLeading() },
-            bottomBarTrailing = { buildConnectionStatusTrailing() },
+            // App logo at the top of the left (sessions) sidebar and the
+            // Claude usage rows pinned at its bottom.
+            sidebarHeader = { buildSidebarLogo() },
+            sidebarFooter = { buildSidebarFooter() },
+            // No bottom status bar: termtastic's only footer content (the
+            // Claude usage rows, and the work-state dot in the AppLogo) lives
+            // in the left-sidebar header/footer now, so the toolkit's bottom
+            // bar would just be an empty strip. Opt out so the app frame ends
+            // at the panes.
+            showBottomBar = false,
             settingsHost = termtasticThemeHost,
             // Opt-in to the toolkit's App Settings sidebar slot. Adds
             // the gear icon to the trailing topbar cluster (right of
@@ -664,6 +741,10 @@ fun bootViaToolkitShell(root: HTMLElement) {
             // "Auto re-tile on membership change" path.
             onGeometryChanged = { _ ->
                 for (entry in terminals.values) {
+                    // Honour the per-pane "stop automatic reflow" setting:
+                    // panes with `autoReflow == false` are frozen, so a
+                    // geometry change must not reassert their PTY size.
+                    if (!entry.autoReflow) continue
                     val parent = (entry.term.asDynamic().element as? HTMLElement)?.offsetParent
                     if (parent != null) {
                         try { forceReassert(entry) } catch (_: Throwable) {}
@@ -687,4 +768,10 @@ fun bootViaToolkitShell(root: HTMLElement) {
         ),
         scope = GlobalScope,
     )
+
+    // Install the reformat-button hover popup ("Automatic reformat (this
+    // window)" / "(future windows)"). Uses document-level event delegation
+    // so it survives the toolkit's chrome rebuilds without per-render
+    // re-wiring — see [installReformatHoverPopup].
+    installReformatHoverPopup()
 }

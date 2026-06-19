@@ -1,16 +1,24 @@
 /**
  * Claude API usage bar component for the Termtastic web frontend.
  *
- * Renders a horizontal status bar showing Claude Code session and weekly usage
- * percentages, with color-coded severity indicators (ok/warn/critical) and
- * a refresh button. The bar is updated whenever a [WindowEnvelope.ClaudeUsage]
- * envelope arrives from the server via [connectWindow].
+ * Renders a compact vertical stack of Claude Code usage rows — one per metric
+ * (Session / Week / Sonnet) — for the narrow left-sidebar footer. Each row is
+ * a label, a thin severity-coloured progress bar, and the percentage, kept to
+ * a single tight line. Hovering anywhere over the bar reveals one consolidated
+ * popup ([buildUsagePopupHtml]) that lays out every metric together with its
+ * reset limit and the "updated" timestamp — replacing the old per-row native
+ * `title` tooltips, which could only show one metric at a time. A small header
+ * row carries the "Claude usage" title and a refresh button. The stack is
+ * updated whenever a [WindowEnvelope.ClaudeUsage] envelope arrives from the
+ * server via [connectWindow].
  *
  * @see updateClaudeUsageBadge
  * @see WindowConnection
  */
 package se.soderbjorn.termtastic
 
+import kotlinx.browser.document
+import kotlinx.browser.window
 import org.w3c.dom.HTMLElement
 
 /**
@@ -96,17 +104,138 @@ private fun formatResetTime(raw: String): String {
 }
 
 /**
- * Builds an HTML snippet for a single usage metric (e.g. "Session 42%").
+ * Builds an HTML snippet for a single usage row: a label, a thin
+ * severity-coloured fill bar, and the percentage. Reset limits and the
+ * "updated" timestamp are no longer folded into a per-row `title` tooltip —
+ * they live in the consolidated hover popup ([buildUsagePopupHtml]) so the
+ * narrow row stays a single tight line.
  *
  * @param label the metric label (e.g. "Session", "Week", "Sonnet")
- * @param pct the usage percentage (0-100)
- * @param resetTime optional raw reset time string to format and display
- * @return an HTML string containing the styled usage item
+ * @param pct the usage percentage (0-100); also drives the fill-bar width
+ * @return an HTML string containing the styled usage row
  */
-private fun usageItem(label: String, pct: Int, resetTime: String = ""): String {
-    val reset = formatResetTime(resetTime)
-    val resetHtml = if (reset.isNotBlank()) """ <span class="usage-reset">$reset</span>""" else ""
-    return """<span class="usage-item">$label <span class="usage-pct ${pctClass(pct)}">${pct}%</span>$resetHtml</span>"""
+private fun usageRow(label: String, pct: Int): String {
+    val cls = pctClass(pct)
+    val width = pct.coerceIn(0, 100)
+    return """<div class="usage-row">""" +
+        """<span class="usage-label">$label</span>""" +
+        """<span class="usage-bar"><span class="usage-bar-fill $cls" style="width:${width}%"></span></span>""" +
+        """<span class="usage-pct $cls">${pct}%</span>""" +
+        """</div>"""
+}
+
+/**
+ * One row of the consolidated hover popup: label, a wider severity-coloured
+ * fill bar, the percentage, and the metric's reset limit (when known).
+ *
+ * @param label the metric label (e.g. "Session", "Week", "Sonnet")
+ * @param pct the usage percentage (0-100); drives the fill width + severity
+ * @param resetTime raw reset time string from the Claude API; rendered as a
+ *   "resets …" cell when parseable, otherwise left blank
+ * @return an HTML string of `.usage-popup-*` cells for the popup grid
+ * @see buildUsagePopupHtml
+ */
+private fun usagePopupRow(label: String, pct: Int, resetTime: String): String {
+    val cls = pctClass(pct)
+    val width = pct.coerceIn(0, 100)
+    val reset = formatResetTime(resetTime).removeSurrounding("(", ")")
+    val resetCell = if (reset.isNotBlank()) reset else "&ndash;"
+    return """<span class="usage-popup-label">$label</span>""" +
+        """<span class="usage-popup-bar"><span class="usage-popup-bar-fill $cls" style="width:${width}%"></span></span>""" +
+        """<span class="usage-popup-pct $cls">${pct}%</span>""" +
+        """<span class="usage-popup-reset">$resetCell</span>"""
+}
+
+/**
+ * Builds the inner HTML for the consolidated usage hover popup: a title, a
+ * four-column grid with one [usagePopupRow] per metric (Session / Week /
+ * Sonnet) showing its bar, percentage and reset limit, and an "Updated …"
+ * footer. Shown by [ensureUsagePopup]'s hover wiring whenever the pointer is
+ * over the usage bar.
+ *
+ * @param sessionPct session-window usage percentage
+ * @param sessionReset raw session reset-time string
+ * @param weeklyAllPct weekly all-models usage percentage
+ * @param weeklyAllReset raw weekly all-models reset-time string
+ * @param weeklySonnetPct weekly Sonnet usage percentage
+ * @param fetchedAt ISO-8601 fetch timestamp, rendered in the footer
+ * @return the popup's inner HTML string
+ */
+private fun buildUsagePopupHtml(
+    sessionPct: Int,
+    sessionReset: String,
+    weeklyAllPct: Int,
+    weeklyAllReset: String,
+    weeklySonnetPct: Int,
+    fetchedAt: String,
+): String {
+    val grid = """<div class="usage-popup-grid">""" +
+        usagePopupRow("Session", sessionPct, sessionReset) +
+        usagePopupRow("Week", weeklyAllPct, weeklyAllReset) +
+        // The Sonnet weekly limit shares the weekly reset window, so it has no
+        // separate reset time of its own — leave its reset cell blank.
+        usagePopupRow("Sonnet", weeklySonnetPct, "") +
+        """</div>"""
+    val updated = formatFetchedAt(fetchedAt).removeSurrounding("(", ")")
+    val foot = if (updated.isNotBlank()) {
+        """<div class="usage-popup-foot">${updated.replaceFirstChar { it.uppercase() }}</div>"""
+    } else ""
+    return """<div class="usage-popup-title">Claude Code usage</div>$grid$foot"""
+}
+
+/**
+ * Lazily-created singleton popup element, parented to `document.body` rather
+ * than the usage bar itself: the toolkit's `.dt-sidebar` sets
+ * `overflow: hidden`, which would clip a popup anchored inside the sidebar
+ * footer. A body-level fixed-position element escapes that clip.
+ */
+private var usagePopupEl: HTMLElement? = null
+
+/** Guards one-time attachment of the hover listeners on the usage bar. */
+private var usagePopupWired = false
+
+/**
+ * Returns the singleton usage popup element, creating it (and wiring the
+ * show/hide-on-hover listeners on [bar]) on first call.
+ *
+ * The listeners are attached once (guarded by [usagePopupWired]) so repeated
+ * [updateClaudeUsageBadge] calls — one per `/usage` poll — don't stack
+ * duplicate handlers. On `mouseenter` the popup is positioned just above the
+ * bar (clamped into the viewport) and shown; on `mouseleave` it is hidden. A
+ * blank popup (no data yet) suppresses the show.
+ *
+ * @param bar the cached usage-bar element ([usageBar]) that owns the hover.
+ * @return the popup element, ready to have its `innerHTML` set.
+ */
+private fun ensureUsagePopup(bar: HTMLElement): HTMLElement {
+    usagePopupEl?.let { return it }
+    val el = document.createElement("div") as HTMLElement
+    el.className = "usage-popup"
+    el.style.display = "none"
+    document.body?.appendChild(el)
+    usagePopupEl = el
+
+    if (!usagePopupWired) {
+        usagePopupWired = true
+        bar.addEventListener("mouseenter", {
+            val p = usagePopupEl ?: return@addEventListener
+            if (p.innerHTML.isBlank()) return@addEventListener
+            // Show first so offsetWidth/offsetHeight are measurable, then
+            // place above the bar (it sits at the window's bottom-left),
+            // clamped so the popup never runs off the viewport edges.
+            p.style.display = "block"
+            val rect = bar.getBoundingClientRect()
+            val maxLeft = (window.innerWidth - p.offsetWidth - 8).coerceAtLeast(8)
+            val left = rect.left.toInt().coerceIn(8, maxLeft)
+            val top = (rect.top.toInt() - p.offsetHeight - 6).coerceAtLeast(8)
+            p.style.left = "${left}px"
+            p.style.top = "${top}px"
+        })
+        bar.addEventListener("mouseleave", {
+            usagePopupEl?.style?.display = "none"
+        })
+    }
+    return el
 }
 
 /**
@@ -133,6 +262,10 @@ fun updateClaudeUsageBadge(usage: dynamic) {
         bar.className = "claude-usage-bar claude-usage-bar-empty"
         bar.style.display = ""
         divider?.style?.display = "none"
+        // Drop any stale popup content so a hover during the empty state
+        // shows nothing (ensureUsagePopup's mouseenter suppresses a blank
+        // popup) and hide it if it happened to be open.
+        usagePopupEl?.let { it.innerHTML = ""; it.style.display = "none" }
         return
     }
     val sessionPct = (usage.sessionPercent as? Int) ?: 0
@@ -142,19 +275,32 @@ fun updateClaudeUsageBadge(usage: dynamic) {
     val weeklySonnetPct = (usage.weeklySonnetPercent as? Int) ?: 0
     val fetchedAt = (usage.fetchedAt as? String) ?: ""
 
-    val ts = formatFetchedAt(fetchedAt)
-
-    var html = """<span class="usage-item" style="font-weight:600;">Claude Code usage:</span>"""
-    html += usageItem("Session", sessionPct, sessionReset)
-    html += usageItem("Week", weeklyAllPct, weeklyAllReset)
-    html += usageItem("Sonnet", weeklySonnetPct)
-    if (ts.isNotBlank()) {
-        html += """<span class="usage-item">$ts</span>"""
-    }
-    html += """<button class="usage-refresh-btn" title="Refresh usage">&#x21bb;</button>"""
+    // Header (title + refresh) then one compact row per metric. Reset limits
+    // and the "updated" timestamp are not printed inline — they live in the
+    // consolidated hover popup built below.
+    var html = """<div class="usage-header">""" +
+        """<span class="usage-title">Claude usage</span>""" +
+        """<button class="usage-refresh-btn" title="Refresh usage">&#x21bb;</button>""" +
+        """</div>"""
+    html += usageRow("Session", sessionPct)
+    html += usageRow("Week", weeklyAllPct)
+    html += usageRow("Sonnet", weeklySonnetPct)
 
     bar.innerHTML = html
     bar.querySelector(".usage-refresh-btn")?.addEventListener("click", { launchCmd(WindowCommand.RefreshUsage) })
+
+    // Consolidated hover popup: every metric + its reset limit + the updated
+    // timestamp in one nicely-formatted card, shown whenever the pointer is
+    // over the bar. Rebuilt on each envelope; the hover listeners are wired
+    // once by ensureUsagePopup.
+    ensureUsagePopup(bar).innerHTML = buildUsagePopupHtml(
+        sessionPct = sessionPct,
+        sessionReset = sessionReset,
+        weeklyAllPct = weeklyAllPct,
+        weeklyAllReset = weeklyAllReset,
+        weeklySonnetPct = weeklySonnetPct,
+        fetchedAt = fetchedAt,
+    )
     // Reset the class list but preserve the user's collapsed preference so a
     // refresh envelope doesn't silently re-expand a bar the user hid.
     bar.className = "claude-usage-bar"

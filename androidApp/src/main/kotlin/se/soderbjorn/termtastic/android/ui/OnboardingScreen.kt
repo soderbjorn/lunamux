@@ -13,9 +13,9 @@
  * theme, so the walkthrough matches the rest of the (pre-connection) UI rather
  * than the bare Material accent.
  *
- * Shown by [TermtasticApp] exactly once — before the host list — when
- * [se.soderbjorn.termtastic.android.data.OnboardingPreferences] reports the
- * walkthrough has not yet been completed.
+ * Shown by [TermtasticApp] exactly once — before the host list — when the shared
+ * [se.soderbjorn.termtastic.client.storage.LocalRepository]'s `onboardingSeen`
+ * flag is still false.
  *
  * @see TermtasticApp
  * @see OnboardingViewModel

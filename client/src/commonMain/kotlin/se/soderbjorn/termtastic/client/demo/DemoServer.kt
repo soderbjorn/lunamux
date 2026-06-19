@@ -457,6 +457,9 @@ class DemoServer internal constructor(
             is WindowCommand.SetTerminalFontSize -> updateContent<TerminalContent>(command.paneId) {
                 it.copy(fontSize = command.size)
             }
+            is WindowCommand.SetTerminalAutoReflow -> updateContent<TerminalContent>(command.paneId) {
+                it.copy(autoReflow = command.enabled)
+            }
             is WindowCommand.SetFileBrowserLeftWidth -> updateContent<FileBrowserContent>(command.paneId) {
                 it.copy(leftColumnWidthPx = command.px)
             }
