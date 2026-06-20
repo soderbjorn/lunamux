@@ -16,9 +16,6 @@ struct HostsView: View {
     @State private var editTarget: HostEntryLocal?
     @State private var showAddSheet = false
     @State private var deleteTarget: HostEntryLocal?
-    /// Shared news/update checker — observed so the toolbar bell appears (and
-    /// disappears) reactively when there is news or an available update.
-    @State private var newsVM = NewsUpdatesViewModel.shared
 
     var body: some View {
         baseView
@@ -53,11 +50,7 @@ struct HostsView: View {
         .navigationTitle("Hosts")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NewsBellButton(
-                    action: onOpenNews,
-                    shouldPulse: newsVM.hasNews,
-                    muted: !newsVM.hasContent
-                )
+                NewsBellButton(action: onOpenNews)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showAddSheet = true } label: {

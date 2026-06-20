@@ -40,10 +40,6 @@ struct TreeView: View {
     @State private var renameText = ""
     @State private var closeTarget: CloseTarget?
 
-    /// Shared news/update checker — observed so the toolbar bell appears (and
-    /// disappears) reactively when there is news or an available update.
-    @State private var newsVM = NewsUpdatesViewModel.shared
-
     var body: some View {
         content
             .navigationTitle("Sessions")
@@ -92,11 +88,7 @@ struct TreeView: View {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            NewsBellButton(
-                action: onOpenNews,
-                shouldPulse: newsVM.hasNews,
-                muted: !newsVM.hasContent
-            )
+            NewsBellButton(action: onOpenNews)
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
