@@ -223,15 +223,16 @@ private fun buildDiffHtml(hunks: List<DiffHunk>, palette: se.soderbjorn.darkness
                     DiffLineType.Deletion -> "-"
                     DiffLineType.Context  -> " "
                 }
-                val escaped = line.content
-                    .replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
+                // line.content already arrives as syntax-highlighted, HTML-escaped
+                // markup from the server (see SyntaxHighlighter on clientServer). It
+                // must be emitted verbatim — re-escaping here would double-escape the
+                // markup and surface raw <span>/&quot; text in the WebView (matches the
+                // iOS GitDiffView, which also inserts line.content as-is).
                 append("<tr class=\"$cls\">")
                 append("<td class=\"ln\">$oldNo</td>")
                 append("<td class=\"ln\">$newNo</td>")
                 append("<td class=\"pfx\">$prefix</td>")
-                append("<td class=\"code\">$escaped</td>")
+                append("<td class=\"code\">${line.content}</td>")
                 append("</tr>")
             }
             append("</table>")
