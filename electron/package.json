@@ -1,6 +1,6 @@
 {
   "name": "termtastic-electron",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Electron desktop wrapper for the Termtastic web app",
   "author": "Robert Söderbjörn",
   "main": "main.js",
@@ -40,8 +40,8 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
-      "bundleVersion": "2",
-      "bundleShortVersion": "1.0",
+      "bundleVersion": "3",
+      "bundleShortVersion": "1.1.0",
       "identity": "Robert Söderbjörn (CCJP95ZXG4)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
