@@ -75,37 +75,46 @@ fun showQuitConfirmationDialog(onResult: (QuitConfirmationResult) -> Unit) {
         "background and will be available the next time you open Termtastic."
     card.appendChild(message)
 
-    val killRow = document.createElement("div") as HTMLDivElement
-    // Inline-styled here rather than added to the shared toolkit CSS
-    // because this is the only place a checkbox-in-modal is used.
-    killRow.style.display = "flex"
-    killRow.style.alignItems = "flex-start"
-    killRow.style.asDynamic().gap = "8px"
-    killRow.style.margin = "0 0 16px 0"
-    killRow.style.fontSize = "13px"
-    killRow.style.lineHeight = "1.45"
+    // The "also stop the background server" opt-in is only meaningful when a
+    // real Termtastic server backs the client. In demo mode the whole client
+    // runs in-process with no server to stop, so the checkbox is omitted and
+    // [killServer] stays false.
+    val killCheckbox: HTMLInputElement? = if (isDemoClient) {
+        null
+    } else {
+        val killRow = document.createElement("div") as HTMLDivElement
+        // Inline-styled here rather than added to the shared toolkit CSS
+        // because this is the only place a checkbox-in-modal is used.
+        killRow.style.display = "flex"
+        killRow.style.alignItems = "flex-start"
+        killRow.style.asDynamic().gap = "8px"
+        killRow.style.margin = "0 0 16px 0"
+        killRow.style.fontSize = "13px"
+        killRow.style.lineHeight = "1.45"
 
-    val killCheckbox = document.createElement("input") as HTMLInputElement
-    killCheckbox.type = "checkbox"
-    killCheckbox.id = "quit-confirmation-kill-server"
-    killCheckbox.style.marginTop = "3px"
+        val checkbox = document.createElement("input") as HTMLInputElement
+        checkbox.type = "checkbox"
+        checkbox.id = "quit-confirmation-kill-server"
+        checkbox.style.marginTop = "3px"
 
-    val killLabel = document.createElement("label") as HTMLLabelElement
-    killLabel.htmlFor = "quit-confirmation-kill-server"
-    killLabel.style.cursor = "pointer"
-    val labelStrong = document.createElement("strong") as HTMLElement
-    labelStrong.textContent = "Also stop the background server"
-    killLabel.appendChild(labelStrong)
-    val labelHint = document.createElement("div") as HTMLElement
-    labelHint.style.opacity = "0.75"
-    labelHint.style.marginTop = "2px"
-    labelHint.textContent = "Only check this if you want to install a new version " +
-        "of Termtastic. All running terminal sessions will be terminated."
-    killLabel.appendChild(labelHint)
+        val killLabel = document.createElement("label") as HTMLLabelElement
+        killLabel.htmlFor = "quit-confirmation-kill-server"
+        killLabel.style.cursor = "pointer"
+        val labelStrong = document.createElement("strong") as HTMLElement
+        labelStrong.textContent = "Also stop the background server"
+        killLabel.appendChild(labelStrong)
+        val labelHint = document.createElement("div") as HTMLElement
+        labelHint.style.opacity = "0.75"
+        labelHint.style.marginTop = "2px"
+        labelHint.textContent = "Only check this if you want to install a new version " +
+            "of Termtastic. All running terminal sessions will be terminated."
+        killLabel.appendChild(labelHint)
 
-    killRow.appendChild(killCheckbox)
-    killRow.appendChild(killLabel)
-    card.appendChild(killRow)
+        killRow.appendChild(checkbox)
+        killRow.appendChild(killLabel)
+        card.appendChild(killRow)
+        checkbox
+    }
 
     val buttons = document.createElement("div") as HTMLElement
     buttons.className = "dt-modal-buttons"
@@ -137,7 +146,7 @@ fun showQuitConfirmationDialog(onResult: (QuitConfirmationResult) -> Unit) {
 
     cancelBtn.addEventListener("click", { close(QuitConfirmationResult(confirmed = false, killServer = false)) })
     quitBtn.addEventListener("click", {
-        close(QuitConfirmationResult(confirmed = true, killServer = killCheckbox.checked))
+        close(QuitConfirmationResult(confirmed = true, killServer = killCheckbox?.checked == true))
     })
     backdrop.addEventListener("click", { ev ->
         if (ev.target === backdrop) close(QuitConfirmationResult(confirmed = false, killServer = false))
@@ -146,7 +155,7 @@ fun showQuitConfirmationDialog(onResult: (QuitConfirmationResult) -> Unit) {
         val k = ev as KeyboardEvent
         if (k.key == "Escape") close(QuitConfirmationResult(confirmed = false, killServer = false))
         else if (k.key == "Enter" && document.activeElement === quitBtn) {
-            close(QuitConfirmationResult(confirmed = true, killServer = killCheckbox.checked))
+            close(QuitConfirmationResult(confirmed = true, killServer = killCheckbox?.checked == true))
         }
     }
     document.addEventListener("keydown", keyHandler)
