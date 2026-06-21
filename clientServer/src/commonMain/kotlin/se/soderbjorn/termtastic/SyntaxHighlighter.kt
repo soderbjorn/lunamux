@@ -132,6 +132,26 @@ object SyntaxHighlighter {
         "val", "var", "vararg", "when", "where", "while",
     ).joinToString("|")
 
+    /**
+     * Shared trailing patterns for the C-family code tokenisers (JS / TS /
+     * Kotlin) that light up the remaining syntax slots. Appended *after* the
+     * comment / string / keyword / number patterns so those higher-priority
+     * kinds win; ordering within this list is load-bearing:
+     *  - **constant** (ALL_CAPS, ≥2 chars) before **type** (TitleCase), so
+     *    `MAX_VALUE` reads as a constant and `Map` as a type;
+     *  - **type** / **constant** before **function** (identifier before `(`),
+     *    so a constructor call `Foo(` reads as a type rather than a function
+     *    while a plain `foo(` reads as a function;
+     *  - **operator** last, with multi-char operators ahead of single-char
+     *    ones so `&&` / `->` / `=>` aren't split.
+     */
+    private val CODE_TAIL_PATTERNS = listOf(
+        TokenPattern("""\b[A-Z][A-Z0-9_]+\b""", "hl-constant"),
+        TokenPattern("""\b[A-Z][a-zA-Z0-9_]*\b""", "hl-type"),
+        TokenPattern("""\b[a-zA-Z_]\w*(?=\s*\()""", "hl-function"),
+        TokenPattern("""(?:&&|\|\||\+\+|--|->|=>|::|\.\.|\?\.|\?:|[-+*/%=&|!<>^~]=?|[?:])""", "hl-operator"),
+    )
+
     private val JS_PATTERNS = listOf(
         TokenPattern("""//[^\n]*""", "hl-comment"),
         TokenPattern("""/\*[\s\S]*?\*/""", "hl-comment"),
@@ -142,7 +162,7 @@ object SyntaxHighlighter {
         TokenPattern("""\b(?:true|false|null|undefined|NaN|Infinity)\b""", "hl-keyword"),
         TokenPattern("""\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b""", "hl-number"),
         TokenPattern("""0[xX][0-9a-fA-F]+\b""", "hl-number"),
-    )
+    ) + CODE_TAIL_PATTERNS
 
     private val TS_PATTERNS = listOf(
         TokenPattern("""//[^\n]*""", "hl-comment"),
@@ -154,7 +174,7 @@ object SyntaxHighlighter {
         TokenPattern("""\b(?:true|false|null|undefined|NaN|Infinity)\b""", "hl-keyword"),
         TokenPattern("""\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b""", "hl-number"),
         TokenPattern("""0[xX][0-9a-fA-F]+\b""", "hl-number"),
-    )
+    ) + CODE_TAIL_PATTERNS
 
     private val KOTLIN_PATTERNS = listOf(
         TokenPattern("""//[^\n]*""", "hl-comment"),
@@ -166,7 +186,7 @@ object SyntaxHighlighter {
         TokenPattern("""\b(?:$KOTLIN_KEYWORDS)\b""", "hl-keyword"),
         TokenPattern("""\b\d+(?:\.\d+)?(?:[eEfFLl])?\b""", "hl-number"),
         TokenPattern("""0[xX][0-9a-fA-F]+\b""", "hl-number"),
-    )
+    ) + CODE_TAIL_PATTERNS
 
     private val HTML_PATTERNS = listOf(
         TokenPattern("""<!--[\s\S]*?-->""", "hl-comment"),

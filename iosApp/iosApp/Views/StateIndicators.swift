@@ -37,6 +37,64 @@ struct StateIndicator: View {
     }
 }
 
+/// Per-row status dot, mirroring the web sidebar dot (`.tt-sidebar-dot`) and the
+/// landing page's brand dot (issue #35 follow-up): a small glowing bead whose
+/// colour/motion encodes the session state.
+///  - idle (`nil`) → solid green, no pulse.
+///  - `"working"`  → green, pulsing (breathes between full and ~35% opacity).
+///  - `"waiting"`  → red, pulsing.
+///
+/// Rendered at the LEADING edge of each `TreeView` leaf row (replacing the old
+/// leading pane-type icon, which now sits trailing). A soft `.shadow` glow
+/// surrounds the core bead, echoing the web dot's festive box-shadow halo. The
+/// colours are fixed (not theme tokens) so the states stay distinguishable in
+/// any appearance mode.
+struct StatusDot: View {
+    /// The session state (`"working"`, `"waiting"`, or nil/idle).
+    let state: String?
+    /// Square footprint in points; the core bead is ~44% of it, the rest is
+    /// glow headroom.
+    var box: CGFloat = 16
+
+    /// Fixed dot colours (phosphor green / red), matching the web client.
+    private static let green = Color(red: 124.0 / 255, green: 252.0 / 255, blue: 158.0 / 255)
+    private static let red = Color(red: 255.0 / 255, green: 95.0 / 255, blue: 87.0 / 255)
+
+    /// Drives the repeating breathe; a single flip is enough for
+    /// `repeatForever(autoreverses:)` to oscillate forever. Kept in sync with
+    /// `state` via `.onAppear` / `.onChange` so it tracks state that changes
+    /// while the row is already on screen.
+    @State private var pulse = false
+
+    var body: some View {
+        let pulsing = state == "working" || state == "waiting"
+        let color = state == "waiting" ? Self.red : Self.green
+        // Web pulse cycle is 2.8s for both colours; the autoreversing animation
+        // runs the 1.4s half-cycle each way so red and green breathe at the
+        // same speed.
+        let half = 1.4
+        return Circle()
+            .fill(color)
+            .frame(width: box * 0.44, height: box * 0.44)
+            .shadow(color: color.opacity(0.7), radius: box * 0.26)
+            .frame(width: box, height: box)
+            .opacity(pulsing && pulse ? 0.35 : 1.0)
+            .animation(
+                pulsing
+                    ? .easeInOut(duration: half).repeatForever(autoreverses: true)
+                    : .default,
+                value: pulse
+            )
+            .onAppear { pulse = pulsing }
+            .onChange(of: pulsing) { _, value in pulse = value }
+            .accessibilityLabel(
+                state == "working" ? "Status: working" :
+                state == "waiting" ? "Status: waiting for input" :
+                "Status: idle"
+            )
+    }
+}
+
 /// Warning triangle with an exclamation mark, fading between full and 30%
 /// opacity to flag a session waiting for user input.
 ///

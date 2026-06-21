@@ -7,9 +7,10 @@
  * (list and diff). All destinations are driven by URI-style route parameters
  * for pane IDs, session IDs, and file paths.
  *
- * On connection, fetches the user's [UiSettings] from the server and provides
- * them via [LocalUiSettings] so that all screens can access the selected theme
- * without independent network calls.
+ * On connection, fetches the user's theme config from the server, resolves it
+ * to a flat [se.soderbjorn.darkness.core.ResolvedTheme], and provides it via
+ * [LocalUiSettings] so that all screens can access the selected theme without
+ * independent network calls.
  *
  * Called from [se.soderbjorn.termtastic.android.MainActivity] as the root
  * composable inside the Material theme.
@@ -62,10 +63,11 @@ import se.soderbjorn.termtastic.client.fetchThemeConfig
  * - `file/{paneId}/{relPath}` -- [FileBrowserContentScreen]
  * - `git/{paneId}[/{filePath}]` -- [GitListScreen] / [GitDiffScreen]
  *
- * Fetches [UiSettings] from the server when a client connection is available
- * and provides them via [LocalUiSettings] so all descendant composables
- * (sidebar screens, terminal, diff, file browser) can access the user's
- * selected theme.
+ * Fetches the theme config from the server when a client connection is
+ * available, resolves it for the current appearance, and provides the
+ * resulting [se.soderbjorn.darkness.core.ResolvedTheme] via [LocalUiSettings]
+ * so all descendant composables (sidebar screens, terminal, diff, file
+ * browser) can access the user's selected theme.
  *
  * @param applicationContext the Android application context, forwarded to
  *   [HostsScreen] for repository instantiation.
@@ -113,9 +115,9 @@ fun TermtasticApp(applicationContext: Context) {
 
     // Resolve the active slot for the current system appearance. Re-runs when
     // either the fetched config or the system dark-mode flag changes, so the
-    // provided UiSettings always reflects the correct light/dark theme slot.
+    // provided ResolvedTheme always reflects the correct light/dark theme slot.
     val systemIsDark = isSystemInDarkTheme()
-    val uiSettings = remember(themeConfig, systemIsDark) {
+    val theme = remember(themeConfig, systemIsDark) {
         themeConfig?.resolve(systemIsDark)
     }
 
@@ -137,7 +139,7 @@ fun TermtasticApp(applicationContext: Context) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    CompositionLocalProvider(LocalUiSettings provides uiSettings) {
+    CompositionLocalProvider(LocalUiSettings provides theme) {
         NavHost(
             navController = navController,
             startDestination = "hosts",

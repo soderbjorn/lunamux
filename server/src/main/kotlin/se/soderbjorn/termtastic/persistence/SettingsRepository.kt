@@ -45,8 +45,19 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
+import se.soderbjorn.darkness.core.Appearance
+import se.soderbjorn.darkness.core.DEFAULT_DARK_THEME
+import se.soderbjorn.darkness.core.DEFAULT_LIGHT_THEME
+import se.soderbjorn.darkness.core.PersistKeys
 import se.soderbjorn.darkness.core.SHARED_THEMES_KEYS
+import se.soderbjorn.darkness.core.Theme
+import se.soderbjorn.darkness.core.ThemeSnapshotV2
+import se.soderbjorn.darkness.core.allThemes
+import se.soderbjorn.darkness.core.builtinTheme
+import se.soderbjorn.darkness.core.hexToArgb
 import se.soderbjorn.darkness.core.mergeSharedThemes
 import se.soderbjorn.darkness.store.defaultAppUiSettingsPath
 import se.soderbjorn.darkness.store.defaultSharedThemesPath
@@ -391,8 +402,9 @@ class SettingsRepository(dbFile: File) {
      * overridden by another app's edits.
      *
      * The merged JsonObject is consumed directly by the renderer's
-     * `applyServerUiSettings` via [ThemeSnapshot.fromJsonObject], which
-     * expects nested form for the shared keys.
+     * `applyServerUiSettings`, which expects the v2 theme keys
+     * ([PersistKeys.THEME_V2_CUSTOM] / [PersistKeys.THEME_V2_SELECTION])
+     * for theme state.
      */
     private fun loadUiSettings(): JsonObject {
         val shared = readJsonObject(sharedThemesPath)
@@ -413,6 +425,128 @@ class SettingsRepository(dbFile: File) {
      * @return the merged UI settings as a [JsonObject]
      */
     fun getUiSettings(): JsonObject = _uiSettings.value
+
+    /**
+     * Synthesize the **frozen legacy compat shim** so a PRE-revamp mobile app
+     * (which only understands the old `darkness.themeSnapshot` /
+     * `darkness.uiSettings` wire shape) renders approximately right when it
+     * fetches the current, v2-shaped UI settings.
+     *
+     * Called by [se.soderbjorn.termtastic.uiSettingsRoutes]'s `GET
+     * /api/ui-settings` and by [se.soderbjorn.termtastic.windowRoutes] when it
+     * publishes the `/window` `UiSettings` envelope. The synthesized keys are
+     * MERGED on top of the real (v2) settings object so new apps keep the v2
+     * keys and old apps additionally see the legacy keys.
+     *
+     * The reconstruction reads the two v2 blobs out of [stored] (the merged
+     * settings object): [PersistKeys.THEME_V2_SELECTION] (per-app slot picks +
+     * appearance) and [PersistKeys.THEME_V2_CUSTOM] (shared custom themes). It
+     * builds a [ThemeSnapshotV2] via [ThemeSnapshotV2.fromStrings], resolves the
+     * dark and light slot themes (looked up across built-ins ∪ custom, falling
+     * back to the slot defaults), and hand-writes the legacy-shaped object.
+     *
+     * **This is the ONLY place the legacy wire shape is hand-written; it is a
+     * frozen compatibility shim and must not be "improved" to track v2.**
+     *
+     * The emitted legacy `customSchemes` entry per slot carries the theme's
+     * foreground (`text`) and background (`bg`) `#rrggbb` tokens verbatim and an
+     * `accent.primary.*` override expressed as an ARGB [Long]
+     * ([hexToArgb] of the theme's `accent`). When both slots resolve to the same
+     * theme name a single `customSchemes` entry is emitted.
+     *
+     * @param stored the merged (v2-shaped) settings object to read v2 blobs from
+     * @return a JSON object carrying the two legacy keys
+     *   (`darkness.themeSnapshot`, `darkness.uiSettings`), each a JSON **string**
+     * @see PersistKeys.THEME_SNAPSHOT
+     * @see PersistKeys.UI_SETTINGS
+     */
+    private fun synthesizeLegacyPayload(stored: JsonObject): JsonObject {
+        // Read the two v2 blobs as raw JSON strings (or null when absent).
+        fun rawString(key: String): String? =
+            (stored[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+        val snapshot = ThemeSnapshotV2.fromStrings(
+            selectionJson = rawString(PersistKeys.THEME_V2_SELECTION),
+            customThemesJson = rawString(PersistKeys.THEME_V2_CUSTOM),
+        )
+
+        val catalog = allThemes(snapshot.customThemes)
+        fun resolveSlot(name: String, default: String): Theme =
+            catalog.firstOrNull { it.name == name }
+                ?: builtinTheme(default)
+                ?: catalog.first { it.name == default }
+
+        val darkTheme = resolveSlot(snapshot.darkThemeName, DEFAULT_DARK_THEME)
+        val lightTheme = resolveSlot(snapshot.lightThemeName, DEFAULT_LIGHT_THEME)
+        val darkName = darkTheme.name
+        val lightName = lightTheme.name
+
+        // A single legacy "scheme" derived from a v2 theme: the old shape carried
+        // separate dark/light fg+bg pairs and an ARGB accent override.
+        fun legacyScheme(theme: Theme): JsonObject = buildJsonObject {
+            put("darkFg", JsonPrimitive(theme.text))
+            put("lightFg", JsonPrimitive(theme.text))
+            put("darkBg", JsonPrimitive(theme.bg))
+            put("lightBg", JsonPrimitive(theme.bg))
+            put("overrides", buildJsonObject {
+                put("accent.primary.dark", JsonPrimitive(hexToArgb(theme.accent)))
+                put("accent.primary.light", JsonPrimitive(hexToArgb(theme.accent)))
+            })
+        }
+
+        val customSchemes = buildJsonObject {
+            put(lightName, legacyScheme(lightTheme))
+            // When both slots resolve to the same theme, emit a single entry.
+            if (darkName != lightName) put(darkName, legacyScheme(darkTheme))
+        }
+
+        val themeSnapshotJson = buildJsonObject {
+            put("theme.light", JsonPrimitive(lightName))
+            put("theme.dark", JsonPrimitive(darkName))
+            put("customSchemes", customSchemes)
+        }.toString()
+
+        val uiSettingsJson = buildJsonObject {
+            put("appearance", JsonPrimitive(legacyAppearance(snapshot.appearance)))
+        }.toString()
+
+        return buildJsonObject {
+            put(PersistKeys.THEME_SNAPSHOT, JsonPrimitive(themeSnapshotJson))
+            put(PersistKeys.UI_SETTINGS, JsonPrimitive(uiSettingsJson))
+        }
+    }
+
+    /** Maps the v2 [Appearance] enum to the legacy `appearance` string token. */
+    private fun legacyAppearance(appearance: Appearance): String = when (appearance) {
+        Appearance.Auto -> "Auto"
+        Appearance.Dark -> "Dark"
+        Appearance.Light -> "Light"
+    }
+
+    /**
+     * Return the current UI settings MERGED with the synthesized legacy compat
+     * keys, so the response carries BOTH the v2 keys (new apps) and the
+     * synthesized legacy keys (pre-revamp apps).
+     *
+     * Called by [se.soderbjorn.termtastic.uiSettingsRoutes]'s `GET
+     * /api/ui-settings` and by [se.soderbjorn.termtastic.windowRoutes] when it
+     * builds the `/window` `UiSettings` envelope.
+     *
+     * @return the v2 settings object plus the two synthesized legacy keys
+     * @see synthesizeLegacyPayload
+     */
+    fun getUiSettingsWithLegacy(): JsonObject = withLegacyCompat(_uiSettings.value)
+
+    /**
+     * Merge the synthesized legacy compat keys onto [stored]. v2 keys are kept;
+     * the legacy keys are added on top.
+     *
+     * @param stored a v2-shaped settings object
+     * @return [stored] plus the two synthesized legacy keys
+     * @see synthesizeLegacyPayload
+     */
+    fun withLegacyCompat(stored: JsonObject): JsonObject =
+        JsonObject(stored + synthesizeLegacyPayload(stored))
 
     /**
      * Replace the in-memory UI settings snapshot with [snapshot] without
@@ -463,8 +597,8 @@ class SettingsRepository(dbFile: File) {
         runCatching { writeUiSettingsRaw(appSettingsPath, JsonObject(perAppKeys).toString()) }
             .onFailure { log.warn("Failed to persist per-app UI settings to {}", appSettingsPath, it) }
         // Refresh the in-memory snapshot to reflect the merged shared
-        // contributions. The renderer consumes nested form via
-        // [ThemeSnapshot.fromJsonObject]; no flattening needed.
+        // contributions. The renderer consumes the v2 theme keys directly;
+        // no flattening needed.
         _uiSettings.value = JsonObject(sharedFinal + JsonObject(perAppKeys))
         return _uiSettings.value
     }

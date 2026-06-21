@@ -207,7 +207,7 @@ fun TerminalScreen(
     val scrollPause = remember(sessionId) { ScrollPauseState() }
 
     val terminalPalette = rememberTerminalPalette(client, sessionId)
-    val bgComposeColor = Color(terminalPalette.terminal.bg)
+    val bgComposeColor = Color(terminalPalette.bg)
 
     val session = remember(sessionId) {
         createExternalTerminalSession(
@@ -392,13 +392,10 @@ fun TerminalScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        StateIndicator(
-                            state = paneState,
-                            sizeDp = 14,
-                            trailingSpacer = 6,
-                            spinnerColor = HeaderAccent,
-                            spinnerTrackColor = HeaderAccent.copy(alpha = 0.3f),
-                        )
+                        // Pane status dot (replaces the spinner/alert): idle
+                        // green, working green-pulse, waiting red-pulse. The
+                        // 18dp box bakes in ~5dp of trailing gap to the title.
+                        StatusDot(state = paneState, boxDp = 18)
                         Text(
                             text = headerTitle,
                             style = MaterialTheme.typography.titleMedium.copy(
@@ -542,14 +539,14 @@ fun TerminalScreen(
                 // While paused, fresh output flips the label to "New output".
                 if (scrolledUp) {
                     val pillBg = if (hasNewOutput) {
-                        Color(terminalPalette.accent.primary)
+                        Color(terminalPalette.accent)
                     } else {
-                        Color(terminalPalette.surface.raised)
+                        Color(terminalPalette.surface)
                     }
                     val pillFg = if (hasNewOutput) {
-                        Color(terminalPalette.accent.onPrimary)
+                        Color(terminalPalette.bg)
                     } else {
-                        Color(terminalPalette.text.primary)
+                        Color(terminalPalette.text)
                     }
                     Row(
                         modifier = Modifier
@@ -609,7 +606,7 @@ fun TerminalScreen(
                         }
                         swipeText = ""
                     },
-                    palette = terminalPalette,
+                    theme = terminalPalette,
                 )
             }
 
@@ -621,7 +618,7 @@ fun TerminalScreen(
                 onSend = { bytes ->
                     scope.launch { ptySocket.send(bytes) }
                 },
-                palette = terminalPalette,
+                theme = terminalPalette,
             )
         }
     }

@@ -11,11 +11,10 @@
  *             Pulses fastest since it is action-required.
  *   - blue  — at least one session is "working" (agent is actively running)
  *             and none are waiting. Pulses to read as actively in motion.
- *   - green — no session is working or waiting (idle). Sits solid green with
- *             no pulse — motion is reserved for the working/waiting states, so
- *             a calm "nothing pending" dot just stays green. Green is used
- *             instead of a theme-neutral grey so the three states stay
- *             distinguishable in both dark and light appearance modes.
+ *   - green — no session is working or waiting (idle). Breathes at the slowest,
+ *             calmest cadence in a fixed phosphor green (the landing page's
+ *             brand-dot colour). All three colours are fixed so the states stay
+ *             distinguishable in any appearance mode.
  *
  * The logo brings back an older design element (see issue #14): a "Termtastic"
  * wordmark alongside a coloured dot. In the previous incarnation the dot was
@@ -49,7 +48,7 @@ import org.w3c.dom.HTMLElement
  * Aggregation rule:
  *   1. If any session value is `"waiting"` → mark as waiting (red pulse).
  *   2. Else if any session value is `"working"` → mark as working (blue pulse).
- *   3. Else mark as idle (solid green, no pulse).
+ *   3. Else mark as idle (green breathe at the calmest cadence).
  *
  * @param sessionStates the current session-id to state map from the server.
  *                      States other than `"working"` / `"waiting"` (including
@@ -90,6 +89,6 @@ internal fun applyLogoDotState(dot: HTMLElement, sessionStates: Map<String, Stri
         anyWaiting -> dot.classList.add("state-waiting")
         anyWorking -> dot.classList.add("state-working")
         // Idle → no modifier class; the base .app-logo-dot rule paints it
-        // solid green with no pulse.
+        // a fixed phosphor green breathing at the calmest cadence.
     }
 }

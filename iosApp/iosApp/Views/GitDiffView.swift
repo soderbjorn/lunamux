@@ -12,7 +12,7 @@ struct GitDiffView: View {
 
     @State private var diffHtml: String?
     @State private var errorMessage: String?
-    @State private var uiSettings: Client.UiSettings?
+    @State private var theme: Client.ResolvedTheme?
 
     private var fileName: String {
         filePath.components(separatedBy: "/").last ?? filePath
@@ -36,11 +36,11 @@ struct GitDiffView: View {
         .task { await loadDiff() }
         .task {
             if let central = Palette.settings {
-                uiSettings = central
+                theme = central
             } else if let client = ConnectionHolder.shared.client,
                let config = try? await client.fetchThemeConfig() {
                 let isDark = UITraitCollection.current.userInterfaceStyle == .dark
-                uiSettings = config.resolve(systemIsDark: isDark)
+                theme = config.resolve(systemIsDark: isDark)
             }
         }
     }
@@ -53,7 +53,7 @@ struct GitDiffView: View {
         do {
             let reply = try await socket.gitDiff(paneId: paneId, filePath: filePath, timeoutMs: 10_000)
             if let result = reply as? Client.WindowEnvelope.GitDiffResult {
-                diffHtml = buildDiffHtml(result, settings: uiSettings)
+                diffHtml = buildDiffHtml(result, theme: theme)
             } else if let error = reply as? Client.WindowEnvelope.GitError {
                 errorMessage = error.message
             } else {
@@ -86,7 +86,7 @@ private struct DiffWebView: UIViewRepresentable {
 
 // MARK: - Diff HTML builder
 
-private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, settings: Client.UiSettings? = nil) -> String {
+private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, theme: Client.ResolvedTheme? = nil) -> String {
     var body = ""
     for hunk in result.hunks {
         for line in hunk.lines {
@@ -114,84 +114,57 @@ private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, settin
         }
     }
 
-    let effectiveTheme: Client.ColorScheme
-    if let s = settings {
-        effectiveTheme = s.schemeForPane(pane: "diff")
-    } else {
-        let themes = Client.ColorSchemesKt.recommendedColorSchemes
-        let defaultName = Client.ColorSchemesKt.DEFAULT_THEME_NAME
-        effectiveTheme = themes.first { $0.name == defaultName } ?? themes[0]
-    }
+    // The flat ResolvedTheme already encodes a single resolved appearance, so
+    // there is no per-pane scheme map or media-query split here: a config is
+    // resolved to one theme for the host's current appearance upstream. Fall
+    // back to the default theme resolved for the current appearance.
+    let t: Client.ResolvedTheme = theme ?? {
+        let isDark = UITraitCollection.current.userInterfaceStyle == .dark
+        return Client.ThemeConfigKt.defaultThemeConfig().resolve(systemIsDark: isDark)
+    }()
     let c = { (v: Int64) -> String in Client.ColorMathKt.argbToCss(argb: v) }
 
-    func diffVars(_ pal: Client.ResolvedPalette) -> String {
-        return """
-            --background: \(c(pal.surface.base));
-            --surface: \(c(pal.surface.raised));
-            --text-primary: \(c(pal.text.primary));
-            --text-secondary: \(c(pal.text.secondary));
-            --add-bg: \(c(pal.diff.addBg));
-            --del-bg: \(c(pal.diff.removeBg));
-            --ln-color: \(c(pal.text.tertiary));
-            --separator: \(c(pal.border.subtle));
-        """
-    }
-
-    func syntaxVars(_ pal: Client.ResolvedPalette) -> String {
-        return """
-            .hl-keyword  { color: \(c(pal.syntax.keyword)); }
-            .hl-string   { color: \(c(pal.syntax.string)); }
-            .hl-comment  { color: \(c(pal.syntax.comment)); font-style: italic; }
-            .hl-number   { color: \(c(pal.syntax.number)); }
-            .hl-type     { color: \(c(pal.syntax.type)); }
-            .hl-function { color: \(c(pal.syntax.function)); }
-            .hl-operator { color: \(c(pal.syntax.operator_)); }
-            .hl-punctuation { color: \(c(pal.syntax.operator_)); }
-        """
-    }
-
-    // When the user has explicitly chosen Dark or Light, emit only that
-    // palette's CSS vars. When Auto, use media queries for both modes.
-    let appearance = settings?.appearance ?? Client.Appearance.auto_
-    let cssBlock: String
-    switch appearance {
-    case .dark:
-        let pal = effectiveTheme.resolve(isDark: true)
-        cssBlock = """
-          :root {
-            color-scheme: dark;
-            \(diffVars(pal))
-          }
-          \(syntaxVars(pal))
-        """
-    case .light:
-        let pal = effectiveTheme.resolve(isDark: false)
-        cssBlock = """
-          :root {
-            color-scheme: light;
-            \(diffVars(pal))
-          }
-          \(syntaxVars(pal))
-        """
-    default:
-        let darkPal = effectiveTheme.resolve(isDark: true)
-        let lightPal = effectiveTheme.resolve(isDark: false)
-        cssBlock = """
-          :root {
-            color-scheme: light dark;
-            \(diffVars(darkPal))
-          }
-          @media (prefers-color-scheme: light) {
-            :root {
-              \(diffVars(lightPal))
-            }
-          }
-          \(syntaxVars(darkPal))
-          @media (prefers-color-scheme: light) {
-            \(syntaxVars(lightPal))
-          }
-        """
-    }
+    // Emit the flat `--t-*` token vars (matching the web client), plus the
+    // diff-specific aliases the stylesheet below references.
+    let cssBlock = """
+      :root {
+        --t-bg: \(c(t.bg));
+        --t-surface: \(c(t.surface));
+        --t-surface-alt: \(c(t.surfaceAlt));
+        --t-border: \(c(t.border));
+        --t-text: \(c(t.text));
+        --t-text-dim: \(c(t.textDim));
+        --t-text-bright: \(c(t.textBright));
+        --t-accent: \(c(t.accent));
+        --t-accent-soft: \(c(t.accentSoft));
+        --t-glow: \(c(t.glow));
+        --t-warn: \(c(t.warn));
+        --t-danger: \(c(t.danger));
+        --t-add: \(c(t.add));
+        --t-add-bg: \(c(t.addBg));
+        --t-add-text: \(c(t.addText));
+        --t-syn-keyword: \(c(t.synKeyword));
+        --t-syn-string: \(c(t.synString));
+        --t-syn-number: \(c(t.synNumber));
+        --t-syn-comment: \(c(t.synComment));
+        --t-syn-function: \(c(t.synFunction));
+        --t-syn-type: \(c(t.synType));
+        --t-syn-operator: \(c(t.synOperator));
+        --t-syn-constant: \(c(t.synConstant));
+      }
+      .hl-keyword     { color: var(--t-syn-keyword); }
+      .hl-string      { color: var(--t-syn-string); }
+      .hl-number      { color: var(--t-syn-number); }
+      .hl-comment     { color: var(--t-syn-comment); font-style: italic; }
+      .hl-function    { color: var(--t-syn-function); }
+      .hl-type        { color: var(--t-syn-type); }
+      .hl-operator    { color: var(--t-syn-operator); }
+      .hl-constant    { color: var(--t-syn-constant); }
+      .hl-tag         { color: var(--t-syn-keyword); }
+      .hl-attr        { color: var(--t-syn-function); }
+      .hl-annotation  { color: var(--t-syn-function); }
+      .hl-punctuation { color: var(--t-syn-operator); }
+    """
 
     return """
     <!DOCTYPE html>
@@ -202,8 +175,8 @@ private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, settin
       \(cssBlock)
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {
-        background: var(--background);
-        color: var(--text-primary);
+        background: var(--t-bg);
+        color: var(--t-text);
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         font-size: 12px;
         line-height: 1.5;
@@ -213,16 +186,16 @@ private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, settin
         white-space: pre;
         padding: 0 8px;
         min-height: 20px;
-        border-bottom: 1px solid var(--separator);
+        border-bottom: 1px solid var(--t-border);
       }
-      .line.add { background: var(--add-bg); }
-      .line.del { background: var(--del-bg); }
+      .line.add { background: var(--t-add-bg); }
+      .line.del { background: var(--t-surface-alt); }
       .ln {
         display: inline-block;
         width: 40px;
         text-align: right;
         padding-right: 8px;
-        color: var(--ln-color);
+        color: var(--t-text-dim);
         user-select: none;
         flex-shrink: 0;
       }
@@ -230,7 +203,7 @@ private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, settin
         display: inline-block;
         width: 16px;
         flex-shrink: 0;
-        color: var(--text-secondary);
+        color: var(--t-text-dim);
       }
       .code {
         flex: 1;

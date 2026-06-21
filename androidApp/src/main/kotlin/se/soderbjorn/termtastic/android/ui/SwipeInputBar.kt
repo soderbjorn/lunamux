@@ -36,24 +36,24 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import se.soderbjorn.darkness.core.ResolvedPalette
+import se.soderbjorn.darkness.core.ResolvedTheme
 
 /**
- * @param palette the resolved theme palette for deriving input bar colours.
+ * @param theme the resolved theme for deriving input bar colours.
  */
 @Composable
 internal fun SwipeInputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSubmit: () -> Unit,
-    palette: ResolvedPalette,
+    theme: ResolvedTheme,
 ) {
-    val barBg = Color(palette.surface.raised)
-    val inputBg = Color(palette.surface.sunken)
-    val accentColor = Color(palette.accent.primary)
-    val textColor = Color(palette.text.primary)
-    val placeholderColor = Color(palette.text.tertiary)
-    val onAccentColor = Color(palette.accent.onPrimary)
+    val barBg = Color(theme.surface)
+    val inputBg = Color(theme.surfaceAlt)
+    val accentColor = Color(theme.accent)
+    val textColor = Color(theme.text)
+    val placeholderColor = Color(theme.textDim)
+    val onAccentColor = Color(theme.bg)
     val focusRequester = remember { FocusRequester() }
     Row(
         modifier = Modifier

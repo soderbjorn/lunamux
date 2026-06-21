@@ -92,7 +92,9 @@ struct TerminalScreen: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
-                    StateIndicator(state: paneState, size: 14)
+                    // Pane status dot (replaces the spinner/alert): idle green,
+                    // working green-pulse, waiting red-pulse.
+                    StatusDot(state: paneState, box: 18)
                     Text(headerTitle)
                         .font(.headline)
                         .foregroundStyle(Palette.textPrimary)
@@ -467,16 +469,11 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         ptySocket.closeDetached()
     }
 
-    private func applyTheme(
-        _ settings: Client.UiSettings,
-        isDark: Bool = UITraitCollection.current.userInterfaceStyle == .dark
-    ) {
-        let palette = settings.schemeForPane(pane: "terminal").resolve(
-            appearance: settings.appearance,
-            systemIsDark: isDark
-        )
-        terminalView?.nativeForegroundColor = UIColor(Color(argb: palette.terminal.fg))
-        terminalView?.nativeBackgroundColor = UIColor(Color(argb: palette.terminal.bg))
+    private func applyTheme(_ theme: Client.ResolvedTheme) {
+        // The flat theme has no dedicated terminal pane: foreground uses the
+        // `text` token, background the `bg` token.
+        terminalView?.nativeForegroundColor = UIColor(Color(argb: theme.text))
+        terminalView?.nativeBackgroundColor = UIColor(Color(argb: theme.bg))
     }
 
     /// Re-resolve and install the terminal palette for the given system
@@ -492,7 +489,7 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     /// avoids any race with the trait collection lagging the SwiftUI update.
     func applyThemeForAppearance(isDark: Bool) {
         guard Palette.config != nil else { return }
-        applyTheme(Palette.resolved(isDark: isDark), isDark: isDark)
+        applyTheme(Palette.resolved(isDark: isDark))
     }
 
     /// Whether `bytes` contains a full terminal reset (RIS, `ESC c`).

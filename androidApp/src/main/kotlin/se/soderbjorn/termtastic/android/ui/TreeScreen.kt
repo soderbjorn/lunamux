@@ -606,7 +606,10 @@ private fun TabHeaderRow(
                     letterSpacing = 0.5.sp,
                 ),
             )
-            StateIndicator(state = row.aggregateState, sizeDp = 12, leadingSpacer = 7)
+            Spacer(Modifier.width(4.dp))
+            // Tab-aggregated status dot (replaces the spinner/alert): idle green,
+            // working green-pulse, waiting red-pulse.
+            StatusDot(state = row.aggregateState)
         }
         DropdownMenu(
             expanded = menuOpen,
@@ -690,9 +693,11 @@ private fun LeafRow(
                 .padding(start = 32.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaneIcon(kind = row.kind, floating = row.floating)
+            // Leading: per-row status dot (idle green / working green-pulse /
+            // waiting red-pulse), mirroring the web sidebar. The pane-type icon
+            // moved to the trailing edge (issue #35 follow-up).
+            StatusDot(state = state)
             Spacer(Modifier.width(8.dp))
-            StateIndicator(state = state, sizeDp = 12, trailingSpacer = 7)
             Text(
                 text = row.title,
                 modifier = Modifier.weight(1f),
@@ -701,6 +706,9 @@ private fun LeafRow(
                 ),
                 maxLines = 1,
             )
+            Spacer(Modifier.width(8.dp))
+            // Trailing: pane-type icon (terminal / git / file browser / …).
+            PaneIcon(kind = row.kind, floating = row.floating)
         }
         DropdownMenu(
             expanded = menuOpen,

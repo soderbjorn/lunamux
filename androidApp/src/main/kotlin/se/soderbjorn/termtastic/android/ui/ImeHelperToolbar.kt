@@ -37,10 +37,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import se.soderbjorn.darkness.core.ResolvedPalette
+import se.soderbjorn.darkness.core.ResolvedTheme
 
 /**
- * @param palette the resolved theme palette for deriving toolbar colours.
+ * @param theme the resolved theme for deriving toolbar colours.
  */
 @Composable
 internal fun ImeHelperToolbar(
@@ -49,10 +49,10 @@ internal fun ImeHelperToolbar(
     shiftSticky: Boolean,
     onShiftToggle: () -> Unit,
     onSend: (ByteArray) -> Unit,
-    palette: ResolvedPalette,
+    theme: ResolvedTheme,
 ) {
-    val toolbarBg = Color(palette.surface.sunken)
-    val dividerColor = Color(palette.border.subtle)
+    val toolbarBg = Color(theme.surfaceAlt)
+    val dividerColor = Color(theme.border)
     val scroll = rememberScrollState()
     Row(
         modifier = Modifier
@@ -64,8 +64,8 @@ internal fun ImeHelperToolbar(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Spacer(modifier = Modifier.width(4.dp))
-        ToolbarKey("Ctrl", sticky = true, active = ctrlSticky, palette = palette) { onCtrlToggle() }
-        ToolbarKey("Shift", sticky = true, active = shiftSticky, palette = palette) { onShiftToggle() }
+        ToolbarKey("Ctrl", sticky = true, active = ctrlSticky, theme = theme) { onCtrlToggle() }
+        ToolbarKey("Shift", sticky = true, active = shiftSticky, theme = theme) { onShiftToggle() }
         Box(
             modifier = Modifier
                 .width(1.dp)
@@ -73,9 +73,9 @@ internal fun ImeHelperToolbar(
                 .padding(vertical = 10.dp)
                 .background(dividerColor),
         )
-        ToolbarKey("Enter", palette = palette) { onSend(byteArrayOf(0x0d)) }
-        ToolbarKey("Esc", palette = palette) { onSend(byteArrayOf(0x1b)) }
-        ToolbarKey("Tab", palette = palette) {
+        ToolbarKey("Enter", theme = theme) { onSend(byteArrayOf(0x0d)) }
+        ToolbarKey("Esc", theme = theme) { onSend(byteArrayOf(0x1b)) }
+        ToolbarKey("Tab", theme = theme) {
             if (shiftSticky) {
                 onSend("[Z".toByteArray(Charsets.UTF_8))
                 onShiftToggle()
@@ -83,14 +83,14 @@ internal fun ImeHelperToolbar(
                 onSend(byteArrayOf(0x09))
             }
         }
-        ToolbarKey("↑", palette = palette) { onSend("[A".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("↓", palette = palette) { onSend("[B".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("→", palette = palette) { onSend("[C".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("←", palette = palette) { onSend("[D".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("Home", palette = palette) { onSend("[H".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("End", palette = palette) { onSend("[F".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("PgUp", palette = palette) { onSend("[5~".toByteArray(Charsets.UTF_8)) }
-        ToolbarKey("PgDn", palette = palette) { onSend("[6~".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("↑", theme = theme) { onSend("[A".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("↓", theme = theme) { onSend("[B".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("→", theme = theme) { onSend("[C".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("←", theme = theme) { onSend("[D".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("Home", theme = theme) { onSend("[H".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("End", theme = theme) { onSend("[F".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("PgUp", theme = theme) { onSend("[5~".toByteArray(Charsets.UTF_8)) }
+        ToolbarKey("PgDn", theme = theme) { onSend("[6~".toByteArray(Charsets.UTF_8)) }
         Spacer(modifier = Modifier.width(4.dp))
     }
 }
@@ -107,24 +107,24 @@ private fun ToolbarKey(
     label: String,
     sticky: Boolean = false,
     active: Boolean = false,
-    palette: ResolvedPalette,
+    theme: ResolvedTheme,
     onClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(6.dp)
-    val accentColor = Color(palette.accent.primary)
-    val keyBg = Color(palette.surface.raised)
-    val stickyBg = Color(palette.surface.sunken)
-    val borderColor = Color(palette.border.`default`)
+    val accentColor = Color(theme.accent)
+    val keyBg = Color(theme.surface)
+    val stickyBg = Color(theme.surfaceAlt)
+    val borderColor = Color(theme.border)
     val bg = when {
         sticky && active -> accentColor
         sticky -> stickyBg
         else -> keyBg
     }
     val textColor = when {
-        sticky && active -> Color(palette.accent.onPrimary)
-        sticky -> Color(palette.text.secondary)
-        else -> Color(palette.text.primary)
+        sticky && active -> Color(theme.bg)
+        sticky -> Color(theme.textDim)
+        else -> Color(theme.text)
     }
     val baseModifier = Modifier
         .padding(vertical = 6.dp)

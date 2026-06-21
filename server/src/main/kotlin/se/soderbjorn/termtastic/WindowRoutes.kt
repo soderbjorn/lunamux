@@ -113,7 +113,9 @@ internal fun Route.uiSettingsRoutes(settingsRepo: SettingsRepository) {
         val token = call.readAuthToken()
         val info = call.readClientInfo()
         when (DeviceAuth.authorize(token, info, settingsRepo)) {
-            DeviceAuth.Decision.APPROVED -> call.respond(settingsRepo.getUiSettings())
+            // Merge in the synthesized legacy compat keys so pre-revamp mobile
+            // apps still render approximately right; new apps read the v2 keys.
+            DeviceAuth.Decision.APPROVED -> call.respond(settingsRepo.getUiSettingsWithLegacy())
             DeviceAuth.Decision.REJECTED,
             DeviceAuth.Decision.HEADLESS -> call.respond(HttpStatusCode.Unauthorized)
         }
@@ -192,7 +194,11 @@ internal fun Route.windowRoutes(
 
         val uiSettingsPushJob = launch {
             settingsRepo.uiSettings.collect { s ->
-                val payload = windowJson.encodeToString<WindowEnvelope>(WindowEnvelope.UiSettings(s))
+                // Publish the v2 settings MERGED with the synthesized legacy
+                // compat keys so old apps connected over the socket also get
+                // the legacy shape; new apps consume the v2 keys.
+                val withLegacy = settingsRepo.withLegacyCompat(s)
+                val payload = windowJson.encodeToString<WindowEnvelope>(WindowEnvelope.UiSettings(withLegacy))
                 send(Frame.Text(payload))
             }
         }

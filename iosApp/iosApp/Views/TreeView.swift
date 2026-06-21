@@ -401,7 +401,9 @@ private struct TabHeaderRow: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(Palette.textSecondary)
                 .tracking(0.5)
-            StateIndicator(state: aggregateState, size: 12)
+            // Tab-aggregated status dot (replaces the spinner/alert): idle
+            // green, working green-pulse, waiting red-pulse.
+            StatusDot(state: aggregateState)
             Spacer()
         }
         .padding(.horizontal, 4)
@@ -419,13 +421,17 @@ private struct LeafRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            PaneIcon(kind: kind, floating: floating)
-            StateIndicator(state: state, size: 12)
+            // Leading: per-row status dot (idle green / working green-pulse /
+            // waiting red-pulse), mirroring the web sidebar. The pane-type icon
+            // moved to the trailing edge (issue #35 follow-up).
+            StatusDot(state: state)
             Text(title)
                 .font(.body)
                 .foregroundStyle(Palette.textPrimary)
                 .lineLimit(1)
             Spacer()
+            // Trailing: pane-type icon, then the navigation chevron.
+            PaneIcon(kind: kind, floating: floating)
             Image(systemName: "chevron.right")
                 .font(.caption2)
                 .foregroundStyle(Palette.textSecondary.opacity(0.5))

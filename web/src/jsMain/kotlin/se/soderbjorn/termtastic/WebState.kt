@@ -68,6 +68,28 @@ internal var proto = "ws"
 internal var authQueryParam = ""
 internal var clientTypeAtStart = "Web"
 
+// ── Default chrome / monospaced fonts ───────────────────────────────
+// When the user hasn't picked a font/size we default the sidebar, tab bar and
+// monospaced (terminal) fonts to JetBrains Mono, and the chrome size to 12px.
+// This applies to every client (web + Electron). The default is a read-time
+// FALLBACK only — it is never written back to the server, so it never
+// overwrites a user's explicit choice; the moment the user picks a font/size
+// that choice is persisted and takes over.
+
+/** Font-preset key used as the default for chrome + monospaced fonts. */
+internal const val DEFAULT_FONT_KEY = "jetbrainsMono"
+
+/** Default sidebar / tab bar font size (px). */
+internal const val DEFAULT_CHROME_SIZE = 12
+
+/** Returns [persisted] if the user has chosen a font, else the default key. */
+internal fun effectiveFontKey(persisted: String?): String? =
+    persisted ?: DEFAULT_FONT_KEY
+
+/** Returns [persisted] if the user has chosen a chrome size, else the default (12). */
+internal fun effectiveChromeSize(persisted: Int?): Int? =
+    persisted ?: DEFAULT_CHROME_SIZE
+
 /**
  * Whether this page runs in demo mode (opened on `/demo`, `?demo`, or
  * `#demo` — see [detectDemoUrl]). When `true` the whole client is backed by

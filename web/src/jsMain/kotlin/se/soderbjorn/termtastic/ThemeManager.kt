@@ -23,11 +23,9 @@
 package se.soderbjorn.termtastic
 
 import se.soderbjorn.darkness.web.shell.AppFrameClassNames
-import se.soderbjorn.darkness.web.showConfirmDialog
 
 import se.soderbjorn.darkness.core.*
 import se.soderbjorn.darkness.web.themeeditor.ThemeManagerHost
-import se.soderbjorn.darkness.web.themeeditor.defaultRenderConfigSilhouetteHtml
 import se.soderbjorn.darkness.web.themeeditor.showThemeManager as openDarknessThemeManager
 import se.soderbjorn.darkness.web.themeeditor.refreshThemeManager as refreshDarknessThemeManager
 import se.soderbjorn.darkness.web.themeeditor.closeThemeManager as closeDarknessThemeManager
@@ -54,32 +52,14 @@ import org.w3c.dom.events.Event
 internal val termtasticThemeHost: ThemeManagerHost get() = TermtasticThemeManagerHost
 
 private object TermtasticThemeManagerHost : ThemeManagerHost {
-    override val mainSchemeName: String
-        get() = appVm.stateFlow.value.theme.name
     override val appearance: Appearance
         get() = appVm.stateFlow.value.appearance
-    override val lightThemeName: String?
+    override val lightThemeName: String
         get() = appVm.stateFlow.value.lightThemeName
-    override val darkThemeName: String?
+    override val darkThemeName: String
         get() = appVm.stateFlow.value.darkThemeName
-    override val customThemes: Map<String, Theme>
+    override val customThemes: List<Theme>
         get() = appVm.stateFlow.value.customThemes
-    override val customSchemes: Map<String, CustomScheme>
-        get() = appVm.stateFlow.value.customSchemes
-    override val favoriteThemes: Collection<String>
-        get() = appVm.stateFlow.value.favoriteThemes
-    override val favoriteSchemes: Collection<String>
-        get() = appVm.stateFlow.value.favoriteSchemes
-
-    /**
-     * Termtastic's pane → universal-section map. Read by toolkit-side
-     * resolvers so the active theme's section assignments can be
-     * resolved against the host's concrete pane names.
-     *
-     * @see termtasticPanes
-     */
-    override val appPanes: Map<String, String>
-        get() = termtasticPanes
 
     // [AppBackingViewModel]'s setters are suspend functions because they
     // can roundtrip to the server. We bridge into the toolkit's
@@ -91,34 +71,17 @@ private object TermtasticThemeManagerHost : ThemeManagerHost {
         kotlinx.coroutines.GlobalScope.launch { block() }
     }
 
-    override fun setLightThemeName(name: String?) {
-        if (name != null) launch { appVm.setLightThemeName(name) }
+    override fun setAppearance(appearance: Appearance) {
+        launch { appVm.setAppearance(appearance) }
     }
-    override fun setDarkThemeName(name: String?) {
-        if (name != null) launch { appVm.setDarkThemeName(name) }
+    override fun setLightThemeName(name: String) {
+        launch { appVm.setLightThemeName(name) }
     }
-    override fun toggleFavoriteTheme(name: String) { launch { appVm.toggleFavoriteTheme(name) } }
-    override fun toggleFavoriteScheme(name: String) { launch { appVm.toggleFavoriteScheme(name) } }
+    override fun setDarkThemeName(name: String) {
+        launch { appVm.setDarkThemeName(name) }
+    }
     override fun saveCustomTheme(theme: Theme) { launch { appVm.saveCustomTheme(theme) } }
     override fun deleteCustomTheme(name: String) { launch { appVm.deleteCustomTheme(name) } }
-    override fun saveCustomScheme(scheme: CustomScheme) { launch { appVm.saveCustomScheme(scheme) } }
-    override fun deleteCustomScheme(name: String) { launch { appVm.deleteCustomScheme(name) } }
-
-    /**
-     * Delegate the thumbnail markup to the toolkit's neutral silhouette so
-     * termtastic stays visually consistent with notegrow / the toolkit demo
-     * and benefits from improvements made centrally. The previous
-     * termtastic-local copy lived in `WebStateActions.renderConfigSilhouette`
-     * and has been deleted.
-     */
-    override fun renderConfigSilhouetteHtml(theme: Theme): String =
-        defaultRenderConfigSilhouetteHtml(
-            theme = theme,
-            isDark = !isLightActive(appVm.stateFlow.value.appearance),
-            customSchemes = appVm.stateFlow.value.customSchemes,
-        )
-    override fun renderThemeSwatchHtml(scheme: ColorScheme): String =
-        renderThemeSwatch(scheme)
 
     // ── Per-app settings (font / size / titlebar / notifications) ─
     // Termtastic's terminal panes use the monospaced category; the
@@ -127,18 +90,23 @@ private object TermtasticThemeManagerHost : ThemeManagerHost {
     // chain populated by `mountAppShell.applyHostFontVars` after each
     // settings sync.
 
+    // The getters fold in the default fonts (JetBrains Mono; 12px chrome) when
+    // the user hasn't picked a value, so the applied font and the Settings-
+    // sidebar highlight stay in sync. See [effectiveFontKey] /
+    // [effectiveChromeSize] — the default is a read-time fallback only and is
+    // never persisted, so it never overwrites an explicit user choice.
     override val monoFontFamily: String?
-        get() = appVm.stateFlow.value.paneFontFamily
+        get() = effectiveFontKey(appVm.stateFlow.value.paneFontFamily)
     override val monoFontSizePx: Int?
         get() = appVm.stateFlow.value.paneFontSize
     override val sidebarFontFamily: String?
-        get() = appVm.stateFlow.value.sidebarFontFamily
+        get() = effectiveFontKey(appVm.stateFlow.value.sidebarFontFamily)
     override val sidebarFontSizePx: Int?
-        get() = appVm.stateFlow.value.sidebarFontSizePx
+        get() = effectiveChromeSize(appVm.stateFlow.value.sidebarFontSizePx)
     override val tabbarFontFamily: String?
-        get() = appVm.stateFlow.value.tabbarFontFamily
+        get() = effectiveFontKey(appVm.stateFlow.value.tabbarFontFamily)
     override val tabbarFontSizePx: Int?
-        get() = appVm.stateFlow.value.tabbarFontSizePx
+        get() = effectiveChromeSize(appVm.stateFlow.value.tabbarFontSizePx)
     override val desktopNotifications: Boolean
         get() = appVm.stateFlow.value.desktopNotifications
     override val useCustomTitleBar: Boolean
@@ -190,14 +158,12 @@ private var pendingThemeManagerOnClosed: (() -> Unit)? = null
  * open) is preserved here, since the settings panel is termtastic-owned
  * and the toolkit doesn't know about it.
  *
- * @param initialTab    "themes" or "schemes" — which tab to surface first.
+ * @param initialTab    "themes" — which tab to surface first.
  * @param focusTheme    optional theme name to scroll into view / open.
- * @param focusScheme   optional scheme name to scroll into view / open.
  */
 fun showThemeManager(
     initialTab: String = "themes",
     focusTheme: String? = null,
-    focusScheme: String? = null,
 ) {
     // Settings panel was termtastic-owned; the toolkit now owns the
     // settings sidebar and handles mutual exclusion with the theme
@@ -251,7 +217,6 @@ fun showThemeManager(
         mountInto = wrapper,
         initialTab = initialTab,
         focusTheme = focusTheme,
-        focusScheme = focusScheme,
     )
 
     // Slide the wrapper open on the next frame so the browser has a starting

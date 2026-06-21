@@ -441,13 +441,16 @@ private fun buildSidebarLogo(): HTMLElement {
     row.className = "app-logo-row"
     val wordmark = document.createElement("span") as HTMLElement
     wordmark.className = "app-logo-wordmark"
-    wordmark.textContent = "Termtastic"
+    // Lowercase, monospaced wordmark (styled in .app-logo-wordmark).
+    wordmark.textContent = "termtastic"
     val dot = document.createElement("span") as HTMLElement
     dot.id = "app-logo-dot"
     dot.className = "app-logo-dot"
     applyLogoDotState(dot, currentSessionStates())
-    row.appendChild(wordmark)
+    // Dot first, then wordmark: the status light sits to the LEFT of the
+    // "termtastic" text (mirroring the landing-page brand row).
     row.appendChild(dot)
+    row.appendChild(wordmark)
     logo.appendChild(row)
     sidebarLogoEl = logo
     return logo
@@ -490,34 +493,32 @@ private fun buildSidebarFooter(): HTMLElement {
 }
 
 /* -------------------------------------------------------------------- */
-/* Per-pane / per-tab session-state badge factories. The toolkit owns   */
-/* the chrome (sidebar rows, tab strip, pane headers); termtastic       */
-/* contributes `<span>` elements that carry the same                    */
-/* `.pane-status-spinner` marker classes + `data-session` /             */
-/* `data-tab-state` attributes the legacy chrome used. The factories    */
-/* paint each fresh element from the current `WindowStateRepository`    */
-/* snapshot (the KMP-side runtime cache held by `TermtasticClient` —    */
-/* see `client/.../WindowStateRepository.kt`) before returning, so a    */
-/* toolkit rerender (theme toggle, sidebar toggle, drag-end rebuild)    */
-/* produces badges that already carry the live state — no blank frame   */
-/* waiting for the next `WindowEnvelope.State` push from the server     */
-/* (termtastic#24). Live updates after the initial paint continue to    */
-/* flow through `updateStateIndicators` in `WebStateActions.kt`, which  */
-/* finds the same elements by `data-session` / `data-tab-state` and     */
-/* re-applies `applySpinnerState` in-place. The factories return        */
-/* `null` for panes whose leaf has no associated terminal session, so   */
-/* non-terminal panes (file browser, git diff) never get a stale        */
-/* spinner slot.                                                        */
+/* Per-pane / per-tab session-state dot factories. The toolkit owns the  */
+/* chrome (sidebar rows, tab strip, pane headers); termtastic contributes */
+/* `.tt-status-dot` `<span>` elements carrying `data-session` /           */
+/* `data-tab-state` attributes. The factories paint each fresh element    */
+/* from the current `WindowStateRepository` snapshot (the KMP-side runtime */
+/* cache held by `TermtasticClient` — see                                 */
+/* `client/.../WindowStateRepository.kt`) before returning, so a toolkit   */
+/* rerender (theme toggle, sidebar toggle, drag-end rebuild) produces dots */
+/* that already carry the live state — no blank frame waiting for the next */
+/* `WindowEnvelope.State` push from the server (termtastic#24). Live       */
+/* updates after the initial paint continue to flow through               */
+/* `updateStateIndicators` in `WebStateActions.kt`, which finds the same   */
+/* elements by `data-session` / `data-tab-state` and re-applies            */
+/* `applyDotState` in-place. The per-pane header/tab factories return      */
+/* `null` for panes whose leaf has no associated terminal session; the     */
+/* sidebar factory always returns a dot (idle-green for stateless panes).  */
 /* -------------------------------------------------------------------- */
 
 /**
  * Returns the latest per-session state snapshot from the KMP-side
  * runtime cache ([se.soderbjorn.termtastic.client.WindowStateRepository]),
  * which is updated whenever a `WindowEnvelope.State` arrives over the
- * window socket. Used by [buildPaneStatusBadge] / [buildTabStatusBadge]
- * to paint fresh badge elements at construction time, so rerenders of
- * the toolkit chrome don't drop the visible spinner/warning glyph
- * between the rebuild and the next server push (termtastic#24).
+ * window socket. Used by [buildStatusDot] / [buildTabStatusDot]
+ * to paint fresh dot elements at construction time, so rerenders of
+ * the toolkit chrome don't drop the visible state dot between the
+ * rebuild and the next server push (termtastic#24).
  *
  * Safe to call from any factory invoked after [bootViaToolkitShell]:
  * `termtasticClient` is constructed in `main.kt` before `mountAppShell`,
@@ -563,47 +564,50 @@ private fun aggregateTabState(tabId: String, sessionStates: Map<String, String?>
 }
 
 /**
- * Builds a per-pane status spinner span for the toolkit's sidebar row
- * or pane header slot, already painted from the current
- * [currentSessionStates] snapshot so it survives toolkit rerenders
- * without a blank frame.
+ * Builds a status DOT for a toolkit badge slot (sidebar row or pane header).
+ * Replaces the former spinner / warning-triangle indicators with the unified
+ * `.tt-status-dot` bead: idle = solid green, working = green pulse, waiting =
+ * red pulse. Painted from the current [currentSessionStates] snapshot so it
+ * survives toolkit rerenders without a blank frame.
  *
- * @param sessionId terminal session id stamped onto `data-session` for
- *   the existing `updateStateIndicators` selector.
- * @param flavour one of `"sidebar"` or `"header"`, picking the right
- *   `spinner-…` class so `applySpinnerState` swaps between the 12px
- *   and 14px warning glyph variants.
- * @return a fresh `<span>` carrying the current `working` / `waiting`
- *   class + glyph (or no state class if the session has no live state),
- *   ready to be slotted into the toolkit's badge slot.
+ * Terminal panes carry `data-session=<sid>` so [updateStateIndicators] repaints
+ * them on every server push; a null [sessionId] yields a static idle-green dot
+ * (used for stateless sidebar panes — file browser, git, link).
+ *
+ * @param sessionId terminal session id stamped onto `data-session`, or null for
+ *   a stateless dot.
+ * @param header when true, adds the larger `.tt-status-dot-header` variant for
+ *   the roomier pane-header chrome.
+ * @return a `<span class="tt-status-dot">` painted from the current state.
+ * @see applyDotState
  */
-private fun buildPaneStatusBadge(sessionId: String, flavour: String): HTMLElement {
+private fun buildStatusDot(sessionId: String?, header: Boolean = false): HTMLElement {
     val el = document.createElement("span") as HTMLElement
-    val baseClass = "pane-status-spinner spinner-$flavour"
-    el.className = baseClass
-    el.setAttribute("data-session", sessionId)
-    applySpinnerState(el, baseClass, currentSessionStates()[sessionId])
+    el.className = if (header) "tt-status-dot tt-status-dot-header" else "tt-status-dot"
+    if (sessionId != null) {
+        el.setAttribute("data-session", sessionId)
+        applyDotState(el, currentSessionStates()[sessionId])
+    }
     return el
 }
 
 /**
- * Builds a tab-aggregated status spinner span (`spinner-tab`) for the
- * tab strip's trailing badge, already painted from the current
- * [currentSessionStates] snapshot via [aggregateTabState] so a chrome
- * rebuild (theme toggle, sidebar toggle, etc.) doesn't drop the
- * visible tab indicator between the rebuild and the next server push
- * (termtastic#24).
+ * Builds the per-TAB aggregated status dot for the tab-strip trailing badge,
+ * replacing the former `spinner-tab`. Carries `data-tab-state=<tabId>` so the
+ * per-tab aggregation block in [updateStateIndicators] repaints it; painted from
+ * [aggregateTabState] over the current [currentSessionStates] snapshot so a
+ * chrome rebuild (theme toggle, sidebar toggle, etc.) doesn't drop the visible
+ * tab indicator between the rebuild and the next server push (termtastic#24).
  *
- * @param tabId tab id stamped onto `data-tab-state` so the existing
- *   per-tab aggregation block in `updateStateIndicators` finds the
- *   element on later state-push repaints.
+ * @param tabId tab id stamped onto `data-tab-state`.
+ * @return a `<span class="tt-status-dot">` carrying `data-tab-state`.
+ * @see applyDotState
  */
-private fun buildTabStatusBadge(tabId: String): HTMLElement {
+private fun buildTabStatusDot(tabId: String): HTMLElement {
     val el = document.createElement("span") as HTMLElement
-    val baseClass = "pane-status-spinner spinner-tab"
-    el.className = baseClass
+    el.className = "tt-status-dot"
     el.setAttribute("data-tab-state", tabId)
-    applySpinnerState(el, baseClass, aggregateTabState(tabId, currentSessionStates()))
+    applyDotState(el, aggregateTabState(tabId, currentSessionStates()))
     return el
 }
 
@@ -653,7 +657,6 @@ fun bootViaToolkitShell(root: HTMLElement) {
                 windowState = termtasticClient.windowState,
                 socket = windowSocket,
             ),
-            appPanes = termtasticPanes,
             paneLabel = { _, paneId ->
                 (findLeafDynamic(paneId)?.title as? String) ?: paneId
             },
@@ -667,33 +670,31 @@ fun bootViaToolkitShell(root: HTMLElement) {
             paneRename = { _, paneId, newLabel ->
                 launchCmd(WindowCommand.Rename(paneId = paneId, title = newLabel))
             },
-            // Per-pane "working / waiting-for-input" indicators in the
-            // pane header and the sidebar row. Both slots return a
-            // `.pane-status-spinner` span carrying `data-session=<sid>`
-            // so the existing `updateStateIndicators` finds them via
-            // `querySelectorAll`. Non-terminal panes (file browser, git,
-            // link) return `null` and so don't get a slot. The toolkit
-            // mounts the spans on every shell rerender; their painted
-            // state is updated independently by `updateStateIndicators`
-            // each time the server pushes a fresh `sessionStates` map.
+            // Pane HEADER status indicator: a `.tt-status-dot` (header size)
+            // carrying `data-session=<sid>` so `updateStateIndicators` finds it
+            // via `querySelectorAll`. Non-terminal panes (file browser, git,
+            // link) return `null` and so don't get a header dot. Replaces the
+            // former spinner / warning-triangle glyph.
             paneHeaderBadge = { _, paneId ->
-                sessionIdForPane(paneId)?.let { buildPaneStatusBadge(it, "header") }
+                sessionIdForPane(paneId)?.let { buildStatusDot(it, header = true) }
             },
+            // The sidebar badge slot holds the per-row status DOT (leading bead)
+            // for EVERY pane — terminal panes are state-driven via their session
+            // id; non-terminal panes show a static idle-green dot. CSS `order`
+            // floats it to the leading edge. See buildStatusDot.
             paneSidebarBadge = { _, paneId ->
-                sessionIdForPane(paneId)?.let { buildPaneStatusBadge(it, "sidebar") }
+                buildStatusDot(sessionIdForPane(paneId))
             },
             // Sticky pane-slot index — `①..⑨`, `Ⓐ..Ⓩ` rendered as a
             // trailing badge on both pane header and sidebar row. The
             // assigner is kept in sync with the server-pushed pane set
             // by `TermtasticTabSource`'s collector.
             paneIndex = { _, paneId -> termtasticPaneAssigner.indexOf(paneId) },
-            // Per-tab aggregated indicator on the tab itself in the strip.
-            // `updateStateIndicators` aggregates pane states per tab in
-            // its `for (tab in cfg.tabs)` block and updates every
-            // `[data-tab-state='<tabId>']` element it finds. The sidebar
-            // already shows per-pane spinners on each pane row, so no
-            // tab-row aggregate is rendered there.
-            tabTrailingBadge = { tabId -> buildTabStatusBadge(tabId) },
+            // Per-tab aggregated status DOT on the tab itself in the strip.
+            // `updateStateIndicators` aggregates pane states per tab in its
+            // `for (tab in cfg.tabs)` block and repaints every
+            // `.tt-status-dot[data-tab-state='<tabId>']` element it finds.
+            tabTrailingBadge = { tabId -> buildTabStatusDot(tabId) },
             extraTopbarTrailing = buildList {
                 add(buildNewsTopbarAction())
                 add(buildAboutTopbarAction())

@@ -77,59 +77,39 @@ internal fun isSystemDark(): Boolean {
 }
 
 /**
- * Recompute the active theme (main + per-section overrides) from the
- * ViewModel's current light/dark slot selection and appearance, then
- * apply the derived palette to the DOM and xterm.js instances.
+ * Resolve the active [se.soderbjorn.darkness.core.ResolvedTheme] from the
+ * ViewModel's current light/dark slot selection and appearance, then apply it
+ * to the DOM (`--t-*` CSS vars via the toolkit's `applyTheme`) and the
+ * xterm.js instances.
  *
- * Called from every code path that changes which slot is live or what
- * that slot points at: appearance toggle, media-query change, theme
- * selection in the Theme Manager, scheme edits, etc.
+ * Called from every code path that changes which slot is live or what that
+ * slot points at: appearance toggle, media-query change, theme selection in
+ * the Theme Manager, custom-theme edits, etc.
  *
- * @see AppBackingViewModel.refreshActiveTheme
+ * Persistence is owned by the [AppBackingViewModel] setters themselves (they
+ * write the v2 selection / custom blobs on every change), so this helper only
+ * needs to repaint and poke the open editor.
+ *
+ * @see se.soderbjorn.termtastic.client.viewmodel.resolvedTheme
  */
-/**
- * Mirror the live appVm's resolved theme + appearance into the
- * toolkit-canonical [UiSettings] blob persisted under [PersistKeys.UI_SETTINGS].
- *
- * Termtastic's slot-binding flow (TermtasticThemeManagerHost → appVm
- * setters) doesn't go through the toolkit's DefaultThemeManagerHost path,
- * so the toolkit's own [persistUi] chain — which would otherwise mirror
- * `ui.theme` into UI_SETTINGS on every theme change — never fires. Without
- * this helper, the persisted UI_SETTINGS theme stays stuck at whatever the
- * toolkit last wrote (typically the appearance-cycle button's last paint),
- * and on the next launch the toolkit chrome paints from that stale cache
- * on first frame while termtastic's own painters paint from the fresh
- * slot — splitting the UI into "chrome of last theme, content of current
- * theme" until something touches the chrome.
- *
- * Called from the [start] collector whenever the resolved theme or
- * appearance changes. Idempotent: writes the current snapshot every time;
- * the toolkitPersister's adapter de-dupes round-trips that don't change
- * the server-side blob.
- */
-private fun persistToolkitUiSettings() {
-    val s = appVm.stateFlow.value
-    val ui = UiSettings(theme = s.theme, appearance = s.appearance)
-    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
-    GlobalScope.launch {
-        toolkitPersister.write(PersistKeys.UI_SETTINGS, ui.toJsonString())
-    }
-}
-
 internal fun refreshAndApplyActiveTheme() {
-    appVm.refreshActiveTheme(isSystemDark())
     val s = appVm.stateFlow.value
-    val paneSummary = s.paneSchemes.entries
-        .joinToString(separator = " ") { (pane, scheme) -> "$pane=${scheme.name}" }
-        .ifEmpty { "(none)" }
     console.log(
-        "[theme] refresh done — main=${s.theme.name}" +
+        "[theme] refresh done —" +
             " light=${s.lightThemeName} dark=${s.darkThemeName}" +
             " appearance=${s.appearance}" +
-            " panes: $paneSummary"
+            " custom=${s.customThemes.size}"
     )
     applyAll()
     refreshThemeManager()
+    // Push the live selection into the toolkit's stored snapshot. Termtastic
+    // owns theme resolution outside the toolkit (slot picks write through
+    // [appVm] via [TermtasticThemeManagerHost]), so without this sync the
+    // toolkit's snapshot stays frozen at whatever it read from the persister
+    // at mount. The topbar appearance-cycle button persists from that stale
+    // snapshot — re-emitting the default slot names and clobbering the
+    // light/dark theme the user picked. See [AppShellHandle.setThemeSnapshot].
+    appShellHandle?.setThemeSnapshot(s.toThemeSnapshot())
 }
 
 /**
@@ -249,7 +229,6 @@ private fun start() {
         windowSocket = windowSocket,
         windowState = termtasticClient.windowState,
         settingsPersister = webSettingsPersister,
-        paneToSection = termtasticPanes,
     )
 
     // Toolkit-shape persister adapter. Reads serve from the in-memory
@@ -318,11 +297,9 @@ private fun start() {
 
         // Always resolve the active theme from current state and apply
         // (CSS vars + xterm theme) — also on the no-hydration / clean-
-        // install path. Without this, `state.paneSchemes` stays empty so
-        // the per-section "terminal" palette falls back to the basic
-        // default ColorScheme instead of the active theme bundle's main
-        // section, and xterm paints with a different palette than the
-        // chrome on first frame.
+        // install path — so the `--t-*` vars and the xterm palette match
+        // the chrome on first frame instead of waiting for the first
+        // settings echo.
         refreshAndApplyActiveTheme()
 
         // The Claude usage bar element is built and cached into `usageBar` by
@@ -394,58 +371,30 @@ private fun start() {
     }
 
     // Reactively apply visual changes when the VM's appearance/theme state changes.
-    // We track the derived `theme` plus the light/dark slot names and the
-    // custom maps so any upstream change that could affect which palette is
-    // live triggers a refresh. `refreshActiveTheme` is cheap (just recomputes
-    // theme + section fields from the current state + systemIsDark), and
-    // applyAll() downstream repaints the DOM (and the xterm.js instances).
+    // We track the light/dark slot names, appearance, and the custom-theme list
+    // so any upstream change that could affect which [ResolvedTheme] is live
+    // triggers a refresh. `refreshAndApplyActiveTheme()` resolves the active
+    // slot and repaints the DOM (and the xterm.js instances); persistence is
+    // owned by the appVm setters, so no extra mirror-write is needed here.
     GlobalScope.launch {
-        var prevTheme = appVm.stateFlow.value.theme.name
         var prevAppearance = appVm.stateFlow.value.appearance
         var prevLight = appVm.stateFlow.value.lightThemeName
         var prevDark = appVm.stateFlow.value.darkThemeName
-        var prevCustomSchemes = appVm.stateFlow.value.customSchemes
         var prevCustomThemes = appVm.stateFlow.value.customThemes
         appVm.stateFlow.collect { state ->
             val slotChanged = state.lightThemeName != prevLight || state.darkThemeName != prevDark
             // Structural equality (`!=`), not identity (`!==`). Server
-            // echoes of UI_SETTINGS land freshly-parsed map references via
+            // echoes land freshly-parsed list references via
             // `SettingsViewModel.applyServerUiSettings`, so reference checks
-            // flip on every round-trip even when the data is identical.
-            // That used to feed back into `persistToolkitUiSettings()` →
-            // POST → echo → re-emit, producing a flashing render loop on
-            // appearance toggle.
-            val customChanged = state.customSchemes != prevCustomSchemes || state.customThemes != prevCustomThemes
+            // would flip on every round-trip even when the data is identical.
+            val customChanged = state.customThemes != prevCustomThemes
             val appearanceChanged = state.appearance != prevAppearance
-            val themeChanged = state.theme.name != prevTheme
-            kotlinx.browser.window.asDynamic().console.log(
-                "[collector] tick: appearance=${state.appearance} (prev=$prevAppearance" +
-                    " changed=$appearanceChanged) theme=${state.theme.name} (prev=$prevTheme" +
-                    " changed=$themeChanged) slotChanged=$slotChanged customChanged=$customChanged"
-            )
             if (slotChanged || appearanceChanged || customChanged) {
                 prevLight = state.lightThemeName
                 prevDark = state.darkThemeName
-                prevCustomSchemes = state.customSchemes
                 prevCustomThemes = state.customThemes
                 prevAppearance = state.appearance
                 refreshAndApplyActiveTheme()
-                prevTheme = appVm.stateFlow.value.theme.name
-                // Mirror the resolved (theme + appearance) into the
-                // toolkit-canonical UI_SETTINGS blob. Without this, slot
-                // changes (TermtasticThemeManagerHost path) update appVm
-                // and `state.theme` but leave the persisted UI_SETTINGS
-                // theme stuck at whatever the toolkit last wrote — so on
-                // the next launch the toolkit chrome paints from the
-                // stale cached theme on first frame while termtastic's
-                // own painters paint from the fresh slot, leaving the
-                // chrome (sidebar, tabs, pane titlebars) in the previous
-                // theme until the user touches anything.
-                persistToolkitUiSettings()
-            } else if (themeChanged) {
-                prevTheme = state.theme.name
-                applyAll()
-                persistToolkitUiSettings()
             }
         }
     }
@@ -455,14 +404,16 @@ private fun start() {
     // hydration (null → server value) and cross-tab sync through the
     // UiSettings envelope.
     GlobalScope.launch {
+        // `effectiveFontKey` folds in the default (JetBrains Mono) when the
+        // user hasn't picked a monospaced font, matching the host getter.
         var prevFontFamily: String? = appVm.stateFlow.value.paneFontFamily
-        applyGlobalFontFamily(prevFontFamily)
-        se.soderbjorn.darkness.web.applyMonoFontFamily(prevFontFamily)
+        applyGlobalFontFamily(effectiveFontKey(prevFontFamily))
+        se.soderbjorn.darkness.web.applyMonoFontFamily(effectiveFontKey(prevFontFamily))
         appVm.stateFlow.collect { state ->
             if (state.paneFontFamily != prevFontFamily) {
                 prevFontFamily = state.paneFontFamily
-                applyGlobalFontFamily(prevFontFamily)
-                se.soderbjorn.darkness.web.applyMonoFontFamily(prevFontFamily)
+                applyGlobalFontFamily(effectiveFontKey(prevFontFamily))
+                se.soderbjorn.darkness.web.applyMonoFontFamily(effectiveFontKey(prevFontFamily))
             }
         }
     }
@@ -480,12 +431,15 @@ private fun start() {
         var prevSidebarSize: Int? = appVm.stateFlow.value.sidebarFontSizePx
         var prevTabbarFamily: String? = appVm.stateFlow.value.tabbarFontFamily
         var prevTabbarSize: Int? = appVm.stateFlow.value.tabbarFontSizePx
+        // Chrome font family/size fold in the default fonts (JetBrains Mono /
+        // 12px) via `effectiveFontKey` / `effectiveChromeSize`, matching the
+        // host getters so the applied chrome and the Settings highlight agree.
         se.soderbjorn.darkness.web.applyMonoFontSizePx(prevPaneSize)
         prevPaneSize?.let { applyGlobalFontSize(it) }
-        se.soderbjorn.darkness.web.applySidebarFontFamily(prevSidebarFamily)
-        se.soderbjorn.darkness.web.applySidebarFontSizePx(prevSidebarSize)
-        se.soderbjorn.darkness.web.applyTabbarFontFamily(prevTabbarFamily)
-        se.soderbjorn.darkness.web.applyTabbarFontSizePx(prevTabbarSize)
+        se.soderbjorn.darkness.web.applySidebarFontFamily(effectiveFontKey(prevSidebarFamily))
+        se.soderbjorn.darkness.web.applySidebarFontSizePx(effectiveChromeSize(prevSidebarSize))
+        se.soderbjorn.darkness.web.applyTabbarFontFamily(effectiveFontKey(prevTabbarFamily))
+        se.soderbjorn.darkness.web.applyTabbarFontSizePx(effectiveChromeSize(prevTabbarSize))
         appVm.stateFlow.collect { state ->
             if (state.paneFontSize != prevPaneSize) {
                 prevPaneSize = state.paneFontSize
@@ -500,19 +454,19 @@ private fun start() {
             }
             if (state.sidebarFontFamily != prevSidebarFamily) {
                 prevSidebarFamily = state.sidebarFontFamily
-                se.soderbjorn.darkness.web.applySidebarFontFamily(prevSidebarFamily)
+                se.soderbjorn.darkness.web.applySidebarFontFamily(effectiveFontKey(prevSidebarFamily))
             }
             if (state.sidebarFontSizePx != prevSidebarSize) {
                 prevSidebarSize = state.sidebarFontSizePx
-                se.soderbjorn.darkness.web.applySidebarFontSizePx(prevSidebarSize)
+                se.soderbjorn.darkness.web.applySidebarFontSizePx(effectiveChromeSize(prevSidebarSize))
             }
             if (state.tabbarFontFamily != prevTabbarFamily) {
                 prevTabbarFamily = state.tabbarFontFamily
-                se.soderbjorn.darkness.web.applyTabbarFontFamily(prevTabbarFamily)
+                se.soderbjorn.darkness.web.applyTabbarFontFamily(effectiveFontKey(prevTabbarFamily))
             }
             if (state.tabbarFontSizePx != prevTabbarSize) {
                 prevTabbarSize = state.tabbarFontSizePx
-                se.soderbjorn.darkness.web.applyTabbarFontSizePx(prevTabbarSize)
+                se.soderbjorn.darkness.web.applyTabbarFontSizePx(effectiveChromeSize(prevTabbarSize))
             }
         }
     }

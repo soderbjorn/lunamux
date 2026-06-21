@@ -285,12 +285,18 @@ fun renderConfig(config: dynamic) {
     updateAggregateStatus()
     refocusActivePane(config)
     // Replay cached session states onto the freshly-rendered chrome so
-    // the AppLogo dot, sidebar spinners, and tab-bar spinners pick up
+    // the AppLogo dot and the per-pane / per-tab status dots pick up
     // working/waiting state immediately. Without this the dot stays on
     // its previous colour until the next State envelope arrives, which
     // can be several seconds (or never, if no further state changes
     // happen). Mirrors the call site in pre-toolkit `renderConfig`.
-    updateStateIndicators(appVm.stateFlow.value.sessionStates)
+    //
+    // Read from the authoritative `windowState.states` (the same source the
+    // per-pane dot builders use via `currentSessionStates`) rather than the
+    // `appVm` mirror, which can still be empty at this point — e.g. in demo
+    // mode the single fixture state seed is otherwise missed and the AppLogo
+    // dot stays idle-green while the rows correctly show working/waiting.
+    updateStateIndicators(termtasticClient.windowState.states.value)
 }
 
 /**

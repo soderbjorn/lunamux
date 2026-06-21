@@ -1,30 +1,21 @@
 /**
  * Dual-slot theme configuration for the mobile (Android / iOS) clients.
  *
- * The web/Electron client picks **two** independent terminal themes — one for
- * light mode and one for dark mode — and the server persists both inside the
- * toolkit's [ThemeSnapshot] blob (`lightThemeName` / `darkThemeName`). The
- * mobile clients, however, historically fetched settings through
- * [TermtasticClient.fetchUiSettings], which routes through the toolkit's
- * [se.soderbjorn.darkness.core.UiSettings.resolveAgainst] codec. That codec
- * only reads a single top-level `theme` key — a key termtastic's server never
- * emits at top level (it lives inside the stringified `darkness.themeSnapshot`
- * / `darkness.uiSettings` blobs). The net effect was that mobile silently fell
- * back to the default theme and merely flipped *that one* scheme's light/dark
- * variants, so a user who chose Solarized for light + Neon Green for dark saw
- * Neon Green's light variant (green-on-white) on mobile instead of Solarized.
+ * The web/Electron client picks **two** independent themes — one for light mode
+ * and one for dark mode — and the server persists both in the v2 theme blobs
+ * ([PersistKeys.THEME_V2_SELECTION] / [PersistKeys.THEME_V2_CUSTOM]). The mobile
+ * clients fetch the same blobs via [TermtasticClient.fetchThemeConfig] and
+ * [resolve] the active slot against the host's current dark-mode flag, so
+ * flipping the device between light and dark selects the correct **slot** (not
+ * merely a single theme's light/dark variant).
  *
- * [TermtasticThemeConfig] closes that gap by parsing the same dual-slot
- * [ThemeSnapshot] the web client writes and resolving the active slot through
- * the toolkit's [resolveActiveTheme] — exactly the path the web view-model
- * (`SettingsViewModel.refreshActiveTheme`) takes. The result is a single
- * [UiSettings] the existing per-pane mobile call sites already understand, so
- * downstream painting code needs no change beyond being handed slot-correct
- * colours.
+ * Under the new theme system every theme defines its 19 semantic tokens
+ * explicitly, so resolution is a direct lookup + format conversion — there is
+ * no per-pane scheme map and no colour calculator. The resolved value is a flat
+ * [ResolvedTheme] every platform consumes directly.
  *
  * @see TermtasticClient.fetchThemeConfig
- * @see resolveActiveTheme
- * @see se.soderbjorn.darkness.core.ThemeSnapshot
+ * @see ThemeSnapshotV2
  */
 package se.soderbjorn.termtastic.client
 
@@ -34,165 +25,92 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import se.soderbjorn.darkness.core.Appearance
-import se.soderbjorn.darkness.core.DEFAULT_THEME_NAME
 import se.soderbjorn.darkness.core.PersistKeys
-import se.soderbjorn.darkness.core.Sections
-import se.soderbjorn.darkness.core.ThemeSnapshot
-import se.soderbjorn.darkness.core.UiSettings
-import se.soderbjorn.darkness.core.resolveActiveTheme
+import se.soderbjorn.darkness.core.ResolvedTheme
+import se.soderbjorn.darkness.core.ThemeSnapshotV2
 
 /**
- * Termtastic's concrete-pane → universal-[Sections] map, used when resolving
- * the active theme's per-pane scheme assignments on mobile.
+ * The server-persisted dual-slot theme choice (plus appearance), as consumed by
+ * the mobile clients.
  *
- * Mirrors the web client's `termtasticPanes` (web `AppPanes.kt`) so the mobile
- * apps resolve panes identically to the desktop app. Kept here in the shared
- * client module so both Android and iOS share one definition.
+ * Fetched once per connection via [TermtasticClient.fetchThemeConfig] and
+ * [resolve]d against the host's *current* system dark-mode flag at paint time.
  *
- * @see resolveActiveTheme
- */
-val termtasticPaneToSection: Map<String, String> = mapOf(
-    "terminal" to Sections.Main,
-    "sidebar" to Sections.Sidebar,
-    "tabs" to Sections.Tabs,
-    "chrome" to Sections.Chrome,
-    "active" to Sections.Active,
-    "windows" to Sections.Windows,
-    "diff" to Sections.Auxiliary,
-    "fileBrowser" to Sections.Auxiliary,
-    "git" to Sections.Auxiliary,
-    "bottomBar" to Sections.BottomBar,
-)
-
-/**
- * The server-persisted dual-slot theme choice plus the appearance preference,
- * as consumed by the mobile clients.
- *
- * Fetched once per connection via [TermtasticClient.fetchThemeConfig] and then
- * [resolve]d against the host's *current* system dark-mode flag at paint time,
- * so flipping the device between light and dark selects the correct **slot**
- * (not merely the current theme's light/dark variant).
- *
- * @property snapshot   the dual-slot snapshot (light/dark theme names + custom
- *   theme/scheme pools) parsed from the server's `darkness.themeSnapshot` blob.
- * @property appearance the user's Light/Dark/Auto preference parsed from the
- *   server's `darkness.uiSettings` blob; `Auto` defers slot choice to the host.
+ * @property studio the persisted v2 snapshot (dark/light slot names, custom
+ *   themes, appearance) parsed from the server's v2 blobs.
  */
 data class TermtasticThemeConfig(
-    val snapshot: ThemeSnapshot,
-    val appearance: Appearance,
+    val studio: ThemeSnapshotV2,
 ) {
+    /** The user's Light/Dark/Auto preference. */
+    val appearance: Appearance get() = studio.appearance
+
     /**
-     * Resolve the active [UiSettings] for the given system dark-mode flag.
-     *
-     * Picks the light or dark slot via the toolkit's [resolveActiveTheme]
-     * (honouring [appearance]), then wraps the resolved main scheme + per-pane
-     * scheme map in a [UiSettings] so existing `schemeForPane(...)` call sites
-     * keep working unchanged.
+     * Resolves the active slot to a flat [ResolvedTheme] for the given system
+     * dark-mode flag.
      *
      * @param systemIsDark the host platform's "prefers dark" setting; only
      *   consulted when [appearance] is [Appearance.Auto].
-     * @return a single-theme [UiSettings] already specialised to the active
-     *   slot for [systemIsDark].
+     * @return the resolved 19-token palette for the active slot.
      */
-    fun resolve(systemIsDark: Boolean): UiSettings {
-        val bundle = resolveActiveTheme(
-            snapshot = snapshot,
-            appearance = appearance,
-            systemIsDark = systemIsDark,
-            paneToSection = termtasticPaneToSection,
-        )
-        return UiSettings(
-            theme = bundle.theme,
-            appearance = appearance,
-            paneSchemes = bundle.paneSchemes,
-        )
-    }
+    fun resolve(systemIsDark: Boolean): ResolvedTheme = studio.resolve(systemIsDark)
 
     companion object {
         /**
-         * The pre-connection / demo default: both slots set to
-         * [DEFAULT_THEME_NAME] with [Appearance.Auto], matching the web
-         * client's `AppBackingViewModel.State` slot defaults so an
-         * unconfigured server renders identically across platforms.
+         * The pre-connection / demo default: both slots at their built-in
+         * defaults with [Appearance.Auto], matching the web client.
          */
-        fun defaults(): TermtasticThemeConfig = TermtasticThemeConfig(
-            snapshot = ThemeSnapshot(
-                lightThemeName = DEFAULT_THEME_NAME,
-                darkThemeName = DEFAULT_THEME_NAME,
-            ),
-            appearance = Appearance.Auto,
-        )
+        fun defaults(): TermtasticThemeConfig = TermtasticThemeConfig(ThemeSnapshotV2())
 
         /**
-         * Parse a `/api/ui-settings` response body into a
-         * [TermtasticThemeConfig], reading the dual-slot snapshot and
-         * appearance out of the toolkit's two stringified blobs.
-         *
-         * Empty slot names are filled with [DEFAULT_THEME_NAME] so an
-         * unconfigured server matches the web client's defaults. Malformed
-         * blobs fall back to [defaults] silently — a bad server payload never
-         * crashes a client.
+         * Parses a `/api/ui-settings` response body into a config, reading the
+         * v2 selection + custom-themes blobs. Each value may arrive as a nested
+         * JSON object/array or as a JSON-encoded string. Malformed blobs fall
+         * back to defaults silently.
          *
          * @param obj the parsed `/api/ui-settings` JSON object.
          * @return the resolved dual-slot config.
          */
         fun fromUiSettingsJson(obj: JsonObject): TermtasticThemeConfig {
-            val rawSnapshot = (obj[PersistKeys.THEME_SNAPSHOT] as? JsonPrimitive)
-                ?.takeIf { it.isString }?.content
-                ?.let { runCatching { ThemeSnapshot.fromJsonString(it) }.getOrNull() }
-                ?: ThemeSnapshot()
-            // Fill empty slots with the app default so an unconfigured server
-            // matches the web client's State defaults (both = DEFAULT_THEME_NAME).
-            val snapshot = rawSnapshot.copy(
-                lightThemeName = rawSnapshot.lightThemeName ?: DEFAULT_THEME_NAME,
-                darkThemeName = rawSnapshot.darkThemeName ?: DEFAULT_THEME_NAME,
-            )
-            val uiBlob = (obj[PersistKeys.UI_SETTINGS] as? JsonPrimitive)
-                ?.takeIf { it.isString }?.content
-                ?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
-            val appearance = uiBlob?.get("appearance")?.jsonPrimitive?.contentOrNull
-                ?.let { runCatching { Appearance.valueOf(it) }.getOrNull() }
-                ?: Appearance.Auto
-            return TermtasticThemeConfig(snapshot, appearance)
+            val selection = coerce(obj[PersistKeys.THEME_V2_SELECTION])
+            val custom = coerce(obj[PersistKeys.THEME_V2_CUSTOM])
+            return TermtasticThemeConfig(ThemeSnapshotV2.fromParts(selection, custom))
+        }
+
+        /** Coerce a value that may be a JSON-encoded string into a [JsonElement]. */
+        private fun coerce(el: JsonElement?): JsonElement? = when (el) {
+            null -> null
+            is JsonPrimitive -> if (el.isString) {
+                runCatching { Json.parseToJsonElement(el.content) }.getOrNull()
+            } else null
+            else -> el
         }
     }
 }
 
 /**
- * Fetch `/api/ui-settings` and parse it into a [TermtasticThemeConfig].
+ * Top-level accessor for [TermtasticThemeConfig.defaults], convenient for Swift
+ * call sites reaching it via the `ThemeConfigKt` file facade.
  *
- * This is the dual-slot-aware replacement for [fetchUiSettings] on the mobile
- * clients: it preserves both the light and dark theme choices instead of
- * collapsing to a single theme. Callers resolve the returned config against
- * the host's current dark-mode flag (see [TermtasticThemeConfig.resolve]).
- *
- * Returns `null` only on auth rejection or a failed request — callers keep
- * using their current/default colours in that case. Demo mode and empty/blank
- * bodies yield [TermtasticThemeConfig.defaults].
- *
- * @receiver the connected client.
- * @return the parsed config, or `null` if the request was rejected/failed.
- * @see fetchUiSettings
- */
-/**
- * Top-level accessor for [TermtasticThemeConfig.defaults], convenient for
- * Swift call sites which reach it via the `ThemeConfigKt` file facade
- * (mirroring the project's other `*Kt` helpers) rather than the companion.
- *
- * @return the pre-connection default config (both slots [DEFAULT_THEME_NAME],
- *   [Appearance.Auto]).
+ * @return the pre-connection default config.
  */
 fun defaultThemeConfig(): TermtasticThemeConfig = TermtasticThemeConfig.defaults()
 
+/**
+ * Fetches `/api/ui-settings` and parses it into a [TermtasticThemeConfig].
+ *
+ * Returns `null` only on auth rejection or a failed request — callers keep
+ * their current/default colours in that case. Demo mode and empty bodies yield
+ * [TermtasticThemeConfig.defaults].
+ *
+ * @receiver the connected client.
+ * @return the parsed config, or `null` if the request was rejected/failed.
+ */
 suspend fun TermtasticClient.fetchThemeConfig(): TermtasticThemeConfig? {
-    // Demo mode never performs network requests: every client gets the stock
-    // defaults, which is exactly what a fresh install looks like.
     if (demoMode) return TermtasticThemeConfig.defaults()
     val url = serverUrl.httpUrl("/api/ui-settings")
     val response = runCatching {

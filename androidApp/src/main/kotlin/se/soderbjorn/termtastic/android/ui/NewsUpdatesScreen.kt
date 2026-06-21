@@ -111,11 +111,13 @@ fun NewsUpdatesScreen(onBack: () -> Unit) {
                         )
                     }
                 },
-                title = { Text("News & Updates", color = SidebarTextPrimary) },
+                // Brightest token so the screen heading reads as crisp white on
+                // dark themes, matching the web "News & Updates" modal title.
+                title = { Text("News & Updates", color = SidebarTextBright) },
                 colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = SidebarBackground,
                     scrolledContainerColor = SidebarBackground,
-                    titleContentColor = SidebarTextPrimary,
+                    titleContentColor = SidebarTextBright,
                 ),
                 scrollBehavior = scrollBehavior,
             )

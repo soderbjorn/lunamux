@@ -46,10 +46,7 @@ import se.soderbjorn.termtastic.DiffHunk
 import se.soderbjorn.termtastic.DiffLine
 import se.soderbjorn.termtastic.DiffLineType
 import se.soderbjorn.termtastic.WindowEnvelope
-import se.soderbjorn.darkness.core.Appearance
-import se.soderbjorn.darkness.core.DEFAULT_THEME_NAME
-import se.soderbjorn.darkness.core.recommendedColorSchemes
-import se.soderbjorn.darkness.core.resolve
+import se.soderbjorn.darkness.core.ResolvedTheme
 import se.soderbjorn.termtastic.client.TermtasticThemeConfig
 import se.soderbjorn.termtastic.client.fetchThemeConfig
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
@@ -82,19 +79,16 @@ fun GitDiffScreen(
     var hunks by remember { mutableStateOf<List<DiffHunk>?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val isDark = isSystemInDarkTheme()
-    val centralSettings = LocalUiSettings.current
+    val centralTheme = LocalUiSettings.current
     var localConfig by remember { mutableStateOf<TermtasticThemeConfig?>(null) }
     LaunchedEffect(Unit) {
-        if (centralSettings == null) {
+        if (centralTheme == null) {
             localConfig = ConnectionHolder.client()?.fetchThemeConfig()
         }
     }
-    val uiSettings = centralSettings ?: localConfig?.resolve(isDark)
-    val palette = remember(isDark, uiSettings) {
-        val theme = uiSettings?.schemeForPane("diff")
-            ?: recommendedColorSchemes.first { it.name == DEFAULT_THEME_NAME }
-        val appearance = uiSettings?.appearance ?: Appearance.Auto
-        theme.resolve(appearance, isDark)
+    val defaultConfig = remember { TermtasticThemeConfig.defaults() }
+    val palette = remember(isDark, centralTheme, localConfig) {
+        centralTheme ?: (localConfig ?: defaultConfig).resolve(isDark)
     }
 
     LaunchedEffect(paneId, filePath) {
@@ -184,28 +178,8 @@ fun GitDiffScreen(
  * format, styled for mobile with line numbers, coloured backgrounds for
  * additions/deletions, and syntax-highlight CSS classes.
  */
-private fun buildDiffHtml(hunks: List<DiffHunk>, palette: se.soderbjorn.darkness.core.ResolvedPalette): String {
-    val c = { v: Long -> se.soderbjorn.darkness.core.argbToCss(v) }
-    val vars = """
-    --background: ${c(palette.surface.base)};
-    --surface: ${c(palette.surface.raised)};
-    --text-primary: ${c(palette.text.primary)};
-    --text-secondary: ${c(palette.text.secondary)};
-    --line-no: ${c(palette.text.tertiary)};
-    --add-bg: ${c(palette.diff.addBg)};
-    --add-border: ${c(palette.diff.addGutter)};
-    --del-bg: ${c(palette.diff.removeBg)};
-    --del-border: ${c(palette.diff.removeGutter)};
-    --ctx-bg: transparent;
-    --separator: ${c(palette.border.subtle)};
-    --hl-keyword: ${c(palette.syntax.keyword)};
-    --hl-string: ${c(palette.syntax.string)};
-    --hl-comment: ${c(palette.syntax.comment)};
-    --hl-number: ${c(palette.syntax.number)};
-    --hl-type: ${c(palette.syntax.type)};
-    --hl-function: ${c(palette.syntax.function)};
-    --hl-operator: ${c(palette.syntax.operator)};
-    """.trimIndent()
+private fun buildDiffHtml(hunks: List<DiffHunk>, theme: ResolvedTheme): String {
+    val vars = themeCssVars(theme)
 
     val body = buildString {
         for (hunk in hunks) {
@@ -250,8 +224,8 @@ private fun buildDiffHtml(hunks: List<DiffHunk>, palette: se.soderbjorn.darkness
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    background: var(--background);
-    color: var(--text-primary);
+    background: var(--t-bg);
+    color: var(--t-text);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
     line-height: 1.5;
@@ -262,9 +236,9 @@ private fun buildDiffHtml(hunks: List<DiffHunk>, palette: se.soderbjorn.darkness
     border-collapse: collapse;
     table-layout: fixed;
   }
-  tr.add { background: var(--add-bg); }
-  tr.del { background: var(--del-bg); }
-  tr.ctx { background: var(--ctx-bg); }
+  tr.add { background: var(--t-add-bg); }
+  tr.del { background: var(--t-surface-alt); }
+  tr.ctx { background: transparent; }
   td { vertical-align: top; white-space: pre-wrap; word-break: break-all; }
   td.ln {
     width: 36px;
@@ -272,18 +246,18 @@ private fun buildDiffHtml(hunks: List<DiffHunk>, palette: se.soderbjorn.darkness
     max-width: 36px;
     text-align: right;
     padding: 0 4px;
-    color: var(--line-no);
+    color: var(--t-text-dim);
     font-size: 11px;
     user-select: none;
     -webkit-user-select: none;
-    border-right: 1px solid var(--separator);
+    border-right: 1px solid var(--t-border);
   }
   td.pfx {
     width: 16px;
     min-width: 16px;
     max-width: 16px;
     text-align: center;
-    color: var(--text-secondary);
+    color: var(--t-text-dim);
     user-select: none;
     -webkit-user-select: none;
   }
@@ -291,14 +265,18 @@ private fun buildDiffHtml(hunks: List<DiffHunk>, palette: se.soderbjorn.darkness
     padding: 0 8px;
   }
   /* Syntax highlighting classes matching server output */
-  .hl-keyword  { color: var(--hl-keyword); }
-  .hl-string   { color: var(--hl-string); }
-  .hl-comment  { color: var(--hl-comment); font-style: italic; }
-  .hl-number   { color: var(--hl-number); }
-  .hl-type     { color: var(--hl-type); }
-  .hl-function { color: var(--hl-function); }
-  .hl-operator { color: var(--hl-operator); }
-  .hl-punctuation { color: var(--text-secondary); }
+  .hl-keyword  { color: var(--t-syn-keyword); }
+  .hl-string   { color: var(--t-syn-string); }
+  .hl-number   { color: var(--t-syn-number); }
+  .hl-comment  { color: var(--t-syn-comment); font-style: italic; }
+  .hl-function { color: var(--t-syn-function); }
+  .hl-type     { color: var(--t-syn-type); }
+  .hl-operator { color: var(--t-syn-operator); }
+  .hl-constant { color: var(--t-syn-constant); }
+  .hl-tag      { color: var(--t-syn-keyword); }
+  .hl-attr     { color: var(--t-syn-function); }
+  .hl-annotation { color: var(--t-syn-function); }
+  .hl-punctuation { color: var(--t-syn-operator); }
 </style>
 </head>
 <body>

@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
+import se.soderbjorn.darkness.core.PersistKeys
 import se.soderbjorn.darkness.core.SHARED_THEMES_KEYS
 import se.soderbjorn.darkness.store.Closeable
 import se.soderbjorn.darkness.store.readUiSettingsRaw
@@ -127,15 +128,15 @@ internal fun installScrollbackSaver(scope: CoroutineScope, repo: SettingsReposit
  * authoritative; re-reading races with `mergeUiSettings`, which writes
  * `themes.json` then `termtastic.json` sequentially. A watcher fire for
  * the shared file in between those two writes would otherwise read the
- * still-stale per-app file and broadcast the prior `"theme"` value,
+ * still-stale per-app file and broadcast the prior theme selection,
  * causing intermittent "theme flipped to a previous one" regressions
  * (visible on routine actions like adding a pane, which persists
  * `LAYOUT_STATE` through the same merge path).
  *
  * Republish is also gated by [isPublishableUiSettings] as a defensive
- * belt-and-braces check: if the in-memory snapshot has no usable
- * `"theme"` key, broadcasting would coerce clients to
- * `DEFAULT_THEME_NAME` via `UiSettings.resolveAgainst`.
+ * belt-and-braces check: if the in-memory snapshot has no usable v2
+ * theme-selection key, broadcasting a partial (mid-write) blob would
+ * coerce clients to their slot defaults.
  *
  * @param repo the settings repository whose `_uiSettings` flow gets the update
  * @return a [Closeable] handle the shutdown hook can close to stop watching
@@ -176,19 +177,19 @@ private fun readJsonObject(path: String): Map<String, kotlinx.serialization.json
 
 /**
  * Decide whether a merged UI-settings snapshot has enough state to push
- * to clients. The selected theme name lives in the per-app file; if the
- * `"theme"` key is absent the snapshot is partial (mid-write of the
- * per-app file) and broadcasting it would coerce clients to
- * `DEFAULT_THEME_NAME` via [se.soderbjorn.darkness.core.UiSettings.resolveAgainst].
+ * to clients. Under the v2 theme system the selected slots + appearance
+ * live in the per-app [PersistKeys.THEME_V2_SELECTION] blob; if that key
+ * is absent the snapshot is partial (mid-write of the per-app file) and
+ * broadcasting it would coerce clients back to their slot defaults.
  *
  * Internal so the test suite can exercise the predicate directly.
  *
  * @param merged the proposed snapshot
- * @return true when the snapshot has a usable `"theme"` key
+ * @return true when the snapshot has a usable v2 theme-selection key
  */
 internal fun isPublishableUiSettings(merged: JsonObject): Boolean {
-    val themeElement = merged["theme"] ?: return false
-    val prim = themeElement as? kotlinx.serialization.json.JsonPrimitive ?: return false
+    val selElement = merged[PersistKeys.THEME_V2_SELECTION] ?: return false
+    val prim = selElement as? kotlinx.serialization.json.JsonPrimitive ?: return false
     if (!prim.isString) return false
     return prim.content.isNotBlank()
 }
@@ -204,7 +205,7 @@ internal fun isPublishableUiSettings(merged: JsonObject): Boolean {
  * file is single-writer (this server) and `mergeUiSettings` updates
  * memory only after both of its sequential disk writes complete — so
  * re-reading from disk during a watcher fire that lands between those
- * writes would publish the stale prior `"theme"` value.
+ * writes would publish the stale prior theme selection.
  *
  * Internal so the test suite can exercise the merge directly without
  * spinning up a real [SettingsRepository].

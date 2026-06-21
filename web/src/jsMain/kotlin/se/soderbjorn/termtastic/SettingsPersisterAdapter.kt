@@ -55,9 +55,15 @@ class SettingsPersisterAdapter(
     }
 
     override suspend fun write(key: String, value: String) {
-        if (key == PersistKeys.UI_SETTINGS) {
+        // The toolkit-side Theme Manager persists its dual-slot choice +
+        // appearance under THEME_V2_SELECTION and its custom themes under
+        // THEME_V2_CUSTOM. When the selection blob is written we mirror its
+        // appearance + slot names into the appVm immediately (no server-echo
+        // wait) so termtastic's own painters (xterm, `--t-*` CSS vars) stay
+        // in lockstep with the chrome.
+        if (key == PersistKeys.THEME_V2_SELECTION) {
             kotlinx.browser.window.asDynamic().console
-                .log("[settings-adapter] write UI_SETTINGS entry; appVm.appearance before=" +
+                .log("[settings-adapter] write THEME_V2_SELECTION; appVm.appearance before=" +
                     appVm.stateFlow.value.appearance.name + " blob=" + value)
             appVm.applyToolkitUiSettingsBlob(value)
             kotlinx.browser.window.asDynamic().console
@@ -68,9 +74,5 @@ class SettingsPersisterAdapter(
                 .log("[settings-adapter] write key=$key (len=${value.length})")
         }
         settingsPersister.putSetting(key, value)
-        if (key == PersistKeys.UI_SETTINGS) {
-            kotlinx.browser.window.asDynamic().console
-                .log("[settings-adapter] POST for UI_SETTINGS dispatched")
-        }
     }
 }

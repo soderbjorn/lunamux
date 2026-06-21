@@ -19,6 +19,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -27,8 +28,7 @@ import org.khronos.webgl.Int8Array
 import org.khronos.webgl.Uint8Array
 import se.soderbjorn.darkness.core.Appearance
 import se.soderbjorn.darkness.core.PersistKeys
-import se.soderbjorn.darkness.core.ThemeSnapshot
-import se.soderbjorn.darkness.core.UiSettings
+import se.soderbjorn.darkness.core.ThemeSnapshotV2
 import se.soderbjorn.termtastic.client.demo.DemoTerminalSession
 
 /**
@@ -55,18 +55,18 @@ internal fun detectDemoUrl(): Boolean {
 }
 
 /**
- * Build the demo's toolkit-settings snapshot: a dark-appearance
- * [PersistKeys.UI_SETTINGS] blob plus a `darkness.layoutState` blob
- * derived from the fixture [se.soderbjorn.termtastic.WindowConfig] so the
+ * Build the demo's toolkit-settings snapshot: a dark-appearance v2 theme
+ * selection blob ([PersistKeys.THEME_V2_SELECTION]) plus a `darkness.layoutState`
+ * blob derived from the fixture [se.soderbjorn.termtastic.WindowConfig] so the
  * toolkit shell mounts in dark mode with the intended pane geometry.
  *
  * The demo always boots dark, regardless of the visitor's OS
  * `prefers-color-scheme`: the marketing hero is designed for a dark
  * canvas, so a light-mode visitor must not land on a half-lit workspace.
- * We bake an explicit [Appearance.Dark] [UiSettings] blob into the
- * snapshot the toolkit chrome reads once at mount; the appVm side is
- * brought in line by `applyServerUiSettings(...)` over this same object in
- * [start].
+ * We bake an explicit [Appearance.Dark] v2 selection blob into the snapshot
+ * the toolkit chrome reads once at mount; the appVm side is brought in line by
+ * `applyServerUiSettings(...)` over this same object in [start], which reads
+ * the appearance + slot names out of the same selection blob.
  *
  * Pane geometry on web is toolkit-owned: the shell reads
  * [PersistKeys.LAYOUT_STATE] (shape: `presetByTab` / `paneOrderByTab` /
@@ -85,9 +85,12 @@ internal fun detectDemoUrl(): Boolean {
  */
 internal fun demoToolkitSettingsSnapshot(config: se.soderbjorn.termtastic.WindowConfig?): JsonObject =
     buildJsonObject {
+        // Dark appearance with the built-in default slots. `applyServerUiSettings`
+        // reads `appearance` + `lightThemeName`/`darkThemeName` out of this v2
+        // selection blob, so a light-mode visitor still lands on the dark hero.
         put(
-            PersistKeys.UI_SETTINGS,
-            UiSettings.defaults().copy(appearance = Appearance.Dark).toJsonString(),
+            PersistKeys.THEME_V2_SELECTION,
+            ThemeSnapshotV2(appearance = Appearance.Dark).selectionJson(),
         )
         // Seed the Electron custom-title-bar opt-in from the main process's
         // boot value (mirrored onto `darknessApi.customTitleBar` by the
@@ -95,15 +98,10 @@ internal fun demoToolkitSettingsSnapshot(config: se.soderbjorn.termtastic.Window
         // has no server to persist or echo this pref, so without seeding it the
         // value resets to its default on the renderer reload that toggling the
         // title bar triggers — reverting the BrowserWindow rebuild and making
-        // the toggle appear to do nothing. Baking it into the THEME_SNAPSHOT
-        // blob lets `applyServerUiSettings` land the right value in one shot (no
-        // transient that would double-rebuild the window). Undefined — and so
-        // `false` — outside Electron, so this is a no-op for the web demo.
-        put(
-            PersistKeys.THEME_SNAPSHOT,
-            ThemeSnapshot(useCustomTitleBar = demoCustomTitleBarBoot())
-                .encodeAsJsonObject().toString(),
-        )
+        // the toggle appear to do nothing. It is a flat top-level key that
+        // `applyServerUiSettings` reads directly. Undefined — and so `false` —
+        // outside Electron, so this is a no-op for the web demo.
+        put("electronCustomTitleBar", JsonPrimitive(demoCustomTitleBarBoot()))
         if (config == null) return@buildJsonObject
         put(
             PersistKeys.LAYOUT_STATE,

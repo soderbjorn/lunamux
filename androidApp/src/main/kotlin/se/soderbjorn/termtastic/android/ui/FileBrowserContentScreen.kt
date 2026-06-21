@@ -43,12 +43,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import se.soderbjorn.darkness.core.Appearance
-import se.soderbjorn.darkness.core.DEFAULT_THEME_NAME
+import se.soderbjorn.darkness.core.ResolvedTheme
 import se.soderbjorn.termtastic.FileContentKind
 import se.soderbjorn.termtastic.WindowEnvelope
-import se.soderbjorn.darkness.core.recommendedColorSchemes
-import se.soderbjorn.darkness.core.resolve
 import se.soderbjorn.termtastic.client.TermtasticThemeConfig
 import se.soderbjorn.termtastic.client.fetchThemeConfig
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
@@ -82,19 +79,16 @@ fun FileBrowserContentScreen(
     var kind by remember { mutableStateOf<FileContentKind?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val isDark = isSystemInDarkTheme()
-    val centralSettings = LocalUiSettings.current
+    val centralTheme = LocalUiSettings.current
     var localConfig by remember { mutableStateOf<TermtasticThemeConfig?>(null) }
     LaunchedEffect(Unit) {
-        if (centralSettings == null) {
+        if (centralTheme == null) {
             localConfig = ConnectionHolder.client()?.fetchThemeConfig()
         }
     }
-    val uiSettings = centralSettings ?: localConfig?.resolve(isDark)
-    val palette = remember(isDark, uiSettings) {
-        val theme = uiSettings?.schemeForPane("fileBrowser")
-            ?: recommendedColorSchemes.first { it.name == DEFAULT_THEME_NAME }
-        val appearance = uiSettings?.appearance ?: Appearance.Auto
-        theme.resolve(appearance, isDark)
+    val defaultConfig = remember { TermtasticThemeConfig.defaults() }
+    val palette = remember(isDark, centralTheme, localConfig) {
+        centralTheme ?: (localConfig ?: defaultConfig).resolve(isDark)
     }
 
     LaunchedEffect(paneId, relPath) {
@@ -197,26 +191,8 @@ fun FileBrowserContentScreen(
  * pre-tokenised `<span class="hl-…">` spans from [SyntaxHighlighter] — those
  * need the same hl-\* palette the diff viewer already ships on the web.
  */
-private fun wrapFileHtml(bodyHtml: String, kind: FileContentKind, palette: se.soderbjorn.darkness.core.ResolvedPalette): String {
-    val c = { v: Long -> se.soderbjorn.darkness.core.argbToCss(v) }
-    val vars = """
-    --background: ${c(palette.surface.base)};
-    --surface: ${c(palette.surface.raised)};
-    --bg-elevated: ${c(palette.surface.overlay)};
-    --text-primary: ${c(palette.text.primary)};
-    --text-secondary: ${c(palette.text.secondary)};
-    --separator: ${c(palette.border.subtle)};
-    --accent: ${c(palette.accent.primary)};
-    --hl-keyword: ${c(palette.syntax.keyword)};
-    --hl-string: ${c(palette.syntax.string)};
-    --hl-comment: ${c(palette.syntax.comment)};
-    --hl-number: ${c(palette.syntax.number)};
-    --hl-tag: ${c(palette.syntax.keyword)};
-    --hl-attr: ${c(palette.syntax.function)};
-    --hl-type: ${c(palette.syntax.type)};
-    --hl-annotation: ${c(palette.syntax.constant)};
-    --hl-punctuation: ${c(palette.syntax.operator)};
-    """.trimIndent()
+private fun wrapFileHtml(bodyHtml: String, kind: FileContentKind, palette: ResolvedTheme): String {
+    val vars = themeCssVars(palette)
 
     val body = when (kind) {
         FileContentKind.Text -> "<pre class=\"file-source\"><code>$bodyHtml</code></pre>"
@@ -234,8 +210,8 @@ private fun wrapFileHtml(bodyHtml: String, kind: FileContentKind, palette: se.so
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
-    background: var(--background);
-    color: var(--text-primary);
+    background: var(--t-bg);
+    color: var(--t-text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     font-size: 15px;
     line-height: 1.6;
@@ -243,30 +219,30 @@ private fun wrapFileHtml(bodyHtml: String, kind: FileContentKind, palette: se.so
     word-wrap: break-word;
   }
   h1, h2, h3, h4, h5, h6 {
-    color: var(--text-primary);
+    color: var(--t-text);
     margin-top: 1.5em;
     margin-bottom: 0.5em;
     line-height: 1.25;
   }
-  h1 { font-size: 1.8em; border-bottom: 1px solid var(--separator); padding-bottom: 0.3em; }
-  h2 { font-size: 1.5em; border-bottom: 1px solid var(--separator); padding-bottom: 0.3em; }
+  h1 { font-size: 1.8em; border-bottom: 1px solid var(--t-border); padding-bottom: 0.3em; }
+  h2 { font-size: 1.5em; border-bottom: 1px solid var(--t-border); padding-bottom: 0.3em; }
   h3 { font-size: 1.25em; }
   p { margin: 0.75em 0; }
-  a { color: var(--accent); text-decoration: none; }
+  a { color: var(--t-accent); text-decoration: none; }
   a:active { text-decoration: underline; }
   code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.9em;
-    color: var(--text-primary);
-    background: var(--bg-elevated);
-    border: 1px solid var(--separator);
+    color: var(--t-text);
+    background: var(--t-surface-alt);
+    border: 1px solid var(--t-border);
     padding: 0.15em 0.4em;
     border-radius: 3px;
   }
   pre {
-    color: var(--text-primary);
-    background: var(--bg-elevated);
-    border: 1px solid var(--separator);
+    color: var(--t-text);
+    background: var(--t-surface-alt);
+    border: 1px solid var(--t-border);
     padding: 12px 14px;
     border-radius: 4px;
     overflow-x: auto;
@@ -280,28 +256,31 @@ private fun wrapFileHtml(bodyHtml: String, kind: FileContentKind, palette: se.so
     line-height: 1.45;
   }
   blockquote {
-    border-left: 3px solid var(--separator);
+    border-left: 3px solid var(--t-border);
     margin: 0.75em 0;
     padding: 0 1em;
-    color: var(--text-secondary);
+    color: var(--t-text-dim);
   }
   ul, ol { margin: 0.5em 0; padding-left: 1.5em; }
   li { margin: 0.25em 0; }
-  hr { border: 0; border-top: 1px solid var(--separator); margin: 1.2em 0; }
+  hr { border: 0; border-top: 1px solid var(--t-border); margin: 1.2em 0; }
   table { border-collapse: collapse; margin: 0.75em 0; }
-  th, td { border: 1px solid var(--separator); padding: 6px 10px; }
-  th { background: var(--surface); }
+  th, td { border: 1px solid var(--t-border); padding: 6px 10px; }
+  th { background: var(--t-surface); }
   img { max-width: 100%; height: auto; }
 
-  .hl-keyword { color: var(--hl-keyword); }
-  .hl-string { color: var(--hl-string); }
-  .hl-comment { color: var(--hl-comment); font-style: italic; }
-  .hl-number { color: var(--hl-number); }
-  .hl-tag { color: var(--hl-tag); }
-  .hl-attr { color: var(--hl-attr); }
-  .hl-type { color: var(--hl-type); }
-  .hl-annotation { color: var(--hl-annotation); }
-  .hl-punctuation { color: var(--hl-punctuation); }
+  .hl-keyword { color: var(--t-syn-keyword); }
+  .hl-string { color: var(--t-syn-string); }
+  .hl-number { color: var(--t-syn-number); }
+  .hl-comment { color: var(--t-syn-comment); font-style: italic; }
+  .hl-function { color: var(--t-syn-function); }
+  .hl-type { color: var(--t-syn-type); }
+  .hl-operator { color: var(--t-syn-operator); }
+  .hl-constant { color: var(--t-syn-constant); }
+  .hl-tag { color: var(--t-syn-keyword); }
+  .hl-attr { color: var(--t-syn-function); }
+  .hl-annotation { color: var(--t-syn-function); }
+  .hl-punctuation { color: var(--t-syn-operator); }
 </style>
 </head>
 <body>

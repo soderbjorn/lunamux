@@ -97,15 +97,15 @@
    applyAppearanceClass().  The legacy names (--background, --surface,
    etc.) are kept as aliases so existing CSS rules work unchanged. */
 :root {
-    --termtastic-orange: var(--t-accent-primary, #F4B869);
-    --termtastic-orange-accent: var(--t-accent-primary, #E89A3C);
-    --background: var(--t-sidebar-bg, #1C1C1E);
-    --surface: var(--t-surface-raised, #2C2C2E);
-    --bg-elevated: var(--t-surface-overlay, #3A3A3C);
-    --text-primary: var(--t-text-primary, #F5F5F5);
-    --text-secondary: var(--t-text-secondary, #8E8E93);
-    --separator: var(--t-border-subtle, rgba(255, 255, 255, 0.1));
-    --terminal-bg: var(--t-terminal-bg, #000000);
+    --termtastic-orange: var(--t-accent, #F4B869);
+    --termtastic-orange-accent: var(--t-accent, #E89A3C);
+    --background: var(--t-surface, #1C1C1E);
+    --surface: var(--t-surface, #2C2C2E);
+    --bg-elevated: var(--t-surface-alt, #3A3A3C);
+    --text-primary: var(--t-text, #F5F5F5);
+    --text-secondary: var(--t-text-dim, #8E8E93);
+    --separator: var(--t-border, rgba(255, 255, 255, 0.1));
+    --terminal-bg: var(--t-bg, #000000);
 }
 
 * {
@@ -187,7 +187,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     padding: 8px 12px;
     font-size: 11px;
     font-weight: 500;
-    color: var(--t-sidebar-text, var(--text-secondary));
+    color: var(--t-text, var(--text-secondary));
     white-space: nowrap;
     user-select: none;
     flex-shrink: 0;
@@ -234,9 +234,9 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     height: 100%;
     border-radius: 3px;
 }
-.claude-usage-bar .usage-bar-fill.usage-ok { background: var(--t-semantic-success, #34C759); }
-.claude-usage-bar .usage-bar-fill.usage-warn { background: var(--t-semantic-warn, #FFD60A); }
-.claude-usage-bar .usage-bar-fill.usage-critical { background: var(--t-semantic-danger, #FF6961); }
+.claude-usage-bar .usage-bar-fill.usage-ok { background: var(--t-add, #34C759); }
+.claude-usage-bar .usage-bar-fill.usage-warn { background: var(--t-warn, #FFD60A); }
+.claude-usage-bar .usage-bar-fill.usage-critical { background: var(--t-danger, #FF6961); }
 .claude-usage-bar .usage-pct {
     flex: 0 0 auto;
     min-width: 30px;
@@ -244,9 +244,9 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
-.claude-usage-bar .usage-pct.usage-ok { color: var(--t-semantic-success, #34C759); }
-.claude-usage-bar .usage-pct.usage-warn { color: var(--t-semantic-warn, #FFD60A); }
-.claude-usage-bar .usage-pct.usage-critical { color: var(--t-semantic-danger, #FF6961); }
+.claude-usage-bar .usage-pct.usage-ok { color: var(--t-add, #34C759); }
+.claude-usage-bar .usage-pct.usage-warn { color: var(--t-warn, #FFD60A); }
+.claude-usage-bar .usage-pct.usage-critical { color: var(--t-danger, #FF6961); }
 .claude-usage-bar .usage-refresh-btn {
     background: none;
     border: none;
@@ -281,9 +281,9 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     max-width: 340px;
     padding: 10px 12px;
     border-radius: 8px;
-    background: var(--t-chrome-overlay, var(--t-sidebar-surface, #1c1c1e));
-    color: var(--t-sidebar-text, var(--text-primary, #f2f2f2));
-    border: 1px solid var(--t-sidebar-border, color-mix(in srgb, currentColor 14%, transparent));
+    background: var(--t-surface-alt, var(--t-surface, #1c1c1e));
+    color: var(--t-text, var(--text-primary, #f2f2f2));
+    border: 1px solid var(--t-border, color-mix(in srgb, currentColor 14%, transparent));
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
     font-size: 11px;
     font-weight: 500;
@@ -322,17 +322,17 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     height: 100%;
     border-radius: 3px;
 }
-.usage-popup-bar-fill.usage-ok { background: var(--t-semantic-success, #34C759); }
-.usage-popup-bar-fill.usage-warn { background: var(--t-semantic-warn, #FFD60A); }
-.usage-popup-bar-fill.usage-critical { background: var(--t-semantic-danger, #FF6961); }
+.usage-popup-bar-fill.usage-ok { background: var(--t-add, #34C759); }
+.usage-popup-bar-fill.usage-warn { background: var(--t-warn, #FFD60A); }
+.usage-popup-bar-fill.usage-critical { background: var(--t-danger, #FF6961); }
 .usage-popup-pct {
     text-align: right;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
-.usage-popup-pct.usage-ok { color: var(--t-semantic-success, #34C759); }
-.usage-popup-pct.usage-warn { color: var(--t-semantic-warn, #FFD60A); }
-.usage-popup-pct.usage-critical { color: var(--t-semantic-danger, #FF6961); }
+.usage-popup-pct.usage-ok { color: var(--t-add, #34C759); }
+.usage-popup-pct.usage-warn { color: var(--t-warn, #FFD60A); }
+.usage-popup-pct.usage-critical { color: var(--t-danger, #FF6961); }
 .usage-popup-reset {
     opacity: 0.7;
     font-variant-numeric: tabular-nums;
@@ -340,7 +340,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 .usage-popup-foot {
     margin-top: 8px;
     padding-top: 7px;
-    border-top: 1px solid var(--t-sidebar-border, color-mix(in srgb, currentColor 12%, transparent));
+    border-top: 1px solid var(--t-border, color-mix(in srgb, currentColor 12%, transparent));
     opacity: 0.65;
     font-size: 10px;
 }
@@ -362,8 +362,10 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
        same pixels as the cell and there's nothing for the eye to
        compare against. border-radius + overflow:hidden give subtle
        rounded corners. Floating panes override the background below
-       to avoid a double frame. */
-    background: var(--t-chrome-titlebar, var(--surface));
+       to avoid a double frame. Uses `--t-surface` so the pane reads as one
+       uniform surface (white on Termtastic Light) — the pane border, not a
+       darker frame, delineates it. */
+    background: var(--t-surface, var(--surface));
     border-radius: 6px;
     overflow: hidden;
 }
@@ -378,7 +380,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
    default chrome frame because their visual hierarchy benefits from
    the contrast. */
 .terminal-cell[data-content-kind='terminal'] {
-    background: var(--t-terminal-bg, var(--terminal-bg));
+    background: var(--t-bg, var(--terminal-bg));
 }
 
 /* Inset body kinds on left + bottom to reveal the cell's chrome-titlebar
@@ -407,7 +409,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 /* Highlight shown on a pane cell while another pane's icon-drag hovers it,
    signalling that a drop here will swap the two panes' positions. */
 .terminal-cell.drop-target {
-    box-shadow: inset 0 0 0 2px var(--t-accent-primary, var(--text-primary));
+    box-shadow: inset 0 0 0 2px var(--t-accent, var(--text-primary));
 }
 
 /* Termtastic uses pane titles for filesystem paths. Tail-truncate them
@@ -525,11 +527,11 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     align-items: center;
     gap: 5px;
     padding: 5px 11px;
-    border: 1px solid var(--t-border-subtle, var(--separator));
+    border: 1px solid var(--t-border, var(--separator));
     border-radius: 999px;
-    background: var(--t-surface-overlay, var(--bg-elevated));
+    background: var(--t-surface-alt, var(--bg-elevated));
     color: var(--text-primary);
-    font: 600 12px/1 var(--t-font-ui, system-ui, sans-serif);
+    font: 600 12px/1 var(--dt-font-sidebar, system-ui, sans-serif);
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
     opacity: 0.92;
@@ -539,8 +541,8 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 .scroll-to-bottom-btn.visible { display: inline-flex; }
 .scroll-to-bottom-btn .stb-arrow { font-size: 13px; line-height: 1; }
 .scroll-to-bottom-btn.has-new-output {
-    background: var(--t-accent-primary, var(--termtastic-orange));
-    color: var(--t-accent-onPrimary, #1C1C1E);
+    background: var(--t-accent, var(--termtastic-orange));
+    color: var(--t-bg, #1C1C1E);
     border-color: transparent;
 }
 
@@ -548,7 +550,9 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     width: 100%;
     flex: 1;
     min-height: 0;
-    background: var(--t-terminal-bg, var(--terminal-bg));
+    /* Terminal content sits on the pane surface (white on Termtastic Light),
+       one level above the `--t-bg` canvas. */
+    background: var(--t-surface, var(--t-bg));
     /* Fully rectangular: the .terminal-cell frame paints the rounded
        outer window via its own border-radius + overflow:hidden and the
        chrome-coloured frame sits between this rectangle and the cell
@@ -846,7 +850,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 .md-rendered a { color: var(--accent, #0e639c); text-decoration: none; }
 .md-rendered a:hover { text-decoration: underline; }
 .md-rendered code {
-    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-family: var(--dt-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.9em;
     color: var(--text-primary);
     background: var(--bg-elevated);
@@ -936,7 +940,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     outline: none;
 }
 .worktree-input:focus {
-    border-color: var(--t-accent-primary, #569cd6);
+    border-color: var(--t-accent, #569cd6);
     box-shadow: 0 0 0 2px rgba(86, 156, 214, 0.25);
 }
 .worktree-input:disabled {
@@ -968,7 +972,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 }
 .worktree-radio-row input[type="radio"] {
     margin-top: 3px;
-    accent-color: var(--t-accent-primary, #569cd6);
+    accent-color: var(--t-accent, #569cd6);
 }
 .worktree-radio-text {
     display: flex;
@@ -997,7 +1001,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     cursor: pointer;
 }
 .worktree-checkbox-row input[type="checkbox"] {
-    accent-color: var(--t-accent-primary, #569cd6);
+    accent-color: var(--t-accent, #569cd6);
 }
 .worktree-error {
     font-size: 12px;
@@ -1252,7 +1256,7 @@ body.appearance-light .about-link {
     /* Raised surface + neutral hairline, mirroring the Android/iOS news cards
        (surface.raised fill, secondary-text border at ~30% alpha) so each card
        reads as a distinct card against the near-black modal. */
-    background: var(--t-surface-raised, var(--surface, #2C2C2E));
+    background: var(--t-surface, var(--surface, #2C2C2E));
     border: 1px solid color-mix(in srgb, var(--text-secondary, #8E8E93) 30%, transparent);
     border-radius: 10px;
     padding: 16px 36px 16px 16px;
@@ -1351,7 +1355,9 @@ body.appearance-light .about-link {
     margin: 0 0 10px;
     font-size: 17px;
     font-weight: 700;
-    color: var(--text-primary, #d4d4d4);
+    /* Brightest text token so the "New update" / "News" headings read white on
+       Termtastic Dark, matching the modal title and other screen headings. */
+    color: var(--t-text-bright, var(--text-primary, #d4d4d4));
 }
 /* The "New update" card: version text + a Download button. A slightly stronger
    accent border than the news cards marks it out as the primary item, and the
@@ -1360,7 +1366,7 @@ body.appearance-light .about-link {
     /* Raised surface (matching the news cards and the mobile update card) with
        a stronger accent border that marks it out as the primary item. */
     position: relative;
-    background: var(--t-surface-raised, var(--surface, #2C2C2E));
+    background: var(--t-surface, var(--surface, #2C2C2E));
     border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 45%, transparent);
     border-radius: 10px;
     /* Right padding leaves room for the close (×) button. */
@@ -1758,11 +1764,11 @@ body.appearance-light .link-picker-card:hover {
 
 /* Inline diff */
 .git-diff-inline {
-    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-family: var(--dt-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: inherit;
     line-height: inherit;
     min-width: fit-content;
-    background: var(--t-surface-base, var(--surface, #252526));
+    background: var(--t-bg, var(--surface, #252526));
 }
 .git-diff-line {
     display: flex;
@@ -1796,11 +1802,11 @@ body.appearance-light .link-picker-card:hover {
 .git-diff-split {
     height: 100%;
     overflow-y: auto;
-    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-family: var(--dt-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: inherit;
     line-height: inherit;
     min-width: fit-content;
-    background: var(--t-surface-base, var(--surface, #252526));
+    background: var(--t-bg, var(--surface, #252526));
 }
 .git-split-row {
     display: flex;
@@ -1831,7 +1837,7 @@ body.appearance-light .link-picker-card:hover {
 .git-diff-graphical {
     display: flex;
     height: 100%;
-    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-family: var(--dt-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: inherit;
     line-height: inherit;
 }
@@ -1980,7 +1986,7 @@ mark.git-search-hit.git-search-current {
 .file-source {
     margin: 0;
     padding: 12px 14px;
-    font-family: var(--t-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-family: var(--dt-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
     font-size: inherit;
     line-height: 1.45;
     white-space: pre;
@@ -2016,15 +2022,10 @@ body.appearance-light .git-graphical-line.highlight-mod {
 body.appearance-light .git-graphical-connector {
     background: var(--surface, #f5f5f5);
 }
-body.appearance-light .hl-keyword { color: #0550ae; }
-body.appearance-light .hl-string { color: #0a3069; }
-body.appearance-light .hl-comment { color: #6e7781; }
-body.appearance-light .hl-number { color: #953800; }
-body.appearance-light .hl-tag { color: #6639ba; }
-body.appearance-light .hl-attr { color: #0550ae; }
-body.appearance-light .hl-type { color: #0e6575; }
-body.appearance-light .hl-annotation { color: #9a6700; }
-body.appearance-light .hl-punctuation { color: #6e7781; }
+/* Syntax highlighting now follows the active theme's 8 --t-syn-* tokens
+   (see darkness-toolkit.css .hl-* rules), which carry the correct light-theme
+   colours themselves — so the old hardcoded light-mode .hl-* overrides have
+   been removed to let the theme tokens win. */
 
 /* ====================================================================== */
 /*  Settings modal                                                         */
@@ -2086,7 +2087,7 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     flex-direction: column;
     gap: 18px;
     padding: 16px 18px 24px;
-    color: var(--t-text-primary, var(--text-primary));
+    color: var(--t-text, var(--text-primary));
     font-size: 13px;
     line-height: 1.4;
 }
@@ -2108,9 +2109,9 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     font: inherit;
     font-weight: 600;
     text-align: left;
-    color: var(--t-text-primary, var(--text-primary));
-    background: color-mix(in srgb, var(--t-surface-raised) 70%, transparent);
-    border: 1px solid var(--t-border-subtle, var(--separator));
+    color: var(--t-text, var(--text-primary));
+    background: color-mix(in srgb, var(--t-surface) 70%, transparent);
+    border: 1px solid var(--t-border, var(--separator));
     border-radius: 8px;
     cursor: pointer;
     transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
@@ -2125,8 +2126,8 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
 }
 
 .termtastic-app-settings-nav-button:hover {
-    background: color-mix(in srgb, var(--t-accent-primary) 14%, var(--t-surface-raised));
-    border-color: color-mix(in srgb, var(--t-accent-primary) 40%, var(--t-border-subtle, var(--separator)));
+    background: color-mix(in srgb, var(--t-accent) 14%, var(--t-surface));
+    border-color: color-mix(in srgb, var(--t-accent) 40%, var(--t-border, var(--separator)));
 }
 
 .termtastic-app-settings-nav-button:active {
@@ -2134,7 +2135,7 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
 }
 
 .termtastic-app-settings-nav-button:focus-visible {
-    outline: 2px solid var(--t-accent-primary);
+    outline: 2px solid var(--t-accent);
     outline-offset: 2px;
 }
 
@@ -2144,15 +2145,15 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     padding: 7px 12px;
     font-weight: 500;
     font-size: 12px;
-    color: var(--t-text-secondary, var(--text-secondary));
+    color: var(--t-text-dim, var(--text-secondary));
     background: transparent;
     border-color: transparent;
 }
 
 .termtastic-app-settings-nav-button--muted:hover {
-    color: var(--t-text-primary, var(--text-primary));
-    background: color-mix(in srgb, var(--t-surface-raised) 60%, transparent);
-    border-color: var(--t-border-subtle, var(--separator));
+    color: var(--t-text, var(--text-primary));
+    background: color-mix(in srgb, var(--t-surface) 60%, transparent);
+    border-color: var(--t-border, var(--separator));
 }
 
 /* Grouped section card. */
@@ -2161,8 +2162,8 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     flex-direction: column;
     gap: 2px;
     padding: 10px 6px 6px;
-    background: color-mix(in srgb, var(--t-surface-raised) 60%, transparent);
-    border: 1px solid var(--t-border-subtle, var(--separator));
+    background: color-mix(in srgb, var(--t-surface) 60%, transparent);
+    border: 1px solid var(--t-border, var(--separator));
     border-radius: 10px;
 }
 
@@ -2173,7 +2174,7 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     line-height: 1.2;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--t-text-secondary, var(--text-secondary));
+    color: var(--t-text-dim, var(--text-secondary));
 }
 
 /* Toggle rows: stacked label + On/Off button pair, mirroring the
@@ -2186,7 +2187,7 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
     gap: 6px;
     width: 100%;
     padding: 8px 10px;
-    color: var(--t-text-primary, var(--text-primary));
+    color: var(--t-text, var(--text-primary));
     user-select: none;
 }
 
@@ -2198,7 +2199,7 @@ body.appearance-light .hl-punctuation { color: #6e7781; }
 
 /* Light-mode tweaks. */
 body.appearance-light .termtastic-app-settings-nav-button {
-    background: color-mix(in srgb, var(--t-surface-raised) 80%, #ffffff);
+    background: color-mix(in srgb, var(--t-surface) 80%, #ffffff);
     border-color: rgba(0, 0, 0, 0.10);
 }
 
@@ -2208,7 +2209,7 @@ body.appearance-light .termtastic-app-settings-nav-button--muted {
 }
 
 body.appearance-light .termtastic-app-settings-section {
-    background: color-mix(in srgb, var(--t-surface-raised) 70%, #ffffff);
+    background: color-mix(in srgb, var(--t-surface) 70%, #ffffff);
     border-color: rgba(0, 0, 0, 0.10);
 }
 
@@ -2377,22 +2378,25 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     flex-direction: column;
     gap: 8px;
     padding: 8px 0 12px;
-    border-top: 1px solid var(--t-sidebar-border, color-mix(in srgb, currentColor 12%, transparent));
+    border-top: 1px solid var(--t-border, color-mix(in srgb, currentColor 12%, transparent));
 }
 
 .app-logo-wordmark {
-    font-family: Georgia, "Times New Roman", serif;
+    /* Monospaced wordmark, following the app's monospaced font setting
+       (JetBrains Mono by default), so the brand reads as a terminal-style
+       lowercase "termtastic". */
+    font-family: var(--dt-font-mono, 'JetBrains Mono', ui-monospace, monospace);
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.3px;
     /* The toolkit's `.dt-sidebar-header` slot (which hosts this logo)
-       forces `text-transform: uppercase` on its text; override it back to
-       mixed case so the wordmark reads "Termtastic", not "TERMTASTIC". */
+       forces `text-transform: uppercase` on its text; override it back so the
+       wordmark reads lowercase "termtastic", not "TERMTASTIC". */
     text-transform: none;
-    /* Use the termtastic-orange token the rest of the UI leans on for
-       brand accents (the tab active indicator fallback, the dt-dragging
-       sidebar resize line, etc.) so the logo feels in-family. */
-    color: var(--termtastic-orange, #F4B869);
+    /* Brand wordmark uses the theme's MAIN foreground text token so it adopts
+       the appearance's primary text colour — e.g. the phosphor green-ish
+       foreground in "Termtastic Dark" — rather than a neutral bright-white. */
+    color: var(--t-text, #F5F5F5);
     line-height: 1;
 }
 
@@ -2426,7 +2430,7 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
    `data-tt-news-pulse` so it only animates when there is actual news; a version
    update on its own shows the static coloured icon. */
 .tt-news-topbar {
-    color: var(--t-semantic-warn, #FFD60A);
+    color: var(--t-warn, #FFD60A);
 }
 /* Nothing new: render the bell muted/grayed (still clickable) so it reads as
    inactive without disappearing. */
@@ -2439,11 +2443,11 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 }
 @keyframes tt-news-pulse {
     0%, 100% {
-        color: var(--t-semantic-warn, #FFD60A);
+        color: var(--t-warn, #FFD60A);
         opacity: 1;
     }
     50% {
-        color: color-mix(in srgb, var(--t-semantic-warn, #FFD60A) 40%, transparent);
+        color: color-mix(in srgb, var(--t-warn, #FFD60A) 40%, transparent);
         opacity: 0.55;
     }
 }
@@ -2455,123 +2459,191 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     }
 }
 
-/* The status dot. Base state is idle (solid green, no pulse). The
-   .state-working and .state-waiting modifier classes are added by
-   updateAppLogoState() in AppLogo.kt when any session is in that
-   state — waiting wins over working because it's action-required.
-   Working and waiting each have their own keyframe so their opacity
-   pulse can run at a distinct cadence (see the keyframes below); idle
-   has no animation. The colour itself is set statically on these rules
-   and swapped with a 180ms transition.
+/* The About ("i in a circle") button is an app-supplied trailing topbar action,
+   so the toolkit renders it via `buildActionButtonHtml`, which sets an INLINE
+   `style.color = "inherit"` instead of giving it the `.dt-topbar-icon-button`
+   class the gear/layout/appearance icons get. That inline style outranks a
+   normal stylesheet rule, so the icon's `currentColor` stroke resolved to the
+   topbar's bright text (white in dark themes). `!important` is required to beat
+   the inline declaration and match the toolkit siblings' dimmed tint (and their
+   brighten-on-hover), so the icon row reads as one consistent cluster. */
+#tt-topbar-about {
+    color: var(--t-text-dim, #b8b8b8) !important;
+}
+#tt-topbar-about:hover {
+    color: var(--t-text, #e6e6e6) !important;
+}
 
-   The idle colour is a fixed green (not a theme token) on purpose: the
-   three states — green / blue / red — must be distinguishable regardless
-   of appearance mode, and a theme-derived grey washed out in light mode
-   (see issue/feedback following #16 reintroduction of the logo). */
+/* The status dot. Idle is the base rule; the .state-working and .state-waiting
+   modifier classes are added by updateAppLogoState() in AppLogo.kt (aggregate
+   logo dot) and by updateStateIndicators() (per-row sidebar dots) when a
+   session is in that state — waiting wins over working because it's
+   action-required.
+
+   State → look (per @soderbjorn):
+     - idle    → SOLID green, NO pulse (a calm "nothing pending" bead).
+     - working → green, pulsing.
+     - waiting → red, pulsing (faster — action-required, most urgent).
+   (The former blue "working" state is gone.)
+
+   The pulse mirrors the landing page's brand dot (termtastic.soderbjorn.se,
+   the `.brand .dot` / `dotGlow` rule): the bead eases between a dimmed,
+   darkened shade (toward the background, but never vanishing) and the full
+   colour, with a layered, festive multi-ring glow blooming at each peak. The
+   green/red colours are FIXED (not theme tokens) so the states stay
+   distinguishable in any appearance mode. The per-state colour is mirrored
+   into `--dot-c` for the static idle/reduced-motion fills. */
 .app-logo-dot {
-    /* `relative` so the ::after sonar-ping ring (see below) can be absolutely
-       positioned with inset:0 to sit exactly over the orb. */
-    position: relative;
     display: inline-block;
-    /* Bumped from 10 px → 13 px per @soderbjorn feedback on #16:
-       "make the dot a little bit bigger in relation to the label". 13 px
-       sits at roughly 87% of the 15 px wordmark cap height, which reads as
-       a deliberate circular badge next to the text rather than a small
-       punctuation mark beside it. The glow/pulse ring grows with it (see
-       box-shadow/keyframes below). */
-    width: 13px;
-    height: 13px;
+    /* Smaller than the former 13 px orb — the landing-page bead is a compact
+       9 px, and #35 asks for the same "smaller circle" feel. */
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    /* Option A — "Glossy orb": instead of a flat fill the disc is a radial
-       gradient with an off-centre specular highlight (light at 32%/28%) that
-       falls off into a dark rim, reading as a polished 3D bead. The inset
-       white box-shadow adds a faint inner sheen; the outer coloured glow is
-       the same ambient halo the flat dot had. The idle (green) orb is static
-       — motion is reserved for working/waiting via the sonar ping. */
-    background: radial-gradient(circle at 32% 28%,
-                  #b7f7c9 0%, #4cd47a 36%, #34C759 68%, #137a39 100%);
-    box-shadow: 0 0 6px 1px rgba(52, 199, 89, 0.45),
-                inset 0 0 3px rgba(255, 255, 255, 0.3);
+    /* Idle: solid phosphor green (the landing page's --green-hi) with a steady
+       glow and NO animation. */
+    --dot-c: #7cfc9e;
+    background: #7cfc9e;
+    box-shadow: 0 0 8px rgba(124, 252, 158, 0.55),
+                0 0 16px rgba(124, 252, 158, 0.28);
     flex-shrink: 0;
-    transition: box-shadow 180ms ease-in-out;
-    /* The idle colour is a fixed green (not a theme token) on purpose — see the
-       block comment above. Idle is the calm "nothing pending" state, so the orb
-       sits solid green with no pulse; only the working (blue) and waiting (red)
-       states emit the sonar ping, reserving motion for sessions that are doing
-       or need something. Per @soderbjorn feedback on #16: a green dot should
-       just be green. */
 }
 
-/* The sonar-ping ring: an absolutely-positioned overlay sized to the orb whose
-   box-shadow is a hard ring (0 spread, 0 blur) that, in the keyframes below,
-   expands outward and fades to transparent — a radar "ping" radiating off the
-   bead on every cycle. Idle defines the ring but leaves it un-animated (no
-   ping); only the working/waiting rules start the animation. pointer-events
-   are disabled so the overlay never intercepts clicks/hover. */
-.app-logo-dot::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    pointer-events: none;
-}
-
-/* Working: a deep, saturated royal blue (#143C9E). Successively darkened from
-   the former pale #4C9AFF → #1E66E0 → this, which holds its own next to the
-   bright green wordmark without reading as a washed-out light blue. Same glossy
-   orb treatment, blue-tinted. */
-.app-logo-dot.state-working {
-    background: radial-gradient(circle at 32% 28%,
-                  #8fb2ff 0%, #3a63d8 36%, #143C9E 68%, #0b1f55 100%);
-    box-shadow: 0 0 6px 1px rgba(20, 60, 158, 0.5),
-                inset 0 0 3px rgba(255, 255, 255, 0.25);
-}
-
-.app-logo-dot.state-working::after {
-    animation: app-logo-sonar-blue 2.6s ease-out infinite;
-}
-
-.app-logo-dot.state-waiting {
-    background: radial-gradient(circle at 32% 28%,
-                  #ffb3ad 0%, #ff6f64 36%, #FF453A 68%, #a31f17 100%);
-    box-shadow: 0 0 6px 1px rgba(255, 69, 58, 0.5),
-                inset 0 0 3px rgba(255, 255, 255, 0.3);
-}
-
-.app-logo-dot.state-waiting::after {
-    animation: app-logo-sonar-red 1.8s ease-out infinite;
-}
-
-/* Sonar keyframes: the ring grows from 0 to a 10 px spread while fading from a
-   visible coloured edge to fully transparent, then holds transparent for the
-   tail of the cycle so each ping has a clear gap before the next. The orb
-   itself stays solid (no opacity breathe) — motion lives entirely in this
-   expanding ring, which is what makes Option A read as a modern radar ping
-   rather than a dimming disc. All animated values are fixed rgba (no var()),
-   so Chromium interpolates them smoothly. Waiting (red) cycles faster than
-   working (blue) because it is action-required and should feel more urgent,
-   mirroring the fade-warning on .pane-status-spinner. */
-@keyframes app-logo-sonar-blue {
-    0%   { box-shadow: 0 0 0 0    rgba(58, 99, 216, 0.55); }
-    70%  { box-shadow: 0 0 0 10px rgba(58, 99, 216, 0); }
-    100% { box-shadow: 0 0 0 10px rgba(58, 99, 216, 0); }
-}
-
-@keyframes app-logo-sonar-red {
-    0%   { box-shadow: 0 0 0 0    rgba(255, 69, 58, 0.6); }
-    70%  { box-shadow: 0 0 0 10px rgba(255, 69, 58, 0); }
-    100% { box-shadow: 0 0 0 10px rgba(255, 69, 58, 0); }
-}
-
-/* Respect prefers-reduced-motion: keep the colour/orb but drop the sonar ping,
-   matching the existing motion-reduction hygiene elsewhere in this stylesheet. */
-@media (prefers-reduced-motion: reduce) {
-    .app-logo-dot::after,
-    .app-logo-dot.state-working::after,
-    .app-logo-dot.state-waiting::after {
-        animation: none;
+/* Each pulsing state gets its OWN keyframe with concrete, fully-resolved colour
+   stops — NOT var()/color-mix() values. Chromium can only smoothly interpolate
+   a keyframe colour that resolves to a plain colour at computed-value time; a
+   color-mix() built around a var() falls back to *discrete* (sudden) switching
+   at the midpoint, which made an earlier shared-keyframe version snap instead
+   of fade. With fixed stops the breathe eases gradually, exactly like the
+   site's `dotGlow`: at the trough the bead sits at a solid, darkened shade at
+   low opacity (dim but never gone); at the peak it rises to the full colour
+   with the site's layered glow (full inner + mid ring, 60% outer). Green's
+   stops are the landing page's verbatim. */
+@keyframes app-logo-pulse-green {
+    0%, 100% {
+        background: #2f6b45;
+        box-shadow: 0 0 2px rgba(124, 252, 158, 0.25);
+        opacity: 0.35;
+    }
+    50% {
+        background: #7cfc9e;
+        box-shadow: 0 0 14px #7cfc9e,
+                    0 0 28px rgba(124, 252, 158, 1),
+                    0 0 46px rgba(124, 252, 158, 0.6);
+        opacity: 1;
     }
 }
+
+/* Working: green, pulsing. */
+.app-logo-dot.state-working {
+    animation: app-logo-pulse-green 2.8s ease-in-out infinite;
+}
+
+/* Waiting: red, pulsing — same 2.8s cadence as green so both breathe at the
+   same speed. */
+.app-logo-dot.state-waiting {
+    --dot-c: #ff5f57;
+    animation: app-logo-pulse-red 2.8s ease-in-out infinite;
+}
+
+@keyframes app-logo-pulse-red {
+    0%, 100% {
+        background: #692724;
+        box-shadow: 0 0 2px rgba(255, 95, 87, 0.25);
+        opacity: 0.35;
+    }
+    50% {
+        background: #ff5f57;
+        box-shadow: 0 0 14px #ff5f57,
+                    0 0 28px rgba(255, 95, 87, 1),
+                    0 0 46px rgba(255, 95, 87, 0.6);
+        opacity: 1;
+    }
+}
+
+/* Respect prefers-reduced-motion: drop the breathe but keep each state's solid
+   colour and a steady glow so the state stays readable. (var()/color-mix() are
+   fine here — these values are static, not interpolated.) */
+@media (prefers-reduced-motion: reduce) {
+    .app-logo-dot.state-working,
+    .app-logo-dot.state-waiting {
+        animation: none;
+        opacity: 1;
+        background: var(--dot-c);
+        box-shadow: 0 0 8px color-mix(in srgb, var(--dot-c) 55%, transparent),
+                    0 0 16px color-mix(in srgb, var(--dot-c) 28%, transparent);
+    }
+}
+
+/* ── Status dot (sidebar rows, pane headers, tab strip) ───────────────────────
+   Same look as the aggregate .app-logo-dot, a touch smaller to sit inside a
+   row/header/tab. It replaces the former spinner / warning-triangle indicators
+   everywhere: rendered into the toolkit's `paneSidebarBadge`, `paneHeaderBadge`
+   and the tab-strip badge slots, carrying either `data-session=<sid>` (per-pane)
+   or `data-tab-state=<tabId>` (per-tab aggregate) so `updateStateIndicators`
+   toggles `.state-working` / `.state-waiting` on each push. Stateless panes
+   (git, file browser) in the sidebar render a plain idle-green dot with no
+   binding. The `.tt-status-dot-header` variant is slightly larger for the
+   roomier pane-header chrome. Both states share the green cadence (2.8s) so the
+   red and green pulses breathe at the same speed. */
+.tt-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    --dot-c: #7cfc9e;
+    background: #7cfc9e;
+    box-shadow: 0 0 6px rgba(124, 252, 158, 0.5),
+                0 0 12px rgba(124, 252, 158, 0.22);
+    flex-shrink: 0;
+}
+.tt-status-dot-header {
+    width: 10px;
+    height: 10px;
+}
+.tt-status-dot.state-working {
+    animation: app-logo-pulse-green 2.8s ease-in-out infinite;
+}
+.tt-status-dot.state-waiting {
+    --dot-c: #ff5f57;
+    animation: app-logo-pulse-red 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .tt-status-dot.state-working,
+    .tt-status-dot.state-waiting {
+        animation: none;
+        background: var(--dot-c);
+        box-shadow: 0 0 6px color-mix(in srgb, var(--dot-c) 50%, transparent);
+    }
+}
+
+/* ── Termtastic sidebar row reorder ───────────────────────────────────────────
+   The toolkit renders each `.dt-sidebar-row` (a flexbox) with DOM children in
+   the order handle, icon, badge, label, index. Termtastic wants:
+       [status dot] [label] [pane-type icon]
+   so we reorder with flex `order` (no toolkit change needed) and hide the
+   trailing quick-switch digit on the sidebar (the pane HEADER keeps its digit):
+     - badge (status dot)  → leading
+     - label               → middle (keeps flex:1 from the toolkit)
+     - icon (pane type)    → trailing
+   The drag handle stays leftmost so dragging still grabs from the row edge. */
+.dt-sidebar-row-handle { order: -2; }
+.dt-sidebar-row-badge  { order: -1; }
+.dt-sidebar-row-label  { order: 0; }
+.dt-sidebar-row-icon   { order: 1; }
+/* Remove the quick-switch digit from the sidebar row only (kept in pane header).
+   `!important` because the toolkit's own `.dt-sidebar-row-index { display:
+   inline-flex }` is injected into the document AFTER termtastic's stylesheet, so
+   an equal-specificity rule would lose the cascade. */
+.dt-sidebar-row-index  { display: none !important; }
+
+/* ── Pane header: status dot before the pane-type icon ────────────────────────
+   The toolkit renders the header as `[type icon] [status dot] [title] …`, but
+   termtastic wants the status dot FIRST (matching the sidebar's dot-then-icon
+   order). The header is display:flex and nothing else sets `order`, so floating
+   the leading badge ahead of the icon is enough — no !important needed.
+   Non-terminal panes have no leading badge, so this is a no-op there. */
+.dt-pane-leading-badge { order: -1; }
 
 /* ── Reformat hover popup ──
    Opened ~1.5s after hovering a pane's Reformat button (see
@@ -2586,12 +2658,12 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     max-width: 320px;
     padding: 12px 12px 8px;
     box-sizing: border-box;
-    background: var(--t-surface-overlay, var(--t-surface-raised, #20232b));
-    border: 1px solid var(--t-border-subtle, rgba(255, 255, 255, 0.12));
+    background: var(--t-surface-alt, var(--t-surface, #20232b));
+    border: 1px solid var(--t-border, rgba(255, 255, 255, 0.12));
     border-radius: 10px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
-    font-family: var(--t-font-ui, system-ui, sans-serif);
-    color: var(--t-text-primary, #e8eaed);
+    font-family: var(--dt-font-sidebar, system-ui, sans-serif);
+    color: var(--t-text, #e8eaed);
     /* Brief fade-in so it doesn't pop abruptly after the dwell. */
     animation: tt-reformat-popup-in 90ms ease-out;
 }
@@ -2606,14 +2678,14 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--t-text-secondary, #9aa0aa);
+    color: var(--t-text-dim, #9aa0aa);
     padding: 0 6px;
 }
 
 .tt-reformat-popup-hint {
     font-size: 12px;
     line-height: 1.4;
-    color: var(--t-text-secondary, #9aa0aa);
+    color: var(--t-text-dim, #9aa0aa);
     padding: 4px 6px 8px;
 }
 
@@ -2628,7 +2700,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 }
 
 .tt-reformat-popup-row:hover {
-    background: var(--t-surface-raised, rgba(255, 255, 255, 0.06));
+    background: var(--t-surface, rgba(255, 255, 255, 0.06));
 }
 
 .tt-reformat-popup-checkbox {
@@ -2637,7 +2709,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     height: 17px;
     margin: 1px 0 0;
     cursor: pointer;
-    accent-color: var(--t-accent-primary, #5b8cff);
+    accent-color: var(--t-accent, #5b8cff);
 }
 
 .tt-reformat-popup-text {
@@ -2651,13 +2723,13 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     font-size: 13px;
     font-weight: 600;
     line-height: 1.25;
-    color: var(--t-text-primary, #e8eaed);
+    color: var(--t-text, #e8eaed);
 }
 
 .tt-reformat-popup-desc {
     font-size: 11.5px;
     line-height: 1.35;
-    color: var(--t-text-secondary, #9aa0aa);
+    color: var(--t-text-dim, #9aa0aa);
 }
 
 /* Clear visual separation between the two scopes so they read as distinct
@@ -2665,7 +2737,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 .tt-reformat-popup-divider {
     height: 1px;
     margin: 4px 6px;
-    background: var(--t-border-subtle, rgba(255, 255, 255, 0.1));
+    background: var(--t-border, rgba(255, 255, 255, 0.1));
 }
 
 @media (prefers-reduced-motion: reduce) {

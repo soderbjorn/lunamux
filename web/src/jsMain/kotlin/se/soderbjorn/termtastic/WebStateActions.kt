@@ -8,16 +8,16 @@
  *  - focus management ([markPaneFocused], [focusFirstPaneInActiveTab],
  *    [savedFocusedPaneId])
  *  - theme application ([applyAppearanceClass], [applyThemeToTerminals],
- *    [applyAll], [buildXtermTheme], [renderThemeSwatch])
+ *    [applyAll], [buildXtermTheme])
  *  - sidebar / header / usage-bar collapsed-state appliers
  *  - global font-size sync ([applyGlobalFontSize])
  *  - markdown anchor wiring ([wireMarkdownAnchorLinks])
- *  - desktop notifications and per-pane spinner / waiting-icon updates
- *    ([checkStateNotifications], [applySpinnerState], [updateStateIndicators])
+ *  - desktop notifications and per-pane / per-tab status-dot updates
+ *    ([checkStateNotifications], [applyDotState], [updateStateIndicators])
  */
 package se.soderbjorn.termtastic
 
-import se.soderbjorn.darkness.web.toCssVarMap
+import se.soderbjorn.darkness.web.applyTheme
 
 import se.soderbjorn.darkness.core.*
 
@@ -25,6 +25,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLElement
 import se.soderbjorn.termtastic.client.viewmodel.findLeafBySessionId
+import se.soderbjorn.termtastic.client.viewmodel.resolvedTheme
 
 /**
  * Sends a [WindowCommand] to the server via the [WindowSocket] in a
@@ -271,20 +272,27 @@ internal fun focusFirstPaneInActiveTab(): Boolean {
 }
 
 /**
- * Builds a dynamic xterm.js theme options object from the current app
- * theme and appearance.
+ * Builds a dynamic xterm.js `ITheme` options object from the current
+ * resolved theme and appearance.
+ *
+ * The terminal background is forced opaque (`argbToCss(theme.bg)`) so the
+ * xterm canvas never bleeds the underlying pane chrome through; foreground,
+ * cursor and selection are read directly from the flat [ResolvedTheme]
+ * tokens.
  */
 internal fun buildXtermTheme(): dynamic {
-    val palette = sectionPalette("terminal")
-    val bg = argbToHex(palette.terminal.bg)
-    val fg = argbToHex(palette.terminal.fg)
-    val bgLight = isColorLight(palette.terminal.bg)
+    val theme = currentResolvedTheme()
+    // The terminal canvas sits on the pane surface (white on Termtastic Light),
+    // one level above the `--t-bg` canvas — matching the pane chrome around it.
+    val bg = argbToCss(theme.surface)
+    val fg = argbToCss(theme.text)
+    val bgLight = isColorLight(theme.surface)
     val base = kotlin.js.json(
         "background" to bg,
         "foreground" to fg,
-        "cursor" to argbToHex(palette.terminal.cursor),
-        "cursorAccent" to argbToHex(palette.accent.onPrimary),
-        "selectionBackground" to argbToCss(palette.terminal.selection),
+        "cursor" to argbToCss(theme.accent),
+        "cursorAccent" to argbToCss(theme.surface),
+        "selectionBackground" to argbToCss(theme.accentSoft),
     )
     if (bgLight) {
         base["white"] = "#3b3b3b"; base["brightWhite"] = "#5a5a5a"
@@ -302,126 +310,30 @@ internal fun buildXtermTheme(): dynamic {
 
 /**
  * Updates the CSS appearance classes on `<body>` based on the current
- * theme/appearance state and emits all semantic `--t-*` CSS custom
- * properties on `:root`.
+ * theme/appearance state and emits all 19 semantic `--t-*` CSS custom
+ * properties on `:root` via the toolkit's [applyTheme].
+ *
+ * Post theme-system rewrite there is a single flat [ResolvedTheme] for the
+ * whole app — no per-pane/section overrides — so a single `:root` stamp
+ * suffices and every legacy section / pane container inherits it.
  */
 internal fun applyAppearanceClass() {
     val state = appVm.stateFlow.value
-    kotlinx.browser.window.asDynamic().console.log(
-        "[applyAppearanceClass] state.appearance=${state.appearance} theme=${state.theme.name}"
-    )
-    kotlinx.browser.document.body?.classList?.remove("appearance-light", "appearance-dark", "dark-spiced")
     val light = isLightActive(state.appearance)
+    val isDark = !light
+    kotlinx.browser.document.body?.classList?.remove("appearance-light", "appearance-dark", "dark-spiced")
     kotlinx.browser.document.body?.classList?.add(if (light) "appearance-light" else "appearance-dark")
-    kotlinx.browser.window.asDynamic().console.log(
-        "[applyAppearanceClass] body.class=" + (kotlinx.browser.document.body?.className ?: "<no body>")
-    )
 
-    val palette = currentResolvedPalette()
+    val theme = state.resolvedTheme(isSystemDark())
     val root = kotlinx.browser.document.documentElement as? HTMLElement
-    for ((prop, value) in palette.toCssVarMap()) {
-        root?.style?.setProperty(prop, value)
+    if (root != null) {
+        applyTheme(root, theme, isDark)
     }
 
     val electronApi = kotlinx.browser.window.asDynamic().electronApi
     if (electronApi?.setWindowBackgroundColor != null) {
-        electronApi.setWindowBackgroundColor(argbToHex(palette.chrome.titlebar))
+        electronApi.setWindowBackgroundColor(argbToCss(theme.titlebar))
     }
-
-    if (root != null) {
-        val activeVars = activeAccentCssVars()
-        if (activeVars.isNotEmpty()) {
-            for ((prop, value) in activeVars) root.style.setProperty(prop, value)
-        } else {
-            clearActiveAccentVars(root)
-        }
-    }
-
-    fun queryElements(selector: String): List<HTMLElement> {
-        val nodes = kotlinx.browser.document.querySelectorAll(selector)
-        return (0 until nodes.length).mapNotNull { nodes.item(it) as? HTMLElement }
-    }
-    val sectionContainers: Map<String, List<HTMLElement>> = buildMap {
-        val sidebarEls = buildList {
-            (kotlinx.browser.document.getElementById("sidebar") as? HTMLElement)?.let { add(it) }
-            (kotlinx.browser.document.querySelector(".settings-sidebar") as? HTMLElement)?.let { add(it) }
-            (kotlinx.browser.document.querySelector(".theme-manager-sidebar") as? HTMLElement)?.let { add(it) }
-        }
-        if (sidebarEls.isNotEmpty()) put("sidebar", sidebarEls)
-        val tabsEls = listOfNotNull(
-            kotlinx.browser.document.querySelector(".app-header") as? HTMLElement,
-            kotlinx.browser.document.getElementById("tab-bar") as? HTMLElement,
-        )
-        if (tabsEls.isNotEmpty()) put("tabs", tabsEls)
-        // The Claude usage bar moved from the bottom bar into the left-sidebar
-        // footer (see buildSidebarFooter), so it no longer needs a dedicated
-        // "bottomBar" section stamp — it inherits the `--t-sidebar-*` palette
-        // from its `.dt-sidebar` ancestor, which the toolkit paints directly.
-        queryElements(".terminal-cell").takeIf { it.isNotEmpty() }?.let { put("windows", it) }
-        queryElements(".terminal-cell[data-content-kind='terminal'] > .terminal").takeIf { it.isNotEmpty() }?.let { put("terminal", it) }
-        queryElements(".terminal-cell[data-content-kind='fileBrowser'] > .md-view").takeIf { it.isNotEmpty() }?.let { put("fileBrowser", it) }
-        // Key "git" (not "diff"): `termtasticPanes` registers the concrete
-        // pane under "git" → Auxiliary, so paneSchemes is keyed by "git".
-        // Using "diff" here would silently fall back to the main scheme
-        // (no Auxiliary override applied), which is what produced a
-        // white-bg git pane on themes whose Auxiliary scheme differs from
-        // Main and from the windows override.
-        queryElements(".terminal-cell[data-content-kind='git'] > .git-view").takeIf { it.isNotEmpty() }?.let { put("git", it) }
-    }
-    val allProps = palette.toCssVarMap().keys + palette.toCssAliasMap().keys
-    for ((_, elements) in sectionContainers) {
-        for (el in elements) {
-            for (prop in allProps) el.style.removeProperty(prop)
-        }
-    }
-    val windowsPalette = sectionPalette("windows")
-    val windowsOverrideActive = windowsPalette != palette
-    val paneContentSections = setOf("terminal", "fileBrowser", "git")
-    for ((section, elements) in sectionContainers) {
-        val sp = sectionPalette(section)
-        val differs = sp != palette
-        val needsApply = differs || (windowsOverrideActive && section in paneContentSections)
-        console.log("[theme] section=$section elements=${elements.size} differs=$differs needsApply=$needsApply")
-        if (needsApply) {
-            val cssVars = sp.toCssVarMap() + sp.toCssAliasMap()
-            for (el in elements) {
-                for ((prop, value) in cssVars) {
-                    el.style.setProperty(prop, value)
-                }
-            }
-        }
-    }
-
-    // Toolkit chrome paint. The block above paints termtastic-legacy
-    // selectors (#sidebar, .terminal-cell, .app-header, ...) but the live
-    // chrome that mountAppShell renders uses .dt-pane, .dt-sidebar,
-    // .dt-topbar, .dt-tabbar, .dt-bottombar — none of which we touch here.
-    // Without this, switching themes through TermtasticThemeManagerHost
-    // (appVm-only path that bypasses the toolkit's onThemeManagerChanged)
-    // leaves the toolkit chrome stuck on whatever section paint
-    // mountAppShell installed at boot. Calling the toolkit's painter here
-    // makes its Pass 3 repaint .dt-pane / .dt-sidebar / .dt-topbar etc.
-    // with the freshly resolved per-section schemes — same paint the
-    // toolkit's own appearance-toggle button uses.
-    val curState = appVm.stateFlow.value
-    val ui = se.soderbjorn.darkness.core.UiSettings(
-        theme = curState.theme,
-        appearance = curState.appearance,
-        paneSchemes = curState.paneSchemes,
-    )
-    val docEl = kotlinx.browser.document.documentElement as? HTMLElement
-    if (docEl != null) {
-        se.soderbjorn.darkness.web.applyUiSettings(docEl, ui, isDark = !light)
-    }
-
-    // Keep the toolkit assembler's stored UiSettings in sync. Without
-    // this, the toolkit re-paints chrome from its mount-time snapshot
-    // on every rerender (tab switch, pane switch, sidebar toggle, layout
-    // change) — clobbering the paint above with the theme that was
-    // persisted at page load. The user-visible symptom: pick a theme in
-    // the editor, switch active pane, chrome reverts to the boot-time
-    // theme even though appVm still holds the freshly selected one.
-    appShellHandle?.setUiSettings(ui)
 }
 
 /**
@@ -471,30 +383,6 @@ internal fun applyUsageBarCollapsedState() {
     val bar = usageBar ?: return
     val collapsed = appVm.stateFlow.value.usageBarCollapsed
     if (collapsed) bar.classList.add("collapsed") else bar.classList.remove("collapsed")
-}
-
-/**
- * Renders an HTML snippet for a theme swatch preview, showing a mini
- * terminal rectangle with accent prompt and a row of syntax colour dots.
- */
-internal fun renderThemeSwatch(t: ColorScheme): String {
-    val isDark = !isLightActive(appVm.stateFlow.value.appearance)
-    val p = t.resolve(isDark)
-    val bg = argbToHex(p.terminal.bg)
-    val fg = argbToHex(p.terminal.fg)
-    val accent = argbToHex(p.accent.primary)
-    val syntaxDots = listOf(
-        p.syntax.keyword, p.syntax.string, p.syntax.number, p.syntax.comment,
-        p.syntax.function, p.syntax.type, p.syntax.operator, p.syntax.constant,
-    ).joinToString("") { color ->
-        """<span class="syntax-dot" style="background:${argbToHex(color)}"></span>"""
-    }
-    return """<span class="theme-swatch">
-        <span class="swatch-terminal" style="background:$bg;color:$fg">
-            <span class="swatch-prompt" style="color:$accent">❯</span> ls
-        </span>
-        <span class="swatch-syntax-row">$syntaxDots</span>
-    </span>"""
 }
 
 /**
@@ -580,24 +468,25 @@ private fun checkStateNotifications(sessionStates: Map<String, String?>) {
     previousSessionStates.putAll(effective)
 }
 
-/** Small warning-triangle SVG for the spinner slot when a pane is waiting. */
-private const val WAITING_WARNING_SVG = """<svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M8 1.5 L14.5 13.5 H1.5 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><rect x="7.25" y="6" width="1.5" height="4" rx="0.5" fill="currentColor"/><circle cx="8" cy="12" r="0.85" fill="currentColor"/></svg>"""
-
-/** 14px variant of the warning triangle for pane headers. */
-private const val WAITING_WARNING_SVG_HEADER = """<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8 1.5 L14.5 13.5 H1.5 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><rect x="7.25" y="6" width="1.5" height="4" rx="0.5" fill="currentColor"/><circle cx="8" cy="12" r="0.85" fill="currentColor"/></svg>"""
-
 /**
- * Applies the correct class and content to a spinner element based on
- * the given pane state.
+ * Applies the working/waiting state to a status dot (`.tt-status-dot`) — the
+ * unified indicator used on sidebar rows, pane headers, and the tab strip. The
+ * dot has no inner glyph: its colour/pulse is driven purely by the
+ * `state-working` / `state-waiting` modifier classes (see `.tt-status-dot` in
+ * styles.css). Idle clears both so the base idle-green rule paints it.
+ *
+ * Called by [updateStateIndicators] on each server push and by the dot builders
+ * at construction time.
+ *
+ * @param el the `.tt-status-dot` element to repaint.
+ * @param state the session state (`"working"`, `"waiting"`, or null/idle).
  */
-internal fun applySpinnerState(el: HTMLElement, baseClass: String, state: String?) {
+internal fun applyDotState(el: HTMLElement, state: String?) {
+    el.classList.remove("state-working")
+    el.classList.remove("state-waiting")
     when (state) {
-        "working" -> { el.innerHTML = ""; el.className = "$baseClass state-working" }
-        "waiting" -> {
-            val svg = if ("spinner-header" in baseClass) WAITING_WARNING_SVG_HEADER else WAITING_WARNING_SVG
-            el.innerHTML = svg; el.className = "$baseClass state-waiting"
-        }
-        else -> { el.innerHTML = ""; el.className = baseClass }
+        "working" -> el.classList.add("state-working")
+        "waiting" -> el.classList.add("state-waiting")
     }
 }
 
@@ -611,13 +500,12 @@ internal fun updateStateIndicators(sessionStates: Map<String, String?>) {
     updateAppLogoState(sessionStates)
     val effective = HashMap(sessionStates)
     for ((sessionId, state) in effective) {
-        val spinners = document.querySelectorAll(".pane-status-spinner[data-session='$sessionId']")
-        for (i in 0 until spinners.length) {
-            val el = spinners.item(i) as? HTMLElement ?: continue
-            val baseClass = if (el.classList.contains("spinner-sidebar")) "pane-status-spinner spinner-sidebar"
-                else if (el.classList.contains("spinner-tab")) "pane-status-spinner spinner-tab"
-                else "pane-status-spinner spinner-header"
-            applySpinnerState(el, baseClass, state)
+        // Per-pane status dots — the leading bead on each sidebar row and the
+        // pane-header dot. Both carry `.tt-status-dot[data-session]`.
+        val dots = document.querySelectorAll(".tt-status-dot[data-session='$sessionId']")
+        for (k in 0 until dots.length) {
+            val el = dots.item(k) as? HTMLElement ?: continue
+            applyDotState(el, state)
         }
     }
     val cfg = appVm.stateFlow.value.config ?: return
@@ -632,10 +520,11 @@ internal fun updateStateIndicators(sessionStates: Map<String, String?>) {
                 "working" -> if (tabState != "working") tabState = "working"
             }
         }
-        val tabSpinners = document.querySelectorAll("[data-tab-state='$tabId']")
-        for (j in 0 until tabSpinners.length) {
-            val el = tabSpinners.item(j) as? HTMLElement ?: continue
-            applySpinnerState(el, "pane-status-spinner spinner-tab", tabState)
+        // Per-tab aggregated status dot on the tab in the strip.
+        val tabDots = document.querySelectorAll(".tt-status-dot[data-tab-state='$tabId']")
+        for (j in 0 until tabDots.length) {
+            val el = tabDots.item(j) as? HTMLElement ?: continue
+            applyDotState(el, tabState)
         }
     }
     val indicator = document.querySelector(".tab-active-indicator") as? HTMLElement

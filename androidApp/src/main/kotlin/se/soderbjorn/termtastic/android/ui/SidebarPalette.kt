@@ -1,98 +1,87 @@
 /**
- * Sidebar colour palette and shared [UiSettings] provider for the Termtastic
+ * Sidebar colour palette and shared [ResolvedTheme] provider for the Termtastic
  * Android app.
  *
- * Derives adaptive colours from the semantic [ResolvedPalette] system using
- * the user's selected theme from [UiSettings]. When no settings have been
- * loaded yet (e.g. before the first server fetch), falls back to the default
- * Neon Green theme.
+ * Derives adaptive colours from the flat [ResolvedTheme] produced by the user's
+ * selected theme. When no theme has been resolved yet (e.g. before the first
+ * server fetch), the accessors fall back to neutral defaults.
  *
  * [LocalUiSettings] is a [CompositionLocal] provided at the app root by
  * [se.soderbjorn.termtastic.android.ui.TermtasticApp] so that all screens
- * can access the user's theme settings without fetching independently.
+ * can access the resolved theme without fetching independently.
  *
- * @see se.soderbjorn.darkness.core.ResolvedPalette
- * @see se.soderbjorn.termtastic.resolve
- * @see se.soderbjorn.termtastic.client.UiSettings
+ * @see se.soderbjorn.darkness.core.ResolvedTheme
+ * @see se.soderbjorn.termtastic.client.TermtasticThemeConfig
  */
 package se.soderbjorn.termtastic.android.ui
 
 import se.soderbjorn.darkness.core.*
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
-import se.soderbjorn.darkness.core.Appearance
-import se.soderbjorn.darkness.core.DEFAULT_THEME_NAME
-import se.soderbjorn.darkness.core.ResolvedPalette
-import se.soderbjorn.darkness.core.recommendedColorSchemes
-import se.soderbjorn.darkness.core.resolve
-import se.soderbjorn.darkness.core.UiSettings
+import se.soderbjorn.darkness.core.ResolvedTheme
 
 /**
- * Composition-local providing the user's [UiSettings] fetched from the server.
+ * Composition-local providing the user's resolved [ResolvedTheme].
  *
  * Provided by [TermtasticApp] after a successful connection; defaults to
- * `null` (which causes palette accessors to fall back to the Neon Green theme).
+ * `null` (which causes palette accessors to fall back to neutral colours).
  *
  * @see TermtasticApp
  */
-val LocalUiSettings = compositionLocalOf<UiSettings?> { null }
+val LocalUiSettings = compositionLocalOf<ResolvedTheme?> { null }
 
-/** The default theme used when no [UiSettings] have been loaded yet. */
-private val defaultTheme = recommendedColorSchemes.first { it.name == DEFAULT_THEME_NAME }
+/** Neutral fallback colours used before a theme has been resolved. */
+private const val FALLBACK_SURFACE: Long = 0xFF2C2C2E
+private const val FALLBACK_TEXT: Long = 0xFFF5F5F5
+private const val FALLBACK_TEXT_DIM: Long = 0xFF8E8E93
+private const val FALLBACK_ACCENT: Long = 0xFF65DA82
+private const val FALLBACK_WARN: Long = 0xFFF4B869
 
-/**
- * Resolves the sidebar palette for the current theme and system appearance.
- *
- * Uses the user's selected sidebar section theme (or global theme) from
- * [LocalUiSettings], respecting the appearance preference. Falls back to
- * the default Neon Green theme when settings are not yet available.
- *
- * @return the resolved palette for the sidebar section
- */
-@Composable @ReadOnlyComposable
-private fun sidebarPalette(): ResolvedPalette {
-    val settings = LocalUiSettings.current
-    val systemIsDark = isSystemInDarkTheme()
-    val theme = settings?.schemeForPane("sidebar") ?: defaultTheme
-    val appearance = settings?.appearance ?: Appearance.Auto
-    return theme.resolve(appearance, systemIsDark)
-}
-
-/** Adaptive sidebar background colour, derived from the semantic palette. */
+/** Adaptive sidebar background colour, derived from the resolved theme's `surface`. */
 internal val SidebarBackground: Color
     @Composable @ReadOnlyComposable
-    get() = Color(sidebarPalette().sidebar.bg)
+    get() = Color((LocalUiSettings.current?.surface ?: FALLBACK_SURFACE).toInt())
 
 /** Adaptive sidebar surface/card colour for elevated elements like top bars. */
 internal val SidebarSurface: Color
     @Composable @ReadOnlyComposable
-    get() = Color(sidebarPalette().surface.raised)
+    get() = Color((LocalUiSettings.current?.surface ?: FALLBACK_SURFACE).toInt())
 
 /** Adaptive primary text colour for sidebar headings and labels. */
 internal val SidebarTextPrimary: Color
     @Composable @ReadOnlyComposable
-    get() = Color(sidebarPalette().sidebar.text)
+    get() = Color((LocalUiSettings.current?.text ?: FALLBACK_TEXT).toInt())
+
+/**
+ * Adaptive brightest text colour, from the resolved theme's `textBright` token.
+ *
+ * Used for prominent screen headings (e.g. the "News & Updates" top app bar
+ * title) so they read as crisp white on dark themes — matching the web modal
+ * titles, which use the same brightest token. Falls back to [FALLBACK_TEXT].
+ */
+internal val SidebarTextBright: Color
+    @Composable @ReadOnlyComposable
+    get() = Color((LocalUiSettings.current?.textBright ?: FALLBACK_TEXT).toInt())
 
 /** Adaptive secondary text colour for sidebar body text and subdued labels. */
 internal val SidebarTextSecondary: Color
     @Composable @ReadOnlyComposable
-    get() = Color(sidebarPalette().sidebar.textDim)
+    get() = Color((LocalUiSettings.current?.textDim ?: FALLBACK_TEXT_DIM).toInt())
 
-/** Theme accent colour derived from the terminal foreground. */
+/** Theme accent colour from the resolved theme's `accent` token. */
 internal val SidebarAccent: Color
     @Composable @ReadOnlyComposable
-    get() = Color(sidebarPalette().accent.primary)
+    get() = Color((LocalUiSettings.current?.accent ?: FALLBACK_ACCENT).toInt())
 
 /** Semantic warn colour, used by the waiting-for-input state indicator. */
 internal val SidebarWarn: Color
     @Composable @ReadOnlyComposable
-    get() = Color(sidebarPalette().semantic.warn)
+    get() = Color((LocalUiSettings.current?.warn ?: FALLBACK_WARN).toInt())
 
 /**
  * Outlined text-field colours derived from the resolved sidebar palette.
