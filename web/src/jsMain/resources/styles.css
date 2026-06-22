@@ -2575,45 +2575,72 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     }
 }
 
-/* ── Status dot (sidebar rows, pane headers, tab strip) ───────────────────────
-   Same look as the aggregate .app-logo-dot, a touch smaller to sit inside a
-   row/header/tab. It replaces the former spinner / warning-triangle indicators
-   everywhere: rendered into the toolkit's `paneSidebarBadge`, `paneHeaderBadge`
-   and the tab-strip badge slots, carrying either `data-session=<sid>` (per-pane)
-   or `data-tab-state=<tabId>` (per-tab aggregate) so `updateStateIndicators`
-   toggles `.state-working` / `.state-waiting` on each push. Stateless panes
-   (git, file browser) in the sidebar render a plain idle-green dot with no
-   binding. The `.tt-status-dot-header` variant is slightly larger for the
-   roomier pane-header chrome. Both states share the green cadence (2.8s) so the
-   red and green pulses breathe at the same speed. */
+/* ── Status indicator (sidebar rows, pane headers, tab strip) ─────────────────
+   The unified per-pane / per-tab session indicator. It replaces the former
+   spinner / warning-triangle indicators everywhere: rendered into the toolkit's
+   `paneSidebarBadge`, `paneHeaderBadge` and the tab-strip badge slots, carrying
+   either `data-session=<sid>` (per-pane) or `data-tab-state=<tabId>` (per-tab
+   aggregate) so `updateStateIndicators` toggles `.state-working` /
+   `.state-waiting` on each push. Stateless panes (git, file browser) in the
+   sidebar render a plain idle dot with no binding.
+
+   Look (issue #38 — drop the green/red palette that fought the themes):
+     - idle    → a SOLID dot in the theme's foreground text colour, no pulse.
+     - working → the same dot, breathing (pulsing) in the foreground colour.
+     - waiting → the dot is swapped for a warning/exclamation triangle (same
+                 foreground colour), still pulsing, so working and waiting stay
+                 distinguishable now that they share one colour.
+
+   The colour is the theme `--t-text` token (e.g. the phosphor green-ish
+   foreground in "Termtastic Dark"), so the indicator always meshes with the
+   active theme instead of a fixed green/red. The `.tt-status-dot-header`
+   variant is slightly larger for the roomier pane-header chrome. */
 .tt-status-dot {
     display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    --dot-c: #7cfc9e;
-    background: #7cfc9e;
-    box-shadow: 0 0 6px rgba(124, 252, 158, 0.5),
-                0 0 12px rgba(124, 252, 158, 0.22);
+    background: var(--t-text, #f5f5f5);
+    /* Soft glow in the same foreground colour so the bead reads as lit on any
+       theme; color-mix keeps the halo tied to --t-text. */
+    box-shadow: 0 0 6px color-mix(in srgb, var(--t-text, #f5f5f5) 50%, transparent),
+                0 0 12px color-mix(in srgb, var(--t-text, #f5f5f5) 22%, transparent);
     flex-shrink: 0;
 }
 .tt-status-dot-header {
     width: 10px;
     height: 10px;
 }
+/* Working: the dot breathes (opacity pulse) — the colour is held constant at
+   the foreground, so only the intensity animates. Shares the `fade-warning`
+   1 → 0.3 → 1 curve with the waiting triangle so both breathe in lockstep. */
 .tt-status-dot.state-working {
-    animation: app-logo-pulse-green 2.8s ease-in-out infinite;
+    animation: fade-warning 2.5s ease-in-out infinite;
 }
+/* Waiting for input: swap the round bead for a warning triangle with an
+   exclamation mark, masked from the same foreground colour (the exclamation is
+   a transparent cut-out via the SVG's even-odd fill rule, so it reads on any
+   theme). Still pulses. The triangle is a touch larger than the bead so it
+   stays legible at the dot's small footprint. */
 .tt-status-dot.state-waiting {
-    --dot-c: #ff5f57;
-    animation: app-logo-pulse-red 2.8s ease-in-out infinite;
+    width: 11px;
+    height: 11px;
+    border-radius: 0;
+    background: var(--t-text, #f5f5f5);
+    box-shadow: none;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    animation: fade-warning 2.5s ease-in-out infinite;
+}
+/* Header-size waiting triangle: scale up to match the larger header bead. */
+.tt-status-dot-header.state-waiting {
+    width: 13px;
+    height: 13px;
 }
 @media (prefers-reduced-motion: reduce) {
     .tt-status-dot.state-working,
     .tt-status-dot.state-waiting {
         animation: none;
-        background: var(--dot-c);
-        box-shadow: 0 0 6px color-mix(in srgb, var(--dot-c) 50%, transparent);
     }
 }
 

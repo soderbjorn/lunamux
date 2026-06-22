@@ -469,11 +469,13 @@ private fun checkStateNotifications(sessionStates: Map<String, String?>) {
 }
 
 /**
- * Applies the working/waiting state to a status dot (`.tt-status-dot`) — the
- * unified indicator used on sidebar rows, pane headers, and the tab strip. The
- * dot has no inner glyph: its colour/pulse is driven purely by the
- * `state-working` / `state-waiting` modifier classes (see `.tt-status-dot` in
- * styles.css). Idle clears both so the base idle-green rule paints it.
+ * Applies the working/waiting state to a status indicator (`.tt-status-dot`) —
+ * the unified indicator used on sidebar rows, pane headers, and the tab strip.
+ * Its look is driven purely by the `state-working` / `state-waiting` modifier
+ * classes (see `.tt-status-dot` in styles.css), all painted in the theme's
+ * foreground colour (issue #38): idle clears both so the base rule paints a
+ * solid dot; `state-working` makes that dot breathe; `state-waiting` swaps the
+ * dot for a pulsing warning/exclamation triangle.
  *
  * Called by [updateStateIndicators] on each server push and by the dot builders
  * at construction time.

@@ -564,14 +564,15 @@ private fun aggregateTabState(tabId: String, sessionStates: Map<String, String?>
 }
 
 /**
- * Builds a status DOT for a toolkit badge slot (sidebar row or pane header).
- * Replaces the former spinner / warning-triangle indicators with the unified
- * `.tt-status-dot` bead: idle = solid green, working = green pulse, waiting =
- * red pulse. Painted from the current [currentSessionStates] snapshot so it
- * survives toolkit rerenders without a blank frame.
+ * Builds a status indicator for a toolkit badge slot (sidebar row or pane
+ * header). Uses the unified `.tt-status-dot` indicator, painted in the theme's
+ * foreground colour (issue #38): idle = solid dot, working = breathing dot,
+ * waiting = pulsing warning/exclamation triangle. Painted from the current
+ * [currentSessionStates] snapshot so it survives toolkit rerenders without a
+ * blank frame.
  *
  * Terminal panes carry `data-session=<sid>` so [updateStateIndicators] repaints
- * them on every server push; a null [sessionId] yields a static idle-green dot
+ * them on every server push; a null [sessionId] yields a static idle dot
  * (used for stateless sidebar panes — file browser, git, link).
  *
  * @param sessionId terminal session id stamped onto `data-session`, or null for
