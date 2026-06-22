@@ -113,6 +113,8 @@ internal class SettingsViewModel(
             sidebarFontSizePx = int("sidebarFontSizePx") ?: cur.sidebarFontSizePx,
             tabbarFontFamily = str("tabbarFontFamily") ?: cur.tabbarFontFamily,
             tabbarFontSizePx = int("tabbarFontSizePx") ?: cur.tabbarFontSizePx,
+            paneHeaderFontFamily = str("paneHeaderFontFamily") ?: cur.paneHeaderFontFamily,
+            paneHeaderFontSizePx = int("paneHeaderFontSizePx") ?: cur.paneHeaderFontSizePx,
             sidebarWidth = int("sidebarWidth") ?: cur.sidebarWidth,
             sidebarCollapsed = bool("sidebarCollapsed") ?: cur.sidebarCollapsed,
             headerCollapsed = bool("headerCollapsed") ?: cur.headerCollapsed,

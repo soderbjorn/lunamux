@@ -94,6 +94,10 @@ class AppBackingViewModel(
         val tabbarFontFamily: String? = null,
         /** Tab strip font size in px, or `null` to fall back to sidebar. */
         val tabbarFontSizePx: Int? = null,
+        /** Pane title (pane header) font preset key, or `null` to fall back to sidebar. */
+        val paneHeaderFontFamily: String? = null,
+        /** Pane title (pane header) font size in px, or `null` to fall back to sidebar. */
+        val paneHeaderFontSizePx: Int? = null,
         val sidebarWidth: Int? = null,
         val sidebarCollapsed: Boolean = false,
         val headerCollapsed: Boolean = false,
@@ -180,6 +184,18 @@ class AppBackingViewModel(
     /** Update the tab strip font size and persist it. */
     suspend fun setTabbarFontSizePx(size: Int) {
         emit(_stateFlow.value.copy(tabbarFontSizePx = size))
+        persistFonts()
+    }
+
+    /** Update the pane title (pane header) font preset and persist it. */
+    suspend fun setPaneHeaderFontFamily(key: String) {
+        emit(_stateFlow.value.copy(paneHeaderFontFamily = key.ifEmpty { null }))
+        persistFonts()
+    }
+
+    /** Update the pane title (pane header) font size and persist it. */
+    suspend fun setPaneHeaderFontSizePx(size: Int) {
+        emit(_stateFlow.value.copy(paneHeaderFontSizePx = size))
         persistFonts()
     }
 
@@ -392,6 +408,8 @@ class AppBackingViewModel(
             s.sidebarFontSizePx?.let { put("sidebarFontSizePx", it.toString()) }
             s.tabbarFontFamily?.let { put("tabbarFontFamily", it) }
             s.tabbarFontSizePx?.let { put("tabbarFontSizePx", it.toString()) }
+            s.paneHeaderFontFamily?.let { put("paneHeaderFontFamily", it) }
+            s.paneHeaderFontSizePx?.let { put("paneHeaderFontSizePx", it.toString()) }
             put("desktopNotifications", s.desktopNotifications.toString())
             put("electronCustomTitleBar", s.electronCustomTitleBar.toString())
         })
