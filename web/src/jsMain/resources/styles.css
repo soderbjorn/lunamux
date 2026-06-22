@@ -2474,104 +2474,62 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     color: var(--t-text, #e6e6e6) !important;
 }
 
-/* The status dot. Idle is the base rule; the .state-working and .state-waiting
-   modifier classes are added by updateAppLogoState() in AppLogo.kt (aggregate
-   logo dot) and by updateStateIndicators() (per-row sidebar dots) when a
-   session is in that state — waiting wins over working because it's
-   action-required.
+/* The aggregate "global" status dot next to the sidebar wordmark. Idle is the
+   base rule; the .state-working and .state-waiting modifier classes are added
+   by updateAppLogoState() in AppLogo.kt from the aggregate of all session
+   states — waiting wins over working because it's action-required.
 
-   State → look (per @soderbjorn):
-     - idle    → SOLID green, NO pulse (a calm "nothing pending" bead).
-     - working → green, pulsing.
-     - waiting → red, pulsing (faster — action-required, most urgent).
-   (The former blue "working" state is gone.)
-
-   The pulse mirrors the landing page's brand dot (termtastic.soderbjorn.se,
-   the `.brand .dot` / `dotGlow` rule): the bead eases between a dimmed,
-   darkened shade (toward the background, but never vanishing) and the full
-   colour, with a layered, festive multi-ring glow blooming at each peak. The
-   green/red colours are FIXED (not theme tokens) so the states stay
-   distinguishable in any appearance mode. The per-state colour is mirrored
-   into `--dot-c` for the static idle/reduced-motion fills. */
+   Look (issue #38 — matches the per-row `.tt-status-dot`): painted in the theme
+   foreground colour (`--t-text`) so the global dot meshes with any theme
+   instead of a fixed green/red.
+     - idle    → a SOLID dot, no pulse (a calm "nothing pending" bead).
+     - working → the same dot, breathing (pulsing).
+     - waiting → the dot is swapped for a pulsing warning/exclamation triangle,
+                 so working and waiting stay distinguishable when they share one
+                 colour. */
 .app-logo-dot {
     display: inline-block;
-    /* Smaller than the former 13 px orb — the landing-page bead is a compact
-       9 px, and #35 asks for the same "smaller circle" feel. */
+    /* A compact bead, slightly larger than the per-row `.tt-status-dot` to suit
+       the wordmark it sits beside. */
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    /* Idle: solid phosphor green (the landing page's --green-hi) with a steady
-       glow and NO animation. */
-    --dot-c: #7cfc9e;
-    background: #7cfc9e;
-    box-shadow: 0 0 8px rgba(124, 252, 158, 0.55),
-                0 0 16px rgba(124, 252, 158, 0.28);
+    background: var(--t-text, #f5f5f5);
+    /* Steady glow in the same foreground colour; color-mix keeps the halo tied
+       to --t-text. */
+    box-shadow: 0 0 8px color-mix(in srgb, var(--t-text, #f5f5f5) 55%, transparent),
+                0 0 16px color-mix(in srgb, var(--t-text, #f5f5f5) 28%, transparent);
     flex-shrink: 0;
 }
 
-/* Each pulsing state gets its OWN keyframe with concrete, fully-resolved colour
-   stops — NOT var()/color-mix() values. Chromium can only smoothly interpolate
-   a keyframe colour that resolves to a plain colour at computed-value time; a
-   color-mix() built around a var() falls back to *discrete* (sudden) switching
-   at the midpoint, which made an earlier shared-keyframe version snap instead
-   of fade. With fixed stops the breathe eases gradually, exactly like the
-   site's `dotGlow`: at the trough the bead sits at a solid, darkened shade at
-   low opacity (dim but never gone); at the peak it rises to the full colour
-   with the site's layered glow (full inner + mid ring, 60% outer). Green's
-   stops are the landing page's verbatim. */
-@keyframes app-logo-pulse-green {
-    0%, 100% {
-        background: #2f6b45;
-        box-shadow: 0 0 2px rgba(124, 252, 158, 0.25);
-        opacity: 0.35;
-    }
-    50% {
-        background: #7cfc9e;
-        box-shadow: 0 0 14px #7cfc9e,
-                    0 0 28px rgba(124, 252, 158, 1),
-                    0 0 46px rgba(124, 252, 158, 0.6);
-        opacity: 1;
-    }
-}
-
-/* Working: green, pulsing. */
+/* Working: the dot breathes (opacity pulse) — colour held constant at the
+   foreground, sharing the `fade-warning` 1 → 0.3 → 1 curve with the waiting
+   triangle so both breathe in lockstep. */
 .app-logo-dot.state-working {
-    animation: app-logo-pulse-green 2.8s ease-in-out infinite;
+    animation: fade-warning 2.5s ease-in-out infinite;
 }
 
-/* Waiting: red, pulsing — same 2.8s cadence as green so both breathe at the
-   same speed. */
+/* Waiting for input: swap the round bead for a warning triangle with an
+   exclamation mark, masked from the same foreground colour (the exclamation is
+   a transparent cut-out via the SVG's even-odd fill rule). Still pulses; a
+   touch larger than the bead so it stays legible. */
 .app-logo-dot.state-waiting {
-    --dot-c: #ff5f57;
-    animation: app-logo-pulse-red 2.8s ease-in-out infinite;
+    width: 12px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--t-text, #f5f5f5);
+    box-shadow: none;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    animation: fade-warning 2.5s ease-in-out infinite;
 }
 
-@keyframes app-logo-pulse-red {
-    0%, 100% {
-        background: #692724;
-        box-shadow: 0 0 2px rgba(255, 95, 87, 0.25);
-        opacity: 0.35;
-    }
-    50% {
-        background: #ff5f57;
-        box-shadow: 0 0 14px #ff5f57,
-                    0 0 28px rgba(255, 95, 87, 1),
-                    0 0 46px rgba(255, 95, 87, 0.6);
-        opacity: 1;
-    }
-}
-
-/* Respect prefers-reduced-motion: drop the breathe but keep each state's solid
-   colour and a steady glow so the state stays readable. (var()/color-mix() are
-   fine here — these values are static, not interpolated.) */
+/* Respect prefers-reduced-motion: drop the breathe but keep the indicator
+   visible (the base rule paints the static foreground dot / masked triangle). */
 @media (prefers-reduced-motion: reduce) {
     .app-logo-dot.state-working,
     .app-logo-dot.state-waiting {
         animation: none;
-        opacity: 1;
-        background: var(--dot-c);
-        box-shadow: 0 0 8px color-mix(in srgb, var(--dot-c) 55%, transparent),
-                    0 0 16px color-mix(in srgb, var(--dot-c) 28%, transparent);
     }
 }
 

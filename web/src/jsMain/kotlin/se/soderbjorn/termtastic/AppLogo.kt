@@ -3,24 +3,27 @@
  *
  * Renders the "Termtastic" wordmark and a small status dot pinned to the top
  * of the left (sessions) sidebar — see `TermtasticToolkitBootstrap.buildSidebarLogo`,
- * which wires it into the toolkit's `sidebarHeader` slot. The dot shows
- * three states derived from the aggregate of all per-session states:
+ * which wires it into the toolkit's `sidebarHeader` slot. The dot aggregates
+ * all per-session states and (issue #38) is painted in the theme's foreground
+ * colour — matching the per-row `.tt-status-dot` — instead of a fixed
+ * green/red, so it meshes with any theme:
  *
- *   - red   — at least one session is "waiting" (e.g. an agent is asking for
- *             input/approval). Waiting dominates because it needs action.
- *             Pulses fastest since it is action-required.
- *   - blue  — at least one session is "working" (agent is actively running)
- *             and none are waiting. Pulses to read as actively in motion.
- *   - green — no session is working or waiting (idle). Breathes at the slowest,
- *             calmest cadence in a fixed phosphor green (the landing page's
- *             brand-dot colour). All three colours are fixed so the states stay
- *             distinguishable in any appearance mode.
+ *   - waiting — at least one session is "waiting" (e.g. an agent is asking for
+ *               input/approval). Waiting dominates because it needs action; the
+ *               dot is swapped for a pulsing warning/exclamation triangle.
+ *   - working — at least one session is "working" (agent is actively running)
+ *               and none are waiting. The dot breathes (pulses) in place.
+ *   - idle    — no session is working or waiting. A solid dot, no pulse.
+ *
+ * The shape (dot vs. triangle), not the colour, distinguishes the states now
+ * that they all share the theme foreground colour — see `.app-logo-dot` in
+ * styles.css.
  *
  * The logo brings back an older design element (see issue #14): a "Termtastic"
- * wordmark alongside a coloured dot. In the previous incarnation the dot was
- * to the left of the wordmark and coloured by socket-connection status; this
- * version moves the dot to the right and ties its colour to work state, which
- * is more informative for day-to-day use.
+ * wordmark alongside a dot. In the previous incarnation the dot was to the left
+ * of the wordmark and coloured by socket-connection status; this version moves
+ * the dot to the right and ties it to work state, which is more informative for
+ * day-to-day use.
  *
  * The logo is built in Kotlin (`buildSidebarLogo`) and slotted into the
  * sidebar header, so it scrolls/collapses with the sidebar. The dot element
@@ -42,13 +45,15 @@ import org.w3c.dom.HTMLElement
  *
  * Called from [updateStateIndicators] whenever the server pushes a new state
  * envelope (or when [renderConfig] replays the current state after a config
- * change), so the dot is always in sync with the spinners/warning icons in
+ * change), so the dot is always in sync with the per-row status indicators in
  * the sidebar and tab bar.
  *
  * Aggregation rule:
- *   1. If any session value is `"waiting"` → mark as waiting (red pulse).
- *   2. Else if any session value is `"working"` → mark as working (blue pulse).
- *   3. Else mark as idle (green breathe at the calmest cadence).
+ *   1. If any session value is `"waiting"` → mark as waiting (pulsing warning
+ *      triangle).
+ *   2. Else if any session value is `"working"` → mark as working (breathing
+ *      dot).
+ *   3. Else mark as idle (solid dot, no pulse).
  *
  * @param sessionStates the current session-id to state map from the server.
  *                      States other than `"working"` / `"waiting"` (including
@@ -88,7 +93,7 @@ internal fun applyLogoDotState(dot: HTMLElement, sessionStates: Map<String, Stri
     when {
         anyWaiting -> dot.classList.add("state-waiting")
         anyWorking -> dot.classList.add("state-working")
-        // Idle → no modifier class; the base .app-logo-dot rule paints it
-        // a fixed phosphor green breathing at the calmest cadence.
+        // Idle → no modifier class; the base .app-logo-dot rule paints a
+        // solid, non-pulsing dot in the theme foreground colour.
     }
 }
