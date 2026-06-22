@@ -202,6 +202,24 @@ contextBridge.exposeInMainWorld("electronApi", {
   },
 
   /**
+   * Subscribes to the "new tab" event sent by the main process when the user
+   * picks "File → New Tab" (⌘T) from the macOS menu. The renderer dispatches
+   * the focused-add window command so the server opens a tab and switches to
+   * it.
+   *
+   * Only the channel name is forwarded; the IPC event object itself is not
+   * leaked into the renderer for context-isolation safety.
+   *
+   * @param {() => void} handler - Called with no arguments on each event.
+   * @returns {() => void} Unsubscribe function that detaches the listener.
+   */
+  onNewTab: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("new-tab", wrapped);
+    return () => ipcRenderer.removeListener("new-tab", wrapped);
+  },
+
+  /**
    * Subscribes to the "debug set pane state" event sent by the main
    * process when the user picks "Pane state: Working/Waiting/Clear"
    * from the macOS Debug submenu. The handler receives the requested

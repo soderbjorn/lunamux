@@ -25,24 +25,44 @@ internal fun termtasticHotkeysSpec(): HotkeysModalSpec = HotkeysModalSpec(
     groups = listOf(
         HotkeyGroup(
             title = "Windows & tabs",
-            entries = listOf(
-                HotkeyEntry(
-                    label = "Previous window",
-                    chord = StandardHotkeys.PreviousPane.toChordLabel(),
-                ),
-                HotkeyEntry(
-                    label = "Next window",
-                    chord = StandardHotkeys.NextPane.toChordLabel(),
-                ),
-                HotkeyEntry(
-                    label = "Previous tab",
-                    chord = StandardHotkeys.PreviousTab.toChordLabel(),
-                ),
-                HotkeyEntry(
-                    label = "Next tab",
-                    chord = StandardHotkeys.NextTab.toChordLabel(),
-                ),
-            ),
+            entries = buildList {
+                // "New tab" (⌘T) is wired through the Electron app menu only
+                // (see ElectronMain.buildAppMenu / main.kt onNewTab), so it is
+                // listed solely when running inside the bundled app — a plain
+                // browser tab has no such binding (⌘T is the browser's own).
+                if (isElectronClient) {
+                    add(
+                        HotkeyEntry(
+                            label = "New tab",
+                            chord = listOf(if (isMacUserAgent()) "⌘" else "Ctrl", "T"),
+                        ),
+                    )
+                }
+                add(
+                    HotkeyEntry(
+                        label = "Previous window",
+                        chord = StandardHotkeys.PreviousPane.toChordLabel(),
+                    ),
+                )
+                add(
+                    HotkeyEntry(
+                        label = "Next window",
+                        chord = StandardHotkeys.NextPane.toChordLabel(),
+                    ),
+                )
+                add(
+                    HotkeyEntry(
+                        label = "Previous tab",
+                        chord = StandardHotkeys.PreviousTab.toChordLabel(),
+                    ),
+                )
+                add(
+                    HotkeyEntry(
+                        label = "Next tab",
+                        chord = StandardHotkeys.NextTab.toChordLabel(),
+                    ),
+                )
+            },
         ),
         HotkeyGroup(
             title = "Dialogs",
@@ -71,3 +91,16 @@ internal fun termtasticHotkeysSpec(): HotkeysModalSpec = HotkeysModalSpec(
     ),
     footerNote = "Window and tab chords work even when a terminal is focused.",
 )
+
+/**
+ * True when the running browser/Electron user-agent looks like macOS (or
+ * iOS). Used to pick the ⌘ vs Ctrl glyph for the "New tab" cheatsheet
+ * entry. Mirrors the inline check the "App" group uses for the cheatsheet
+ * chord itself.
+ */
+private fun isMacUserAgent(): Boolean {
+    val ua = js(
+        "(typeof navigator !== 'undefined' && navigator.userAgent) || ''",
+    ) as String
+    return ua.contains("Mac") || ua.contains("iPhone") || ua.contains("iPad")
+}

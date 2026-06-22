@@ -533,6 +533,14 @@ private fun start() {
         electronApi.onShowSettings({ openAppSettingsSidebar() })
     }
 
+    // macOS app menu → "File → New Tab" (⌘T) adds a tab. Forwarded from the
+    // Electron main process via the `new-tab` IPC; fires the same AddTab
+    // command the "+" tab-strip button uses, so the shortcut and the button
+    // behave identically.
+    if (electronApi?.onNewTab != null) {
+        electronApi.onNewTab({ launchCmd(WindowCommand.AddTab) })
+    }
+
     // macOS Debug menu → per-pane state override (Working / Waiting /
     // Clear). Forwarded from the Electron main process via the
     // `debug-set-pane-state` IPC; the renderer-side helper looks up

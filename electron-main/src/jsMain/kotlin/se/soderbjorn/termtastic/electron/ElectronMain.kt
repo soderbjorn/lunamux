@@ -610,6 +610,27 @@ private fun showSettings() {
     target.webContents.send("show-settings")
 }
 
+// ── New tab dispatch ─────────────────────────────────────────────────
+
+/**
+ * Opens a new tab in response to the "File → New Tab" menu item (⌘T).
+ * Mirrors [showSettings]: focus (and if needed reveal) the target window,
+ * then send the `new-tab` IPC the renderer listens for. The renderer
+ * dispatches [se.soderbjorn.termtastic.WindowCommand.AddTab] — the same
+ * command the "+" tab-strip button uses — so the shortcut and the button
+ * behave identically.
+ */
+private fun showNewTab() {
+    val focused = BrowserWindow.getFocusedWindow()
+    val mw = mainWindow
+    val target: BrowserWindow = focused
+        ?: (if (mw != null && !mw.isDestroyed()) mw else null)
+        ?: return
+    if (!target.isVisible()) target.show()
+    target.focus()
+    target.webContents.send("new-tab")
+}
+
 // ── Application menu ─────────────────────────────────────────────────
 
 private fun buildAppMenu() {
@@ -654,6 +675,19 @@ private fun buildAppMenu() {
         appMenu.submenu = appSubmenu
         template.add(appMenu)
     }
+
+    // File menu → "New Tab" (⌘T / Ctrl+T). Opens a new, focused tab via the
+    // `new-tab` IPC; sits in the conventional File-menu slot (after the app
+    // menu on macOS, first otherwise) so the shortcut is discoverable in the
+    // menu bar — not just a hidden chord.
+    val newTabItem: dynamic = js("({})")
+    newTabItem.label = "New Tab"
+    newTabItem.accelerator = "CommandOrControl+T"
+    newTabItem.click = { showNewTab() }
+    val fileMenu: dynamic = js("({})")
+    fileMenu.label = "File"
+    fileMenu.submenu = arrayOf<dynamic>(newTabItem)
+    template.add(fileMenu)
 
     template.add(js("({label:'Edit', submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]})"))
     template.add(js("({label:'View', submenu:[{role:'reload'},{role:'forceReload'},{role:'toggleDevTools'},{type:'separator'},{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{type:'separator'},{role:'togglefullscreen'}]})"))
