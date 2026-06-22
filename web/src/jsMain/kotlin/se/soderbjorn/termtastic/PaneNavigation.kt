@@ -113,10 +113,13 @@ internal fun pickPaneInDirection(
 }
 
 /**
- * Collects the active tab's pane wrappers (`.dt-pane`) that are actually
- * visible — zero-size rects (e.g. siblings hidden behind a maximized
- * pane) are dropped so they aren't navigation targets. Only the active
- * tab's panes are in the DOM, so no tab filtering is needed.
+ * Collects the active tab's pane wrappers (`.dt-pane`). Only the active
+ * tab's panes are in the DOM, so no tab filtering is needed. Minimized
+ * panes are already absent (the toolkit renders them as dock items, not
+ * `.dt-pane`). Zero-size rects are dropped defensively so a pane that is
+ * mid-collapse-animation can't become a target. Note a sibling *covered*
+ * by a maximized pane keeps its full rect here and IS a valid target —
+ * focusing it un-maximizes the cover server-side (see [navigatePane]).
  */
 private fun visiblePaneElements(): List<HTMLElement> {
     val nodes = document.querySelectorAll(".dt-pane")
@@ -131,8 +134,10 @@ private fun visiblePaneElements(): List<HTMLElement> {
 
 /**
  * Resolves the focused pane's index among [els]: the `.dt-pane-focused`
- * element if present, else the active tab's persisted `focusedPaneId`,
- * else the first pane.
+ * element if present, else the active tab's persisted `focusedPaneId`. If
+ * neither resolves (focus is on non-pane chrome, or the snapshot lags the
+ * DOM), it returns 0 as a hard last-resort anchor so the next directional
+ * press still does something predictable rather than no-op'ing.
  */
 private fun focusedIndex(els: List<HTMLElement>, tabId: String): Int {
     val byClass = els.indexOfFirst { it.classList.contains("dt-pane-focused") }
@@ -143,9 +148,18 @@ private fun focusedIndex(els: List<HTMLElement>, tabId: String): Int {
 }
 
 /**
- * Moves keyboard focus to the pane in [dir], dispatching the same command
- * pair a sidebar click uses (focus + raise to front). No-op when there is
- * no active tab, fewer than two visible panes, or no distinct target.
+ * Moves keyboard focus to the pane in [dir]. No-op when there is no active
+ * tab, fewer than two visible panes, or no distinct target.
+ *
+ * Sends `SetFocusedPane` only — deliberately NOT `RaisePane`. This matches
+ * the darkness-toolkit's own pane-cycle hotkeys (the Ctrl+Alt+Left/Right
+ * binding this replaces), which changed focus without re-stacking z-order;
+ * only an explicit pane *click* (sidebar `onPaneSelect`) raises. It also
+ * means focus echoes don't churn the persisted layout z-order on every
+ * keystroke. If the target is currently covered by a *maximized* sibling,
+ * the server's [se.soderbjorn.termtastic.WindowCommand.SetFocusedPane]
+ * handler clears that sibling's maximize flag, so the newly-focused pane
+ * becomes visible (again matching the cycle's auto-unmaximize).
  *
  * Called by the keydown listener installed in [installDirectionalPaneNav].
  */
@@ -160,7 +174,6 @@ private fun navigatePane(dir: PaneDirection) {
     val targetIdx = pickPaneInDirection(rects, focusedIndex(els, tabId), dir, wrap = true) ?: return
     val targetId = els[targetIdx].getAttribute("data-pane-id") ?: return
     launchCmd(WindowCommand.SetFocusedPane(tabId = tabId, paneId = targetId))
-    launchCmd(WindowCommand.RaisePane(paneId = targetId))
 }
 
 /**
@@ -201,6 +214,13 @@ internal fun installDirectionalPaneNav() {
         if (!e.ctrlKey || !e.altKey || e.metaKey || e.shiftKey) return@addEventListener
         val dir = directionForCode(e.code) ?: return@addEventListener
         e.preventDefault()
+        // stopImmediatePropagation (not just stopPropagation) blocks every
+        // OTHER window-capture keydown listener for this chord — that is how
+        // we preempt the toolkit's pane-cycle dispatcher. Load-bearing
+        // caveat: because we registered first, ANY window keydown listener
+        // added later (toolkit or termtastic) will never see Ctrl+Alt+
+        // (H/J/K/L|arrows). Nothing else needs them today; if that changes,
+        // narrow this swallow.
         e.stopImmediatePropagation()
         navigatePane(dir)
     }, true)

@@ -61,10 +61,12 @@ pane in direction" from the live on-screen rectangles:
 
 - Candidate panes: `document.querySelectorAll(".dt-pane")` (only the
   active tab's panes are in the DOM). Each carries `data-pane-id`.
+  Minimized panes are already absent (rendered as dock items).
 - Current pane: `.dt-pane.dt-pane-focused`, falling back to the active
   tab's `focusedPaneId`, then the first `.dt-pane`.
-- Skip zero-size rects (hidden / `display:none`, e.g. siblings of a
-  maximized pane).
+- Skip only genuinely zero-size rects (defensive, e.g. a pane
+  mid-collapse-animation). NB: a sibling *covered* by a maximized pane
+  keeps its full rect and remains a valid target — see Focus dispatch.
 
 ### Pure selection function (testable, DOM-free)
 
@@ -88,14 +90,21 @@ pickPaneInDirection(rects: List<Rect>, currentIndex: Int,
 
 ## Focus dispatch
 
-On a chosen target pane id, send the same pair a sidebar click uses:
+On a chosen target pane id, send **`SetFocusedPane` only**:
 
 ```
 SetFocusedPane(tabId = activeTabId, paneId = target)
-RaisePane(paneId = target)
 ```
 
 `activeTabId` from `latestWindowConfig?.activeTabId`. No-op if null.
+
+We deliberately do **not** send `RaisePane`. The toolkit's own
+Ctrl+Alt+Left/Right pane cycle (which this replaces) was focus-only and
+never re-stacked z-order — only an explicit pane *click* raises. Matching
+that avoids churning the persisted layout z-order on every keystroke. If
+the target is covered by a maximized sibling, the server's
+`setFocusedPane` clears that sibling's maximize flag, so the focused pane
+becomes visible (mirroring the cycle's auto-unmaximize) without a raise.
 
 ## Gating & cheatsheet
 
