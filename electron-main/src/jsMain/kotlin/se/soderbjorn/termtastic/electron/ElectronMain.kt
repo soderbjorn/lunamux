@@ -28,8 +28,18 @@ import kotlin.js.Promise
 /** Production server port — mirrors shared `Constants.SERVER_TLS_PORT`. */
 private const val PROD_PORT = 8443
 
-/** Global hotkey accelerator that summons the app from any context. */
+/**
+ * Global hotkey accelerator that toggles the app from any context
+ * (Quake/iTerm-style show-hide). @see toggleQuakeWindow
+ */
 private const val SUMMON_ACCELERATOR = "Control+Alt+Command+Space"
+
+/**
+ * Second global toggle accelerator — the conventional Quake/iTerm
+ * hotkey-window key. Being global, it shadows Ctrl+` in every other app
+ * while termtastic runs. @see toggleQuakeWindow
+ */
+private const val QUAKE_ACCELERATOR = "Control+`"
 
 private val URL_OVERRIDE: String? = (process.env.TERMTASTIC_URL as? String)?.takeIf { it.isNotEmpty() }
 // Server is HTTPS-only with a self-signed cert generated on first boot
@@ -882,6 +892,27 @@ private fun showAndFocus() {
     }
 }
 
+/**
+ * Quake / iTerm-style show-hide toggle for the main window, wired to both
+ * global hotkeys ([SUMMON_ACCELERATOR] and [QUAKE_ACCELERATOR]). When the
+ * window is already frontmost (visible, focused, and not minimized) it
+ * hides; otherwise it is restored/shown/focused via [showAndFocus]. A
+ * destroyed (or never-created) window is recreated.
+ *
+ * @see registerGlobalShortcut
+ */
+private fun toggleQuakeWindow() {
+    val w = mainWindow
+    if (w == null || w.isDestroyed()) {
+        createWindow(); return
+    }
+    if (w.isVisible() && w.isFocused() && !w.isMinimized()) {
+        w.hide()
+    } else {
+        showAndFocus()
+    }
+}
+
 private fun showUnreachable(errorDescription: String, hint: String?) {
     val hintHtml = hint?.let { "<p>$it</p>" }
         ?: "<p>Start the server with:</p><p><code>./gradlew :server:run</code></p>"
@@ -969,9 +1000,17 @@ private fun ensureServerThenCreateWindow(): Promise<Unit> = Promise { resolve, _
 }
 
 private fun registerGlobalShortcut() {
-    val ok = globalShortcut.register(SUMMON_ACCELERATOR) { showAndFocus() }
+    // Both global hotkeys toggle the window (Quake-style): the original
+    // summon chord and the conventional Ctrl+` hotkey-window key. Each is
+    // registered independently so one failing (e.g. another app already
+    // grabbed it) doesn't block the other.
+    val ok = globalShortcut.register(SUMMON_ACCELERATOR) { toggleQuakeWindow() }
     if (!ok) {
         console.warn("Failed to register global shortcut: $SUMMON_ACCELERATOR")
+    }
+    val quakeOk = globalShortcut.register(QUAKE_ACCELERATOR) { toggleQuakeWindow() }
+    if (!quakeOk) {
+        console.warn("Failed to register global shortcut: $QUAKE_ACCELERATOR")
     }
 }
 

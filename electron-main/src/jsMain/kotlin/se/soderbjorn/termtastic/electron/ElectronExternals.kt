@@ -81,9 +81,11 @@ external class BrowserWindow(options: dynamic = definedExternally) {
     fun isDestroyed(): Boolean
     fun isMinimized(): Boolean
     fun isVisible(): Boolean
+    fun isFocused(): Boolean
     fun isFullScreen(): Boolean
     fun restore()
     fun show()
+    fun hide()
     fun focus()
     fun destroy()
     fun loadURL(url: String, options: dynamic = definedExternally): Promise<Unit>
