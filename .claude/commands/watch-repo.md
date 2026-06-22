@@ -6,7 +6,7 @@ Arguments: $ARGUMENTS
 
 Start a `/loop` that runs `/babysit-repo` on a recurring cadence and exit. This is a **one-shot starter**, not a long-running command — the actual watching happens inside the loop that this skill arms. Stopping the watcher is the user's responsibility (Ctrl-C on the loop, or `/loop` management commands).
 
-Each tick of `/babysit-repo` dispatches across three tracks in priority order — **follow-ups → issues → reviews** — and stops at the first track with a candidate. Follow-ups address repo-owner comments on Claude-authored PRs; issues implement `ai-dev`-labelled work; reviews post AI reviews on unreviewed PRs. See `/babysit-repo` for the details.
+Each tick of `/babysit-repo` dispatches across two tracks in priority order — **follow-ups → issues** — and drains every candidate in each. Follow-ups address repo-owner comments on open PRs; issues implement `ai-dev`-labelled work. (Code review is no longer a separate track — `/pick-issue` and `/pick-followup` run Claude's built-in `/code-review` on the diff before committing.) See `/babysit-repo` for the details.
 
 ## 1. Parse arguments
 
@@ -19,7 +19,7 @@ Split `$ARGUMENTS` into a **cadence token** and a **passthrough tail**:
 Defaults:
 
 - Cadence: `15m`.
-- Passthrough tail: empty (all three tracks eligible — follow-ups, issues, reviews — with `ai-dev` label filter on the issue track).
+- Passthrough tail: empty (both tracks eligible — follow-ups and issues — with `ai-dev` label filter on the issue track).
 
 Examples:
 
@@ -27,10 +27,10 @@ Examples:
 |-------------------------------------|-----------------|-----------------------------------|
 | *(empty)*                           | `15m`           | *(empty)*                         |
 | `15m`                               | `15m`           | *(empty)*                         |
-| `1h --reviews-only`                 | `1h`            | `--reviews-only`                  |
+| `1h --followups-only`               | `1h`            | `--followups-only`                |
 | `auto`                              | self-paced      | *(empty)*                         |
 | `self-paced --label bug`            | self-paced      | `--label bug`                     |
-| `--reviews-only`                    | `15m` (default) | `--reviews-only`                  |
+| `--issues-only`                     | `15m` (default) | `--issues-only`                   |
 
 ## 2. Arm the loop
 
@@ -60,5 +60,5 @@ Then exit. Do **not** attempt to run the first tick yourself — the loop's own 
 ## 4. Guard rails
 
 - If an existing `/loop` is already running `/babysit-repo` in this session, do not arm a second one. Report that the loop is already armed and exit.
-- If the cadence looks suspiciously short (under 5 minutes for a wall-clock interval), warn the user inline that `/babysit-repo` can launch implementation turns that routinely exceed 5 minutes and ask whether to proceed. Short cadences are fine for review-only runs (`--reviews-only` in the tail).
+- If the cadence looks suspiciously short (under 5 minutes for a wall-clock interval), warn the user inline that `/babysit-repo` can launch implementation turns that routinely exceed 5 minutes and ask whether to proceed.
 - Do not modify repo state, do not open worktrees, do not call `gh` — this skill only arms the loop. All real work happens inside the ticks.

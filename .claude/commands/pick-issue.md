@@ -81,7 +81,7 @@ For UI changes, build and verify in a browser/app session. If you can't exercise
 
 Run the project's standard build (`./gradlew build` or equivalent) from the worktree before opening a PR. If it fails, fix it and retry — do not open the PR on a broken build. If the toolchain is unavailable in this environment, state that as a Verification gap rather than silently skipping it. A passing build is not a proof of correctness; it only rules out compile errors.
 
-## 7. Commit, push, PR
+## 7. Commit, push, open the PR
 
 Commit in logical chunks. Then:
 
@@ -93,9 +93,28 @@ EOF
 )"
 ```
 
-PR must be **full, not draft**. Report the PR URL and the worktree path at the end.
+PR must be **full, not draft**. Capture the PR number — the next steps post to it.
 
-**Comment on the issue linking to the PR.** After the PR is created, post a comment on issue #N that links to the PR and clearly identifies the commenter as Claude Code (not the human repo owner).
+## 8. Code review the PR (mandatory)
+
+Now that the change is pushed and the PR exists, review it with Claude's built-in `/code-review` skill and post the review onto the PR. The review must land on the PR *before* you make any review-driven follow-up fixes, so the PR carries a visible record of what review found.
+
+- Invoke the `code-review` skill via the Skill tool with arguments `high --comment`. `--comment` posts the findings as inline PR comments anchored to the relevant lines (with a summary comment for anything that isn't line-specific). High effort gives broad coverage; the review covers correctness bugs and `CLAUDE.md` adherence on the PR diff.
+- The skill resolves the PR from the current branch — you are on the PR branch in the worktree, so the inline comments attach to the PR you just opened. (Inline comments can only anchor to pushed commits; that is why review runs here, after the push, rather than on the uncommitted diff.)
+- Do **not** pass `--fix` — you decide what to act on in the next step, so the review stays a faithful record rather than silently mutating the tree.
+
+## 9. Address review findings as follow-ups
+
+Treat the review you just posted like owner feedback and close the loop on the genuine findings (this is what `/pick-followup` would otherwise do, but those review comments are Claude-authored so the babysit follow-up track won't pick them up — handle them here):
+
+- For each genuine finding — real bugs and `CLAUDE.md` violations — apply the fix. Use judgement on nits; apply the ones that clearly improve the change and leave the rest as standing review comments for the human.
+- If you made any fixes: re-run the build (§6 rules), commit them in a logical chunk (`<short summary> — addressing code-review findings`), and push to the same PR branch (`git push origin HEAD`). Capture the new HEAD SHA.
+- Post **one** PR comment summarising the follow-up: which review findings you fixed (reference them) and the commit SHA that addressed them, plus which findings you intentionally left and why. Identify yourself as Claude Code and include the attribution footer (`🤖 ... [Claude Code](https://claude.com/claude-code) acting autonomously`).
+- If review surfaced nothing actionable, skip the fixes/push and post a single comment noting that the code review found no blocking issues.
+
+## 10. Comment on the linked issue
+
+After the PR is open and review-driven follow-ups (if any) are pushed, post a comment on issue #N that links to the PR and clearly identifies the commenter as Claude Code (not the human repo owner).
 
 ```
 gh issue comment <N> --body "$(cat <<'EOF'
@@ -114,7 +133,11 @@ The comment must:
 - Include the Claude Code attribution footer verbatim, with the [Claude Code](https://claude.com/claude-code) link intact.
 - Not impersonate the repo owner or make claims about reviewer approval.
 
+## 11. Do not clean up; report
+
 **Do not clean up after the PR.** Leave the worktree and the local feature branch in place — do not run `git worktree remove`, `git branch -d`, or anything equivalent. The user wants them kept so they can revisit the work.
+
+Report at the end: the PR URL, the worktree path, and a one-line note on whether code review surfaced (and you addressed) any follow-ups.
 
 ### PR body structure
 

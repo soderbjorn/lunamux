@@ -6,7 +6,7 @@ Arguments: $ARGUMENTS
 
 Pick one open PR on `soderbjorn/termtastic` which has an **actionable, unaddressed** comment from the repo owner (`soderbjorn`). Implement the requested change, push it to the same PR branch, reply on the PR, and comment on the linked issue if one exists. Work autonomously — do not ask for confirmation at any step.
 
-PR authorship does not matter — any open PR is in scope, whether Claude opened it or soderbjorn did. Review status also does not matter: the presence of an actionable owner comment is the only trigger. This skill is the "close the loop" counterpart to `/pick-issue` and `/pick-review`: when the owner has left feedback on any PR, this is how Claude acts on that feedback instead of leaving the PR to rot.
+PR authorship does not matter — any open PR is in scope, whether Claude opened it or soderbjorn did. Review status also does not matter: the presence of an actionable owner comment is the only trigger. This skill is the "close the loop" counterpart to `/pick-issue`: when the owner has left feedback on any PR, this is how Claude acts on that feedback instead of leaving the PR to rot.
 
 ## 1. Fetch candidate PRs
 
@@ -32,13 +32,13 @@ A comment is a **follow-up trigger** if:
 - Author login is `soderbjorn` (the repo owner).
 - Comment `createdAt` is newer than the last commit's `committedAt` on the PR's head branch — i.e. the comment landed after the most recent push, so the author could not have already addressed it implicitly.
 - The comment is **actionable** — it contains a request or instruction. Use judgement, not keyword matching. Positive signals: imperative phrasing ("rename X to Y", "please change…", "can you add…", "we should…", "move this to…"), concrete specific asks, questions that imply a fix ("why is this not handling the empty case?"). Negative signals (not actionable): pure acknowledgement ("thanks!"), praise ("looks good"), open-ended musing with no ask, purely informational ("fyi the CI is flaky today"), or questions that are genuinely seeking information rather than implying a change.
-- Claude has **not already addressed it**. The canonical marker is a later Claude Code reply comment whose body contains the exact phrase `addressed in commit <sha>` (see step 7 below — this is the footer format that future runs look for). If such a reply exists after the owner's comment, skip it.
+- Claude has **not already addressed it**. The canonical marker is a later Claude Code reply comment whose body contains the exact phrase `addressed in commit <sha>` (see step 8 below — this is the footer format that future runs look for). If such a reply exists after the owner's comment, skip it.
 
 Collect all qualifying comments across all PRs into a single list.
 
 ## 3. Pick ONE follow-up
 
-- `$ARGUMENTS` empty → pick the **oldest qualifying comment** (smallest `createdAt`) across all PRs. Deterministic, matches the ordering policy of `/pick-issue` and `/pick-review`.
+- `$ARGUMENTS` empty → pick the **oldest qualifying comment** (smallest `createdAt`) across all PRs. Deterministic, matches the ordering policy of `/pick-issue`.
 - `$ARGUMENTS` contains an explicit PR number (e.g. `42`, `#42`) → restrict to that PR; within it pick the oldest qualifying comment. If the PR has no qualifying comments, stop and report.
 - `$ARGUMENTS` is a semantic description → pick the best semantic match across all qualifying comments. Use judgement.
 - Ties → lower PR number wins; within one PR, earlier `createdAt` wins.
@@ -131,7 +131,24 @@ The comment must:
 - Include the Claude Code attribution link intact.
 - Not impersonate the repo owner or claim the change has been reviewed.
 
-## 9. Comment on the linked issue (if any)
+## 9. Code review the pushed change (mandatory)
+
+With the follow-up pushed and the reply posted, review the change with Claude's built-in `/code-review` skill and post the review onto the PR, so the PR carries a visible record of what review found before you act on it.
+
+- Invoke the `code-review` skill via the Skill tool with arguments `high --comment`. `--comment` posts the findings as inline PR comments anchored to the relevant lines (with a summary comment for anything not line-specific); high effort gives broad coverage. The skill resolves the PR from the current branch — you are on the PR branch in the worktree, so the comments land on the right PR.
+- Inline comments can only anchor to pushed commits, which is why this runs after the push in §7 rather than on the uncommitted diff.
+- Do **not** pass `--fix` — you decide what to act on in the next step, so the review stays a faithful record rather than silently mutating the tree.
+
+## 10. Address review findings as follow-ups
+
+Close the loop on the genuine findings from your own review (the babysit follow-up track won't, since these review comments are Claude-authored, not owner-authored):
+
+- For each genuine finding — real bugs and `CLAUDE.md` violations — apply the fix. Use judgement on nits; apply the clear improvements and leave the rest as standing review comments for the human.
+- If you made any fixes: re-run the build (§6 rules), commit them (`<short summary> — addressing code-review findings`), and push to the same PR branch. Capture the new HEAD SHA.
+- Post **one** PR comment summarising which review findings you fixed (reference them and the new commit SHA) and which you intentionally left and why. Identify yourself as Claude Code and include the attribution footer with the [Claude Code](https://claude.com/claude-code) link intact.
+- If review surfaced nothing actionable, skip the fixes/push and post a single comment noting that code review found no blocking issues.
+
+## 11. Comment on the linked issue (if any)
 
 If the PR body has a `Closes #I` reference, post a status comment on issue `I` noting that the PR received a follow-up push:
 
@@ -150,12 +167,12 @@ Same rules as the `/pick-issue` issue-comment: explicit "Claude Code" attributio
 
 If the PR has no linked issue, skip this step — do not invent one.
 
-## 10. Do not clean up
+## 12. Do not clean up
 
 **Do not remove the worktree or delete the local branch.** Follow the `/pick-issue` convention — leave them in place so the user can revisit the work. The worktree path and the pushed commit SHA should be the last two things you report.
 
 Report at the end:
 - PR URL.
-- The commit SHA that was pushed.
+- The commit SHA that was pushed (including any review-driven follow-up commit).
 - The worktree path.
-- A one-line summary of what was addressed.
+- A one-line summary of what was addressed, plus whether code review surfaced (and you addressed) any follow-ups.
