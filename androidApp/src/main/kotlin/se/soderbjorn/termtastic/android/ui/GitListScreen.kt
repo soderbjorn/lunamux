@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.soderbjorn.termtastic.GitFileEntry
@@ -238,9 +239,17 @@ private fun GitFileRow(entry: GitFileEntry, onClick: () -> Unit) {
  * Uses Material icons to convey file status at a glance:
  * pencil = modified, plus = added, trash = deleted,
  * swap = renamed, help = untracked.
+ *
+ * `internal` and size-parameterised so the overview's [MiniGitPane] can render
+ * the exact same badge at a smaller size, keeping the thumbnail a true
+ * miniature of this screen.
+ *
+ * @param status the file's git status.
+ * @param size the badge icon's square edge length; defaults to the list-screen 16dp.
+ * @see MiniGitPane
  */
 @Composable
-private fun StatusBadge(status: GitFileStatus) {
+internal fun StatusBadge(status: GitFileStatus, size: Dp = 16.dp) {
     val pair: Pair<ImageVector, Color> = when (status) {
         GitFileStatus.Modified  -> Icons.Filled.Edit to Color(0xFFFFD60A)
         GitFileStatus.Added     -> Icons.Filled.Add to Color(0xFF32D74B)
@@ -253,14 +262,19 @@ private fun StatusBadge(status: GitFileStatus) {
         imageVector = icon,
         contentDescription = status.name,
         tint = color,
-        modifier = Modifier.size(16.dp),
+        modifier = Modifier.size(size),
     )
 }
 
 /**
  * Group entries by their [GitFileEntry.directory] field, preserving order.
+ *
+ * `internal` so the overview's [MiniGitPane] groups changed files identically
+ * to this screen.
+ *
+ * @see MiniGitPane
  */
-private fun groupByDirectory(entries: List<GitFileEntry>): LinkedHashMap<String, MutableList<GitFileEntry>> {
+internal fun groupByDirectory(entries: List<GitFileEntry>): LinkedHashMap<String, MutableList<GitFileEntry>> {
     val groups = LinkedHashMap<String, MutableList<GitFileEntry>>()
     for (entry in entries) {
         groups.getOrPut(entry.directory) { mutableListOf() }.add(entry)

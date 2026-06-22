@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import se.soderbjorn.termtastic.FileBrowserEntry
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
@@ -207,14 +208,21 @@ private fun FileBrowserRow(entry: FileBrowserEntry, onClick: () -> Unit) {
 }
 
 /**
- * 18dp stroked folder glyph tinted with the theme accent, matching the
- * hand-drawn icon language of [TreeScreen]'s pane icons (replaces the emoji
- * previously used here, which clashed with the themed UI).
+ * Stroked folder glyph tinted with the theme accent, matching the hand-drawn
+ * icon language of [TreeScreen]'s pane icons (replaces the emoji previously used
+ * here, which clashed with the themed UI).
+ *
+ * `internal` and size-parameterised so the overview's [MiniFileBrowserPane] can
+ * render the exact same glyph at a smaller size, keeping the thumbnail a true
+ * miniature of [FileBrowserListScreen].
+ *
+ * @param edge the glyph's square edge length; defaults to the list-screen 18dp.
+ * @see MiniFileBrowserPane
  */
 @Composable
-private fun FolderGlyph() {
+internal fun FolderGlyph(edge: Dp = 18.dp) {
     val tint = SidebarAccent.copy(alpha = 0.8f)
-    Canvas(modifier = Modifier.size(18.dp).semantics { contentDescription = "Folder" }) {
+    Canvas(modifier = Modifier.size(edge).semantics { contentDescription = "Folder" }) {
         val px = size.width / 16f
         val stroke = Stroke(width = 1.3f * px, cap = StrokeCap.Round, join = StrokeJoin.Round)
         // Folder body with a tab on the upper-left edge
@@ -233,13 +241,19 @@ private fun FolderGlyph() {
 }
 
 /**
- * 18dp stroked document glyph (folded corner, two text lines), matching the
+ * Stroked document glyph (folded corner, two text lines), matching the
  * file-browser pane icon in [TreeScreen].
+ *
+ * `internal` and size-parameterised so the overview's [MiniFileBrowserPane] can
+ * render the exact same glyph at a smaller size.
+ *
+ * @param edge the glyph's square edge length; defaults to the list-screen 18dp.
+ * @see MiniFileBrowserPane
  */
 @Composable
-private fun FileGlyph() {
+internal fun FileGlyph(edge: Dp = 18.dp) {
     val tint = SidebarTextSecondary.copy(alpha = 0.7f)
-    Canvas(modifier = Modifier.size(18.dp).semantics { contentDescription = "File" }) {
+    Canvas(modifier = Modifier.size(edge).semantics { contentDescription = "File" }) {
         val px = size.width / 16f
         val stroke = Stroke(width = 1.3f * px, cap = StrokeCap.Round, join = StrokeJoin.Round)
         val doc = Path().apply {

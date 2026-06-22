@@ -3,10 +3,18 @@
  *
  * Shows a compact, non-interactive replica of the file browser's first screen
  * (the root directory listing reached from the session list): folders first,
- * then files, each as a single dim row. It reuses the shared
- * [se.soderbjorn.termtastic.client.viewmodel.FileBrowserBackingViewModel] so the
- * exact same listing logic backs the miniature, the full-screen
- * [FileBrowserListScreen], and (later) iOS.
+ * then files, each as a single row with the **same stroked folder/file glyph**
+ * the full-screen [FileBrowserListScreen] draws, only smaller — so the
+ * thumbnail reads as a true miniature of the screen it drills into rather than
+ * a separate bullet-list. It reuses both the shared
+ * [se.soderbjorn.termtastic.client.viewmodel.FileBrowserBackingViewModel] (same
+ * listing logic) and [FileBrowserListScreen]'s [FolderGlyph]/[FileGlyph]
+ * composables (same iconography).
+ *
+ * Like the other miniatures ([MiniTerminalPane], [MiniGitPane]) it carries no
+ * in-content header: the enclosing mini-pane's title bar already stands in for
+ * the full screen's top app bar, so the content area mirrors the real list's
+ * content area exactly.
  *
  * Non-interactive by design: the overview's whole-pane tap overlay drills into
  * the full [FileBrowserListScreen], so individual rows here do nothing.
@@ -29,8 +37,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +48,9 @@ import se.soderbjorn.termtastic.client.viewmodel.FileBrowserBackingViewModel
 
 /** Max rows the miniature lists before it simply clips to the pane bounds. */
 private const val MINI_FILE_ROWS = 14
+
+/** Glyph edge length for the miniature's rows — a shrunk [FileBrowserListScreen] icon. */
+private val MINI_FILE_GLYPH = 12.dp
 
 /**
  * Compact file-browser thumbnail for the pane identified by [paneId].
@@ -54,7 +65,7 @@ fun MiniFileBrowserPane(
 ) {
     val windowSocket = ConnectionHolder.windowSocket()
     if (windowSocket == null) {
-        Column(modifier.background(SidebarSurface)) {}
+        Column(modifier.background(SidebarBackground)) {}
         return
     }
 
@@ -71,28 +82,23 @@ fun MiniFileBrowserPane(
 
     Column(
         modifier = modifier
-            .background(SidebarSurface)
+            .background(SidebarBackground)
             .padding(horizontal = 6.dp, vertical = 5.dp),
     ) {
-        Text(
-            text = "Files",
-            color = SidebarTextSecondary,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.width(2.dp))
         if (rootEntries.isEmpty()) {
             Text("…", color = SidebarTextSecondary, fontSize = 10.sp)
             return@Column
         }
         for (entry in rootEntries.take(MINI_FILE_ROWS)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = if (entry.isDir) "▸" else "·",
-                    color = if (entry.isDir) SidebarAccent else SidebarTextSecondary,
-                    fontSize = 10.sp,
-                )
-                Spacer(Modifier.width(4.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Same glyph the full screen draws, just smaller (issue #45).
+                if (entry.isDir) FolderGlyph(edge = MINI_FILE_GLYPH) else FileGlyph(edge = MINI_FILE_GLYPH)
+                Spacer(Modifier.width(5.dp))
                 Text(
                     text = entry.name,
                     color = SidebarTextPrimary,
