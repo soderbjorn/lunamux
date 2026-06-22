@@ -103,12 +103,16 @@ struct GitListView: View {
 
 struct GitStatusBadge: View {
     let status: Client.GitFileStatus
+    /// Square footprint in points; the glyph scales with it so the same badge
+    /// serves both the full git list (18) and the overview's mini git pane (12,
+    /// issue #44).
+    var size: CGFloat = 18
 
     var body: some View {
         Image(systemName: statusIcon)
-            .font(.system(size: 12, weight: .bold))
+            .font(.system(size: size * 0.66, weight: .bold))
             .foregroundStyle(statusColor)
-            .frame(width: 18, height: 18)
+            .frame(width: size, height: size)
     }
 
     private var statusIcon: String {

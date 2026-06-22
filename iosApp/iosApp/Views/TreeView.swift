@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Which layout the Sessions screen is showing: the flat list of tabs/panes,
+/// or the graphical miniature overview (issue #44). Mirrors the Android
+/// `SessionsViewMode` enum toggled from the `TreeScreen` top bar.
+enum SessionsViewMode {
+    case list
+    case overview
+}
+
 /// Target of an in-flight rename initiated from a row's context menu or
 /// swipe action. Drives the rename alert's text field and commit call.
 private struct RenameTarget: Identifiable {
@@ -40,8 +48,13 @@ struct TreeView: View {
     @State private var renameText = ""
     @State private var closeTarget: CloseTarget?
 
+    /// List vs. graphical overview, toggled from the toolbar (issue #44). Kept
+    /// in view state so drilling into a pane and returning lands on the same
+    /// layout, mirroring Android's `rememberSaveable` view-mode flag.
+    @State private var viewMode: SessionsViewMode = .list
+
     var body: some View {
-        content
+        screenContent
             .navigationTitle("Sessions")
             // Large, collapsing title — mirrors the Hosts screen so the
             // session list reads as a peer landing screen. It collapses to an
@@ -88,6 +101,22 @@ struct TreeView: View {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
+            // List ⇄ overview toggle (issue #44). The icon shows the layout the
+            // tap switches *to* — a grid while listing, a list while in the
+            // overview — and tints with the accent while the overview is active
+            // so the alternate mode reads as "on". Mirrors the Android
+            // `TreeScreen` view-mode IconButton.
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewMode = (viewMode == .list) ? .overview : .list
+                }
+            } label: {
+                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                    .foregroundStyle(viewMode == .overview ? Palette.headerAccent : Palette.textPrimary)
+            }
+            .accessibilityLabel(viewMode == .list ? "Switch to overview" : "Switch to list")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
             NewsBellButton(action: onOpenNews)
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -99,6 +128,26 @@ struct TreeView: View {
                     .foregroundStyle(Palette.textPrimary)
             }
             .accessibilityLabel("New tab")
+        }
+    }
+
+    /// The body's content area: the graphical overview when the toolbar toggle
+    /// selects it (issue #44), otherwise the flat session list. Both render
+    /// under the same "Sessions" navigation bar, so toggling swaps only the
+    /// content below the title. The overview is handed the same drill-in
+    /// callbacks as the list rows, so tapping a pane miniature opens that pane's
+    /// existing full-screen route.
+    @ViewBuilder
+    private var screenContent: some View {
+        switch viewMode {
+        case .overview:
+            OverviewView(
+                onOpenTerminal: onOpenTerminal,
+                onOpenFileBrowser: onOpenFileBrowser,
+                onOpenGit: onOpenGit
+            )
+        case .list:
+            content
         }
     }
 
@@ -454,9 +503,17 @@ private struct LeafRow: View {
 
 // MARK: - Pane Icon (matches web SVGs: terminal, fileBrowser, empty, floating)
 
-private struct PaneIcon: View {
+/// The web pane-type SVG icon (terminal / file browser / git / empty), drawn
+/// with `Canvas`. Shared between the `TreeView` leaf rows and the overview's
+/// `MiniPane` title bar (issue #44), which is why it is not `private` and
+/// accepts a `size`: the Canvas scales every path off its own footprint, so a
+/// 12-pt frame renders the same glyph shrunk for a thumbnail title bar.
+struct PaneIcon: View {
     let kind: LeafKind
     let floating: Bool
+    /// Square footprint in points; the Canvas scales all paths off this so the
+    /// same artwork serves both the full-size row (16) and the mini title bar (12).
+    var size: CGFloat = 16
 
     var body: some View {
         Canvas { context, size in
@@ -561,7 +618,7 @@ private struct PaneIcon: View {
                 }
             }
         }
-        .frame(width: 16, height: 16)
+        .frame(width: size, height: size)
         .accessibilityLabel(
             kind == .fileBrowser ? "File browser window" :
             kind == .git ? "Git window" :
