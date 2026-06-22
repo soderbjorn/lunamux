@@ -96,7 +96,7 @@ internal fun termtasticHotkeysSpec(): HotkeysModalSpec = HotkeysModalSpec(
         ),
         HotkeyGroup(
             title = "App",
-            entries = listOf(
+            entries = listOfNotNull(
                 HotkeyEntry(
                     label = "Show this hotkeys cheatsheet",
                     chord = run {
@@ -109,6 +109,18 @@ internal fun termtasticHotkeysSpec(): HotkeysModalSpec = HotkeysModalSpec(
                         listOf(if (isMac) "⌘" else "Ctrl", "/")
                     },
                 ),
+                // Global Quake-style show/hide toggle — registered by the
+                // Electron main process (ElectronMain.QUAKE_ACCELERATOR), so it
+                // exists only in the bundled app (also bound to
+                // Ctrl+Alt+Cmd+Space). Listed for discoverability.
+                if (isElectronClient) {
+                    HotkeyEntry(
+                        label = "Show / hide Termtastic",
+                        chord = listOf(if (isMacUserAgent()) "⌃" else "Ctrl", "`"),
+                    )
+                } else {
+                    null
+                },
             ),
         ),
     ),
