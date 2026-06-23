@@ -33,9 +33,9 @@ import org.w3c.dom.events.KeyboardEvent
 /**
  * Starts an inline rename interaction for a tab label.
  *
- * Similar to [startRename] but operates on tab labels in the tab bar. Closes
- * any open tab menus, adds a "renaming" CSS class during editing, and sends
- * [WindowCommand.RenameTab] to the server on commit.
+ * Similar to [startSidebarPaneRename] but operates on tab labels in the tab
+ * bar. Closes any open tab menus, adds a "renaming" CSS class during editing,
+ * and sends [WindowCommand.RenameTab] (not [WindowCommand.Rename]) on commit.
  *
  * @param labelEl the DOM element displaying the current tab label
  * @param tabId the unique tab identifier for the rename command
@@ -117,4 +117,97 @@ internal fun installPaneTitleDoubleClickRename() {
         ev.preventDefault()
         appShellHandle?.beginPaneRename(paneId)
     }, /* capture = */ true)
+}
+
+/** Guards against double-installation across re-entry. */
+private var sidebarPaneRenameInstalled = false
+
+/**
+ * Wires double-click on a sidebar pane-name row to start an inline rename.
+ *
+ * Called once from [bootViaToolkitShell] after `mountAppShell`. The
+ * toolkit's sidebar rows expose no rename hook (unlike the pane header),
+ * so termtastic hand-rolls the inline rename here, mirroring
+ * [startTabRename]. Document-level delegation survives the toolkit's
+ * sidebar rebuilds.
+ *
+ * Only the pane *name* (`.dt-sidebar-row-label`) inside a pane row
+ * (`.dt-sidebar-row[data-pane-id]`) triggers it — clicks on the row's
+ * icon / handle / index badge, and on non-pane rows, fall through so the
+ * row's normal click-to-focus is untouched.
+ */
+internal fun installSidebarPaneDoubleClickRename() {
+    if (sidebarPaneRenameInstalled) return
+    sidebarPaneRenameInstalled = true
+    document.asDynamic().addEventListener("dblclick", { ev: Event ->
+        val target = ev.target as? Element ?: return@addEventListener
+        val labelEl = target.closest(".dt-sidebar-row-label") as? HTMLElement ?: return@addEventListener
+        val row = labelEl.closest(".dt-sidebar-row[data-pane-id]") ?: return@addEventListener
+        val paneId = row.getAttribute("data-pane-id") ?: return@addEventListener
+        ev.stopPropagation()
+        // Suppress the native text-selection a double-click would make on
+        // the label before we swap it for the input (matches the pane-title
+        // rename gesture).
+        ev.preventDefault()
+        startSidebarPaneRename(labelEl, paneId)
+    })
+}
+
+/**
+ * Starts an inline rename interaction for a pane's sidebar name row.
+ *
+ * Close cousin of [startTabRename]: swaps [labelEl] for a focused,
+ * pre-selected `<input>` and commits the new name to the server via
+ * [WindowCommand.Rename] — the same command the pane-header rename and
+ * the kebab "Rename pane" item use. Commit fires on Enter / blur (when
+ * the trimmed value is non-empty and changed); Escape, an empty value,
+ * or no change restores the label in place. On a real commit the input
+ * is left in the DOM; the server's config push rebuilds the sidebar row
+ * with the new name, discarding the transient input.
+ *
+ * @param labelEl the `.dt-sidebar-row-label` span showing the pane name
+ * @param paneId  the pane id, read from the row's `data-pane-id`
+ * @see installSidebarPaneDoubleClickRename
+ */
+internal fun startSidebarPaneRename(labelEl: HTMLElement, paneId: String) {
+    val current = labelEl.textContent ?: ""
+    val parent = labelEl.parentElement ?: return
+    val input = document.createElement("input") as HTMLInputElement
+    input.type = "text"
+    input.className = "tt-sidebar-rename-input"
+    input.value = current
+    input.setAttribute("draggable", "false")
+    parent.replaceChild(input, labelEl)
+    input.focus()
+    input.select()
+
+    var settled = false
+    fun cancel() {
+        if (settled) return
+        settled = true
+        if (input.parentElement === parent) parent.replaceChild(labelEl, input)
+    }
+    fun commit() {
+        if (settled) return
+        settled = true
+        val newTitle = input.value.trim()
+        if (newTitle.isEmpty() || newTitle == current) {
+            if (input.parentElement === parent) parent.replaceChild(labelEl, input)
+            return
+        }
+        launchCmd(WindowCommand.Rename(paneId = paneId, title = newTitle))
+    }
+
+    input.addEventListener("blur", { commit() })
+    input.addEventListener("keydown", { ev ->
+        when ((ev as KeyboardEvent).key) {
+            "Enter" -> { ev.preventDefault(); commit() }
+            "Escape" -> { ev.preventDefault(); cancel() }
+        }
+    })
+    // Keep mouse interactions on the input from reaching the row (its
+    // click-to-focus / drag) while editing.
+    input.addEventListener("mousedown", { ev -> ev.stopPropagation() })
+    input.addEventListener("click", { ev -> ev.stopPropagation() })
+    input.addEventListener("dblclick", { ev -> ev.stopPropagation() })
 }

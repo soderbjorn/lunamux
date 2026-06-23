@@ -791,4 +791,9 @@ fun bootViaToolkitShell(root: HTMLElement) {
     // routes to the toolkit's beginPaneRename via appShellHandle (now set
     // above). See [installPaneTitleDoubleClickRename].
     installPaneTitleDoubleClickRename()
+
+    // Double-click a pane's name in the sidebar to rename it. Same
+    // delegation pattern; the sidebar has no toolkit rename hook, so this
+    // hand-rolls the inline input. See [installSidebarPaneDoubleClickRename].
+    installSidebarPaneDoubleClickRename()
 }
