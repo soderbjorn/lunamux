@@ -25,24 +25,34 @@ internal fun termtasticHotkeysSpec(): HotkeysModalSpec = HotkeysModalSpec(
     groups = listOf(
         HotkeyGroup(
             title = "Windows & tabs",
-            entries = listOf(
-                HotkeyEntry(
+            entries = buildList {
+                add(HotkeyEntry(
                     label = "Previous window",
                     chord = StandardHotkeys.PreviousPane.toChordLabel(),
-                ),
-                HotkeyEntry(
+                ))
+                add(HotkeyEntry(
                     label = "Next window",
                     chord = StandardHotkeys.NextPane.toChordLabel(),
-                ),
-                HotkeyEntry(
+                ))
+                add(HotkeyEntry(
                     label = "Previous tab",
                     chord = StandardHotkeys.PreviousTab.toChordLabel(),
-                ),
-                HotkeyEntry(
+                ))
+                add(HotkeyEntry(
                     label = "Next tab",
                     chord = StandardHotkeys.NextTab.toChordLabel(),
-                ),
-            ),
+                ))
+                // Cmd+1..9 jump straight to a tab by position (Cmd+9 =
+                // last tab). Desktop-only (see installTabNumberShortcuts,
+                // wired in bootViaToolkitShell), so the cheatsheet only
+                // advertises it on the Electron client.
+                if (isElectronClient) {
+                    add(HotkeyEntry(
+                        label = "Switch to tab 1–9 (9 = last)",
+                        chord = listOf("⌘", "1…9"),
+                    ))
+                }
+            },
         ),
         HotkeyGroup(
             title = "Dialogs",

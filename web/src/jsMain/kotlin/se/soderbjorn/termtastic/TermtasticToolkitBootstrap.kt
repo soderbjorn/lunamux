@@ -648,6 +648,10 @@ fun bootViaToolkitShell(root: HTMLElement) {
     // the toolkit; termtastic only supplies the curated content list.
     val hotkeysModal = ToolkitHotkeysModal().apply { setContent(termtasticHotkeysSpec()) }
     installCheatsheetHotkey(hotkeysModal)
+    // Cmd+1..9 tab switching is desktop-only: in a real browser the OS /
+    // browser owns Cmd+<digit> for switching browser tabs, so we only
+    // arm it for the Electron client. See installTabNumberShortcuts.
+    if (isElectronClient) installTabNumberShortcuts()
     appShellHandle = mountAppShell(
         AppShellSpec(
             rootContainer = root,
