@@ -28,6 +28,12 @@ final class OverviewViewModel {
     /// arrives. Drives both the tab strip highlight and the pager selection.
     private(set) var activeTabId: String?
 
+    /// The hidden ("unlisted") tabs that are not in `tabs` (every hidden tab
+    /// except the active one). Surfaced by the tab strip's trailing `⋮` menu so
+    /// the user can re-activate them; selecting one shows it temporarily in the
+    /// strip. Mirrors the web/Mac far-right overflow menu.
+    private(set) var unlistedTabs: [Client.OverviewBackingViewModel.UnlistedTab] = []
+
     /// The tab currently in edit-layout mode (free move + resize on every
     /// pane), or `nil`. Drives the editing banner, the resize handles, and
     /// disabling the pager so horizontal drags move panes instead of paging.
@@ -99,9 +105,11 @@ final class OverviewViewModel {
             guard let state = value as? Client.OverviewBackingViewModel.State else { return }
             let tabs = state.tabs
             let active = state.activeTabId
+            let unlisted = state.unlistedTabs
             DispatchQueue.main.async {
                 self?.tabs = tabs
                 self?.activeTabId = active
+                self?.unlistedTabs = unlisted
             }
         }
         flowObserver.observe(flow: backing.editTabId) { [weak self] value in

@@ -114,12 +114,33 @@ class OverviewBackingViewModel(
     /**
      * Immutable, render-ready snapshot of the overview.
      *
-     * @property tabs        every visible tab, in display order.
+     * @property tabs        every visible tab, in display order. Includes the
+     *   active tab even when it is "unlisted" (hidden from the strip), so the
+     *   user can always see the tab they are looking at.
      * @property activeTabId the currently-selected tab id, or `null`.
+     * @property unlistedTabs the hidden ("unlisted") tabs that are NOT in
+     *   [tabs] (i.e. every hidden tab except the active one). Surfaced by the
+     *   overview's "unlisted tabs" affordance so the user can re-activate
+     *   them; tapping one fires the normal select path, after which it shows
+     *   temporarily in the strip. Mirrors the web/Mac far-right `⋮` menu.
      */
     data class State(
         val tabs: List<OverviewTab> = emptyList(),
         val activeTabId: String? = null,
+        val unlistedTabs: List<UnlistedTab> = emptyList(),
+    )
+
+    /**
+     * A hidden ("unlisted") tab reference, shown in the overview's unlisted
+     * tabs menu. Carries just enough to render a row and re-activate the tab.
+     *
+     * @property id    the tab id (passed to the select callback).
+     * @property title the display label (may be blank — UIs substitute a
+     *   placeholder).
+     */
+    data class UnlistedTab(
+        val id: String,
+        val title: String,
     )
 
     /**
@@ -536,10 +557,14 @@ class OverviewBackingViewModel(
         geometry: Map<String, Map<String, ToolkitPaneGeometry>>,
         localGeom: Map<String, Map<String, LayoutGeom>>,
     ): State {
-        val visibleTabs = config.tabs.filter { !it.isHidden }
+        // A hidden ("unlisted") tab is surfaced in the strip only while it is
+        // the active tab — so the user can always see and act on the tab they
+        // are actually looking at. It drops back out of the strip once another
+        // tab is activated. Mirrors the web/Mac tab strip behaviour.
         val activeTabId = config.activeTabId
-            ?.takeIf { id -> visibleTabs.any { it.id == id } }
-            ?: visibleTabs.firstOrNull()?.id
+            ?.takeIf { id -> config.tabs.any { it.id == id } }
+            ?: config.tabs.firstOrNull { !it.isHidden }?.id
+        val visibleTabs = config.tabs.filter { !it.isHidden || it.id == activeTabId }
 
         val tabs = visibleTabs.map { tab ->
             // Server geometry overlaid by any optimistic local override.
@@ -553,7 +578,12 @@ class OverviewBackingViewModel(
                 dock = projectDock(tab, states, effective),
             )
         }
-        return State(tabs = tabs, activeTabId = activeTabId)
+        // Hidden tabs other than the active one — offered via the overview's
+        // "unlisted tabs" affordance so they stay reachable.
+        val unlistedTabs = config.tabs
+            .filter { it.isHidden && it.id != activeTabId }
+            .map { UnlistedTab(id = it.id, title = it.title) }
+        return State(tabs = tabs, activeTabId = activeTabId, unlistedTabs = unlistedTabs)
     }
 
     /** Server geometry (as [LayoutGeom]) with the optimistic local override

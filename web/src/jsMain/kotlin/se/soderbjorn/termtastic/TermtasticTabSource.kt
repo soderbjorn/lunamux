@@ -215,14 +215,14 @@ fun termtasticTabSource(
         buildList {
             add(PaneAddMenuItem(
                 id = "terminal",
-                label = "Terminal",
+                label = "New Terminal",
                 iconHtml = NEW_PANE_TERMINAL_SVG,
             ) {
                 launchCmd(WindowCommand.AddPaneToTab(tabId = tabId, cwd = cwdForNewPaneIn(tabId)))
             })
             add(PaneAddMenuItem(
                 id = "terminal-link",
-                label = "Terminal link",
+                label = "New Terminal link",
                 iconHtml = NEW_PANE_LINK_SVG,
             ) {
                 openTerminalLinkPicker(emptyTabId = tabId, anchorPaneId = savedFocusedPaneId(tabId))
@@ -230,7 +230,7 @@ fun termtasticTabSource(
             if (isExperimentalFileBrowserEnabled()) {
                 add(PaneAddMenuItem(
                     id = "file-browser",
-                    label = "File Browser",
+                    label = "New File Browser",
                     iconHtml = NEW_PANE_FILE_BROWSER_SVG,
                 ) {
                     launchCmd(WindowCommand.AddFileBrowserToTab(tabId = tabId, cwd = cwdForNewPaneIn(tabId)))
@@ -239,7 +239,7 @@ fun termtasticTabSource(
             if (isExperimentalGitViewEnabled()) {
                 add(PaneAddMenuItem(
                     id = "git",
-                    label = "Git",
+                    label = "New Git",
                     iconHtml = NEW_PANE_GIT_SVG,
                 ) {
                     launchCmd(WindowCommand.AddGitToTab(tabId = tabId, cwd = cwdForNewPaneIn(tabId)))

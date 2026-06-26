@@ -1240,12 +1240,21 @@ body.appearance-light .about-link {
    reaches the window edge and its scrollbar sits flush there instead of
    colliding with the card content; the matching right padding re-insets the
    cards from the scrollbar, mirroring the left edge. The pinned title and
-   footer keep the dialog's symmetric padding untouched. */
+   footer keep the dialog's symmetric padding untouched.
+
+   The top margin drops the scrolling list below the modal's pinned close (×)
+   button (top: 12px, ~30px tall ⇒ reaches ~42px from the dialog top). The title
+   is hidden whenever there are cards, so without this the list would run right up
+   to the dialog top and the first card — or any card scrolled to the top — would
+   slide under the close button; since the cards are positioned and come later in
+   the DOM, their own top-right close buttons painted over and obscured the
+   dialog's close button (see issue #64). Starting the list (and its overflow
+   clip) below the button keeps that corner clear in every scroll position. */
 .news-list {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    margin: 0 calc(-1 * var(--news-inset)) 0 0;
+    margin: 24px calc(-1 * var(--news-inset)) 0 0;
     padding: 0 var(--news-inset) 0 0;
 }
 /* One news item. The collapse animation (opacity + slide + height/spacing

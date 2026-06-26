@@ -31,6 +31,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material3.DropdownMenu
@@ -108,6 +110,7 @@ import se.soderbjorn.termtastic.client.viewmodel.OverviewBackingViewModel.Docked
 import se.soderbjorn.termtastic.client.viewmodel.OverviewBackingViewModel.Drag
 import se.soderbjorn.termtastic.client.viewmodel.OverviewBackingViewModel.OverviewPane
 import se.soderbjorn.termtastic.client.viewmodel.OverviewBackingViewModel.OverviewTab
+import se.soderbjorn.termtastic.client.viewmodel.OverviewBackingViewModel.UnlistedTab
 
 /**
  * The overview content: tab strip + exposé canvas (+ dock) + window-management
@@ -183,6 +186,7 @@ fun OverviewContent(
             if (editTabId == null) {
                 OverviewTabStrip(
                     tabs = tabs,
+                    unlistedTabs = state.unlistedTabs,
                     activeIndex = activeIndex,
                     closeEnabled = tabs.size > 1,
                     onSelect = { id -> scope.launch { vm.setActiveTab(id) } },
@@ -761,6 +765,8 @@ private fun MiniPane(
  * rename or close the tab, mirroring a pane's long-press menu.
  *
  * @param tabs         the tab summaries to render.
+ * @param unlistedTabs hidden tabs not in [tabs]; surfaced via a trailing `⋮`
+ *   menu so they can be re-activated. Empty hides the menu.
  * @param activeIndex  index of the active tab, or -1.
  * @param closeEnabled whether "Close tab" is offered (false for the last tab).
  * @param onSelect     invoked with a tab id when a chip is tapped.
@@ -771,6 +777,7 @@ private fun MiniPane(
 @Composable
 private fun OverviewTabStrip(
     tabs: List<OverviewTab>,
+    unlistedTabs: List<UnlistedTab>,
     activeIndex: Int,
     closeEnabled: Boolean,
     onSelect: (String) -> Unit,
@@ -794,6 +801,7 @@ private fun OverviewTabStrip(
             .background(SidebarBackground)
             .padding(start = 8.dp, end = 8.dp, top = 0.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         items(tabs, key = { it.id }) { tab ->
             Box {
@@ -841,6 +849,62 @@ private fun OverviewTabStrip(
                     onDismiss = { menuTabId = null },
                     onRename = { menuTabId = null; onRename(tab) },
                     onClose = { menuTabId = null; onClose(tab) },
+                )
+            }
+        }
+
+        // Trailing `⋮` menu listing the unlisted (hidden) tabs. Tapping a row
+        // activates that tab — it then surfaces temporarily in the strip
+        // (see OverviewBackingViewModel.project). Mirrors the web/Mac
+        // far-right overflow menu. Only rendered when some tabs are unlisted.
+        if (unlistedTabs.isNotEmpty()) {
+            item(key = "__unlisted__") {
+                UnlistedTabsMenu(unlistedTabs = unlistedTabs, onSelect = onSelect)
+            }
+        }
+    }
+}
+
+/**
+ * The trailing `⋮` button at the end of the overview tab strip that opens a
+ * dropdown of the unlisted (hidden) tabs. Selecting one activates it, which
+ * surfaces it temporarily among the visible tabs.
+ *
+ * @param unlistedTabs the hidden tabs to list.
+ * @param onSelect     invoked with the chosen tab id.
+ */
+@Composable
+private fun UnlistedTabsMenu(
+    unlistedTabs: List<UnlistedTab>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Icon(
+            Icons.Filled.MoreVert,
+            contentDescription = "Unlisted tabs",
+            tint = SidebarTextSecondary,
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = true }
+                .padding(4.dp),
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for (tab in unlistedTabs) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            tab.title.ifBlank { "(untitled)" },
+                            color = SidebarTextBright,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(tab.id)
+                    },
                 )
             }
         }

@@ -72,6 +72,7 @@ struct OverviewView: View {
                         if viewModel.editTabId == nil {
                             OverviewTabStrip(
                                 tabs: viewModel.tabs,
+                                unlistedTabs: viewModel.unlistedTabs,
                                 activeTabId: viewModel.activeTabId,
                                 closeEnabled: viewModel.tabs.count > 1,
                                 onSelect: { viewModel.setActiveTab($0) },
@@ -312,6 +313,7 @@ private struct OverviewDialogs: ViewModifier {
 /// `OverviewTabStrip`.
 private struct OverviewTabStrip: View {
     let tabs: [Client.OverviewBackingViewModel.OverviewTab]
+    let unlistedTabs: [Client.OverviewBackingViewModel.UnlistedTab]
     let activeTabId: String?
     let closeEnabled: Bool
     let onSelect: (String) -> Void
@@ -344,6 +346,34 @@ private struct OverviewTabStrip: View {
                                 }
                             }
                         }
+                    }
+
+                    // Trailing `⋮` menu of unlisted (hidden) tabs. Selecting one
+                    // activates it — it then surfaces temporarily in the strip
+                    // (see OverviewBackingViewModel.project). Mirrors the
+                    // web/Mac far-right overflow menu. Shown only when some tabs
+                    // are unlisted.
+                    if !unlistedTabs.isEmpty {
+                        Menu {
+                            ForEach(unlistedTabs, id: \.id) { tab in
+                                Button {
+                                    onSelect(tab.id)
+                                } label: {
+                                    Label(
+                                        tab.title.isEmpty ? "(untitled)" : tab.title,
+                                        systemImage: "rectangle.stack"
+                                    )
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .rotationEffect(.degrees(90))
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(Palette.textSecondary)
+                                .frame(width: 32, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Unlisted tabs")
                     }
                 }
                 .padding(.horizontal, 8)
