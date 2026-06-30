@@ -387,6 +387,17 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
                         forceReassert(entry)
                     }
                 }
+                // Hidden→visible edge: the toolkit reattaches the cached pane
+                // element on tab activation, and the browser resets the
+                // `.xterm-viewport` scrollTop to 0 on reattach while xterm
+                // keeps rendering from its internal ydisp (still at the
+                // bottom). Realign the DOM scrollbar with the buffer so the
+                // first scroll isn't interpreted against a stale scrollTop=0
+                // (which jerks the viewport to the top). Runs regardless of
+                // autoReflow — scroll position is independent of PTY sizing.
+                if (!entry.wasContainerVisible) {
+                    resyncViewportScroll(entry)
+                }
                 updateOobOverlay(entry)
             }
             entry.wasContainerVisible = visible

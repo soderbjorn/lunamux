@@ -350,6 +350,69 @@ fun markScrollButtonNewOutput(entry: TerminalEntry) {
 }
 
 /**
+ * Realigns the `.xterm-viewport` DOM scroll position with the terminal
+ * buffer's logical scroll offset (`buffer.active.viewportY`, i.e. xterm's
+ * `ydisp`), fixing the desync that follows a detach/reattach of the pane's
+ * DOM.
+ *
+ * Caller context: the toolkit caches each pane's content element by pane id
+ * and *reattaches* the cached element whenever it re-renders — on tab
+ * activation (the previously-hidden tab's panes come back into the tree) and
+ * on every config push (the active tab's panes are reattached in place, e.g.
+ * after a window refocus). The browser resets a scrollable element's
+ * `scrollTop` to 0 whenever it is removed from and re-inserted into the DOM,
+ * but xterm.js renders purely from its internal `ydisp`, so the grid keeps
+ * showing the correct line (usually the latest output at the bottom) while the
+ * native scrollbar silently sits at the top. The two are now out of sync:
+ *
+ *  - the first wheel-up does nothing (`scrollTop` is already 0),
+ *  - the first wheel-down is read against `scrollTop == 0` and jerks the
+ *    viewport to the top of the scrollback, and
+ *  - [updateScrollButton] reads `viewportY == baseY` (not scrolled up) so the
+ *    "New output" pill never appears.
+ *
+ * This restores `scrollTop = viewportY * cellHeight` — the exact value xterm's
+ * own `Viewport._innerRefresh` would write — so the native scrollbar matches
+ * the rendered content again. It works whether the user was at the bottom or
+ * scrolled up into history (it keys off `viewportY`, not "at bottom"), is a
+ * no-op when already aligned, and produces no visible jump: setting `scrollTop`
+ * to precisely `ydisp * cellHeight` makes the resulting `scroll` event a
+ * zero-delta no-op inside xterm. Runs independently of [TerminalEntry.autoReflow]
+ * because scroll position is orthogonal to PTY sizing.
+ *
+ * Called from the per-pane `ResizeObserver` on each hidden→visible edge (tab
+ * activation, where the container gains a non-zero size) and from
+ * [renderConfig] after every config push (covers in-place reattaches — e.g.
+ * window refocus — that keep the same size, so the `ResizeObserver` never
+ * fires). Reads the same `_core._renderService.dimensions.css.cell.height`
+ * path as [safeFit], and degrades to a no-op if those internals are absent.
+ *
+ * @param entry the [TerminalEntry] whose DOM viewport scroll to realign
+ * @see isScrolledUp
+ * @see updateScrollButton
+ * @see fitPreservingScroll
+ */
+fun resyncViewportScroll(entry: TerminalEntry) {
+    val term = entry.term
+    val el = term.asDynamic().element as? HTMLElement ?: return
+    val viewport = el.querySelector(".xterm-viewport") as? HTMLElement ?: return
+    val core = term.asDynamic()._core
+    val cellHeight = (core?._renderService?.dimensions?.css?.cell?.height as? Number)?.toDouble() ?: return
+    if (cellHeight <= 0.0) return
+    val buffer = term.asDynamic().buffer.active
+    val viewportY = (buffer.viewportY as? Number)?.toInt() ?: return
+    val target = viewportY.toDouble() * cellHeight
+    // Only touch the DOM when actually misaligned, so a freshly-rendered
+    // pane that is already in sync doesn't churn scrollTop every push.
+    if (kotlin.math.abs(viewport.scrollTop - target) > 0.5) {
+        viewport.scrollTop = target
+    }
+    // Re-assert the pill against the (unchanged) scroll offset, so a reattach
+    // that happened to drop the class leaves it consistent with isScrolledUp.
+    updateScrollButton(entry)
+}
+
+/**
  * Writes PTY output to the terminal while holding the viewport on the *same
  * content line* when the user has scrolled up (auto-scroll "pause").
  *

@@ -244,6 +244,37 @@ private fun refocusActivePane(config: dynamic) {
     }
 }
 
+/**
+ * Realign the `.xterm-viewport` DOM scrollbar with the buffer's logical
+ * scroll offset for every currently-visible terminal, on the next frame.
+ *
+ * Companion to the per-pane `ResizeObserver` hook (which only fires on a
+ * size change, i.e. the hidden→visible edge of a tab switch). The toolkit
+ * also reattaches the *active* tab's cached pane elements in place on every
+ * config push — e.g. a window refocus that triggers a re-render — and that
+ * reattach resets `scrollTop` to 0 without changing the container size, so
+ * the `ResizeObserver` never fires and the desync would otherwise linger.
+ * Sweeping all visible terminals here closes that gap.
+ *
+ * Deferred to the next frame for the same reason as [refocusActivePane]:
+ * the toolkit's reattach must commit before we read/write `scrollTop`.
+ * Cheap (a handful of panes, each a couple of DOM reads and at most one
+ * `scrollTop` write) and idempotent — [resyncViewportScroll] no-ops when a
+ * pane is already aligned.
+ *
+ * @see resyncViewportScroll
+ * @see refocusActivePane
+ */
+private fun resyncVisibleTerminalsScroll() {
+    kotlinx.browser.window.requestAnimationFrame {
+        for (entry in terminals.values) {
+            if (entry.container.offsetParent != null) {
+                try { resyncViewportScroll(entry) } catch (_: Throwable) {}
+            }
+        }
+    }
+}
+
 fun renderConfig(config: dynamic) {
     // Post-toolkit-migration: the toolkit's `mountAppShell` (driven by
     // `TermtasticTabSource`) owns the entire chrome rebuild — top bar,
@@ -284,6 +315,13 @@ fun renderConfig(config: dynamic) {
     }
     updateAggregateStatus()
     refocusActivePane(config)
+    // Realign every visible terminal's native scrollbar with its buffer after
+    // the toolkit reattaches the active tab's cached pane elements (which
+    // resets scrollTop to 0). Covers in-place reattaches — e.g. window
+    // refocus — that the per-pane ResizeObserver misses because the size
+    // didn't change. The tab-switch case is also covered here, with the
+    // ResizeObserver edge as a faster belt-and-suspenders.
+    resyncVisibleTerminalsScroll()
     // Replay cached session states onto the freshly-rendered chrome so
     // the AppLogo dot and the per-pane / per-tab status dots pick up
     // working/waiting state immediately. Without this the dot stays on
