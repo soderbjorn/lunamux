@@ -155,6 +155,51 @@ class StateDetectorTest {
     }
 
     @Test
+    fun `working timer with down arrow token tail is claude working`() {
+        // Issue #74: current Claude Code renders the spinner token tail with a
+        // ↓ (output) arrow, not ↑. The medium-tier fallback must accept it for
+        // panes where the gerund verb has scrolled off but the tail remains.
+        val text = """
+            ● Reading 1 file…
+            (3m 37s · ↓ 14.6k tokens)
+            ›
+        """.trimIndent()
+        assertEquals(
+            SessionState(cli = "claude", state = "working"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `narrow pane with gerund and down-arrow token tail is claude working`() {
+        // Reproduces the reported small-pane screenshot: a ↓-arrow token tail
+        // under a thin "›" prompt (not the ❯ idle marker).
+        val text = """
+            · Perusing… (3m 37s · ↓ 14.6k tokens)
+              Tip: Did you know you can drag and drop image files into your terminal?
+            ─ mobile-theme-picker-sheet ─
+            ›
+            ▶▶ auto mode on (shift+tab to cycle) · esc…
+        """.trimIndent()
+        assertEquals(
+            SessionState(cli = "claude", state = "working"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `down-arrow timer footer above idle prompt is idle`() {
+        // The down-arrow tail must obey the same position-aware idle guard: a
+        // stale footer scrolled above the ❯ prompt is not an active state.
+        val text = """
+            (3m 37s · ↓ 14.6k tokens)
+            done.
+            ❯
+        """.trimIndent()
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
     fun `working timer with hour component is detected`() {
         val text = "* Crafting… (1h 4m 12s · ↑ 120.3k tokens)"
         assertEquals(
@@ -201,6 +246,50 @@ class StateDetectorTest {
             ❯
         """.trimIndent()
         assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `waiting on background subagents is claude working even at idle prompt`() {
+        // Reproduces issue #72: Claude dispatched work to background ("Task")
+        // subagents and is blocked on them. The main loop parks at the idle ❯
+        // input box, so the only on-screen signal of activity is the
+        // "Waiting for N background agents to finish" spinner — which renders
+        // *above* the input prompt.
+        val text = """
+            ✻ Waiting for 3 background agents to finish
+
+            ❯
+
+            ⏸ plan mode on (shift+tab to cycle) · ← for agents · ↓ to manage
+              ● main
+              ○ Explore  Explore theme system & thumbnails    2m 51s · ↓ 107.3k tokens
+              ○ Explore  Explore server settings sync slots    2m 42s · ↓ 91.2k tokens
+        """.trimIndent()
+        assertEquals(
+            SessionState(cli = "claude", state = "working"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `single background subagent is claude working`() {
+        // Singular form ("1 background agent") must also match.
+        val text = "✻ Waiting for 1 background agent to finish\n❯"
+        assertEquals(
+            SessionState(cli = "claude", state = "working"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `background-agents line truncated after the agent word is claude working`() {
+        // In a narrow pane the trailing "to finish" is replaced by Claude's
+        // ellipsis; the "Waiting for N background agent(s)" prefix survives.
+        val text = "✻ Waiting for 3 background agents…\n❯"
+        assertEquals(
+            SessionState(cli = "claude", state = "working"),
+            StateDetector.detectState(text),
+        )
     }
 
     @Test
