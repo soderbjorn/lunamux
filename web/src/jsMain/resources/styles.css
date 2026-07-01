@@ -2127,7 +2127,10 @@ body.appearance-light .git-graphical-connector {
     font-weight: 600;
     text-align: left;
     color: var(--t-text, var(--text-primary));
-    background: color-mix(in srgb, var(--t-surface) 70%, transparent);
+    /* Flat against the sidebar chrome: no fill, only a hairline border for
+       definition. Avoids the washed-out gray card look --t-surface produced
+       in warm/dark themes (issue #85). Hover supplies the fill instead. */
+    background: transparent;
     border: 1px solid var(--t-border, var(--separator));
     border-radius: 8px;
     cursor: pointer;
@@ -2179,7 +2182,8 @@ body.appearance-light .git-graphical-connector {
     flex-direction: column;
     gap: 2px;
     padding: 10px 6px 6px;
-    background: color-mix(in srgb, var(--t-surface) 60%, transparent);
+    /* Flat card: outline only, no gray fill (issue #85). */
+    background: transparent;
     border: 1px solid var(--t-border, var(--separator));
     border-radius: 10px;
 }
@@ -2216,7 +2220,7 @@ body.appearance-light .git-graphical-connector {
 
 /* Light-mode tweaks. */
 body.appearance-light .termtastic-app-settings-nav-button {
-    background: color-mix(in srgb, var(--t-surface) 80%, #ffffff);
+    background: transparent;
     border-color: rgba(0, 0, 0, 0.10);
 }
 
@@ -2226,7 +2230,7 @@ body.appearance-light .termtastic-app-settings-nav-button--muted {
 }
 
 body.appearance-light .termtastic-app-settings-section {
-    background: color-mix(in srgb, var(--t-surface) 70%, #ffffff);
+    background: transparent;
     border-color: rgba(0, 0, 0, 0.10);
 }
 
