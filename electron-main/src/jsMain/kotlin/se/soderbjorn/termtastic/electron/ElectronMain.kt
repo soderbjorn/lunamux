@@ -721,19 +721,22 @@ private fun buildAppMenu() {
     }
 
     // Help menu (all platforms): links that open in the user's default browser
-    // via shell.openExternal — the marketing site and the published privacy
-    // policy (the latter mirrors the link at the bottom of the mobile hosts
-    // screen).
+    // via shell.openExternal — the marketing site, the published privacy
+    // policy, and the terms of service (the latter two mirror the links at the
+    // bottom of the mobile hosts screen).
     val websiteItem: dynamic = js("({})")
     websiteItem.label = "Termtastic Website"
     websiteItem.click = { shell.openExternal("https://termtastic.soderbjorn.se/") }
     val privacyItem: dynamic = js("({})")
     privacyItem.label = "Privacy Policy"
     privacyItem.click = { shell.openExternal("https://termtastic.soderbjorn.se/privacy.html") }
+    val termsItem: dynamic = js("({})")
+    termsItem.label = "Terms of Service"
+    termsItem.click = { shell.openExternal("https://termtastic.soderbjorn.se/terms.html") }
     val helpMenu: dynamic = js("({})")
     helpMenu.label = "Help"
     helpMenu.role = "help"
-    helpMenu.submenu = arrayOf<dynamic>(websiteItem, privacyItem)
+    helpMenu.submenu = arrayOf<dynamic>(websiteItem, privacyItem, termsItem)
     template.add(helpMenu)
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(template.toTypedArray()))

@@ -50,6 +50,16 @@ const val TERMTASTIC_SITE_URL: String = "https://termtastic.soderbjorn.se"
 const val TERMTASTIC_PRIVACY_URL: String = "https://termtastic.soderbjorn.se/privacy.html"
 
 /**
+ * The published terms of service page, linked from the bottom of the hosts
+ * screen (next to the privacy policy) on Android and iOS and from the desktop
+ * app's menu.
+ *
+ * Kept as a shared constant alongside [TERMTASTIC_PRIVACY_URL] so every client
+ * that surfaces the terms points at the same canonical URL.
+ */
+const val TERMTASTIC_TERMS_URL: String = "https://termtastic.soderbjorn.se/terms.html"
+
+/**
  * Semantic icon for an [OnboardingPage], decoupled from any platform's icon
  * set.
  *

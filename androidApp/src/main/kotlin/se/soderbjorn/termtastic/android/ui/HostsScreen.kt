@@ -90,6 +90,7 @@ import se.soderbjorn.termtastic.android.net.NewsUpdatesController
 import se.soderbjorn.termtastic.client.ServerUrl
 import se.soderbjorn.termtastic.client.demo.DEMO_HOST
 import se.soderbjorn.termtastic.client.viewmodel.TERMTASTIC_PRIVACY_URL
+import se.soderbjorn.termtastic.client.viewmodel.TERMTASTIC_TERMS_URL
 
 /**
  * Sentinel id used in the `connectingId` state for the built-in demo row —
@@ -420,10 +421,10 @@ private fun EmptyState(
  * affordances.
  *
  * Rendered as a single muted row beneath a hairline divider: the "Try the live
- * demo" affordance sits bottom-left and a discreet "Privacy Policy" link
- * bottom-right, opening the published policy page ([TERMTASTIC_PRIVACY_URL]) in
- * the browser via [LocalUriHandler]. Both stay out of the way of the user's own
- * servers while remaining reachable.
+ * demo" affordance sits bottom-left and discreet "Privacy Policy" and "Terms"
+ * links sit bottom-right, opening the published pages ([TERMTASTIC_PRIVACY_URL]
+ * and [TERMTASTIC_TERMS_URL]) in the browser via [LocalUriHandler]. Both stay
+ * out of the way of the user's own servers while remaining reachable.
  *
  * @param connecting true while the demo connection is being set up.
  * @param enabled false while another host is connecting.
@@ -481,22 +482,47 @@ private fun DemoFooter(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            // Privacy policy — bottom-right.
-            Text(
-                text = "Privacy Policy",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = SidebarTextSecondary.copy(alpha = 0.7f),
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .clickable { uriHandler.openUri(TERMTASTIC_PRIVACY_URL) }
-                    .semantics {
-                        role = Role.Button
-                        contentDescription = "Open the privacy policy"
-                    }
-                    .padding(vertical = 2.dp),
-            )
+            // Privacy policy + terms of service — bottom-right, separated by a
+            // thin dot so the two discreet links stay visually distinct.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Privacy Policy",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = SidebarTextSecondary.copy(alpha = 0.7f),
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clickable { uriHandler.openUri(TERMTASTIC_PRIVACY_URL) }
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Open the privacy policy"
+                        }
+                        .padding(vertical = 2.dp),
+                )
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = SidebarTextSecondary.copy(alpha = 0.7f),
+                    ),
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                )
+                Text(
+                    text = "Terms",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = SidebarTextSecondary.copy(alpha = 0.7f),
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clickable { uriHandler.openUri(TERMTASTIC_TERMS_URL) }
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Open the terms of service"
+                        }
+                        .padding(vertical = 2.dp),
+                )
+            }
         }
     }
 }
