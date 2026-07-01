@@ -1,0 +1,123 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-core/0.2.9/toolkit-core-0.2.9.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.9",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "jvmApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-core-jvm-0.2.9.jar",
+          "url": "toolkit-core-jvm-0.2.9.jar",
+          "size": 77823,
+          "sha512": "668a045a8f4e2a2c4fc101ea175976846d78e233c2035624432d8db265cd167cfe678b2c4040c006acab77b4e72cbd62952957e8f2d9d0052bc9fa2d29ffdb5d",
+          "sha256": "f84adf1fff76d398b083bcaceca61d33b5167b2c1df175b17f91be15a5414db0",
+          "sha1": "8916a90af391ec0df18d385a7614f6df5c90380d",
+          "md5": "9e41afc63f80481c6373a30c64d98a9b"
+        }
+      ]
+    },
+    {
+      "name": "jvmRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-core-jvm-0.2.9.jar",
+          "url": "toolkit-core-jvm-0.2.9.jar",
+          "size": 77823,
+          "sha512": "668a045a8f4e2a2c4fc101ea175976846d78e233c2035624432d8db265cd167cfe678b2c4040c006acab77b4e72cbd62952957e8f2d9d0052bc9fa2d29ffdb5d",
+          "sha256": "f84adf1fff76d398b083bcaceca61d33b5167b2c1df175b17f91be15a5414db0",
+          "sha1": "8916a90af391ec0df18d385a7614f6df5c90380d",
+          "md5": "9e41afc63f80481c6373a30c64d98a9b"
+        }
+      ]
+    },
+    {
+      "name": "jvmSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "files": [
+        {
+          "name": "toolkit-core-jvm-0.2.9-sources.jar",
+          "url": "toolkit-core-jvm-0.2.9-sources.jar",
+          "size": 30345,
+          "sha512": "22f9c3145e18a26326c51193042bac1536fcc9527ce5cd4327193cf9eca3c30dce5e98e7559d39d2905871b484d8bebcf95c8bd1804de42e79c1142e77a7ebfe",
+          "sha256": "4af1eb0bab6321d19b0f11e07aa6b6d81d6744d2dea23cd24b532829c103588b",
+          "sha1": "c158d1f3a2770dfdeab654609fb785fbd7a0f3b5",
+          "md5": "3f2fa599501a08aedc0398f8235bfa01"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-core/0.2.9/toolkit-core-0.2.9.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.9",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-core-release.aar",
+          "url": "toolkit-core-android-0.2.9.aar",
+          "size": 74043,
+          "sha512": "cf54af3c1edfdd1918597e099f173c012f3c8979d951740c554f20c690711fa887e544d738f9efc52aa81ebc833f047ff119220c5229465e9167e7d34eaa003c",
+          "sha256": "a305bb343e857615da5fa78580fe9246a5c6e9c3a092afd36754f0ecc0df4008",
+          "sha1": "8fa818af381310a63b74bb24fb6d8666a8f0321d",
+          "md5": "9bd5dc29679659c36b954e23dfb83d49"
+        }
+      ]
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-core-release.aar",
+          "url": "toolkit-core-android-0.2.9.aar",
+          "size": 74043,
+          "sha512": "cf54af3c1edfdd1918597e099f173c012f3c8979d951740c554f20c690711fa887e544d738f9efc52aa81ebc833f047ff119220c5229465e9167e7d34eaa003c",
+          "sha256": "a305bb343e857615da5fa78580fe9246a5c6e9c3a092afd36754f0ecc0df4008",
+          "sha1": "8fa818af381310a63b74bb24fb6d8666a8f0321d",
+          "md5": "9bd5dc29679659c36b954e23dfb83d49"
+        }
+      ]
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "files": [
+        {
+          "name": "toolkit-core-android-0.2.9-sources.jar",
+          "url": "toolkit-core-android-0.2.9-sources.jar",
+          "size": 30345,
+          "sha512": "22f9c3145e18a26326c51193042bac1536fcc9527ce5cd4327193cf9eca3c30dce5e98e7559d39d2905871b484d8bebcf95c8bd1804de42e79c1142e77a7ebfe",
+          "sha256": "4af1eb0bab6321d19b0f11e07aa6b6d81d6744d2dea23cd24b532829c103588b",
+          "sha1": "c158d1f3a2770dfdeab654609fb785fbd7a0f3b5",
+          "md5": "3f2fa599501a08aedc0398f8235bfa01"
+        }
+      ]
+    }
+  ]
+}

@@ -25,6 +25,7 @@
 package se.soderbjorn.termtastic
 
 import se.soderbjorn.darkness.core.*
+import se.soderbjorn.darkness.web.layout.LayoutPreset
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -262,6 +263,10 @@ object WindowState {
             // Without this the toolkit's tab snapshot has activePaneId=null
             // and the lone pane stays unrendered until the user clicks it.
             focusedPaneId = leaf.id,
+            // Default the cold-start tab to auto-tiling too (issue #86), so
+            // every tab in the app shares the same default layout. Re-engaged
+            // into activeLayoutByTab by the persisted-preset loop in initialize().
+            layoutPreset = LayoutPreset.Auto.key,
         )
         // Without an explicit activeTabId the toolkit doesn't visually
         // select any tab on cold start, so the lone tab/pane both look
@@ -271,18 +276,24 @@ object WindowState {
 
     // ── Tab dispatch ─────────────────────────────────────────────────
 
-    /** Create a new tab with a single terminal pane. */
+    /** Create a new tab with a single terminal pane, switch to it, and
+     *  default it to auto-tiling. */
     fun addTab() = synchronized(this) {
         val cfg = _config.value
         val sessionId = TerminalSessions.create()
+        val tabId = newTabId()
         val newCfg = TabManager.addTab(
             cfg = cfg,
-            newTabId = newTabId(),
+            newTabId = tabId,
             newNodeId = newNodeId(),
             sessionId = sessionId,
             randomOrigin = PaneManager.randomSnappedOrigin(),
         )
         _config.value = newCfg
+        // Register the auto preset in the live map so pane add/remove/focus
+        // events on this tab re-tile via maybeReapplyLayout without waiting
+        // for a server restart to re-engage the persisted layoutPreset.
+        activeLayoutByTab[tabId] = LayoutPreset.Auto.key
     }
 
     /** Close [tabId], destroying any PTY sessions no longer referenced. */

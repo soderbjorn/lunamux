@@ -302,7 +302,13 @@ class DemoServer internal constructor(
         when (command) {
             // --- tabs ---
             is WindowCommand.AddTab -> {
-                val tab = TabConfig(id = allocId("t"), title = "tab ${config.tabs.size + 1}")
+                val tab = TabConfig(
+                    id = allocId("t"),
+                    title = "tab ${config.tabs.size + 1}",
+                    // Default new tabs to auto-tiling, matching the real
+                    // server (issue #86).
+                    layoutPreset = LayoutPreset.Auto.key,
+                )
                 publish(config.copy(tabs = config.tabs + tab, activeTabId = tab.id))
             }
             is WindowCommand.CloseTab -> {

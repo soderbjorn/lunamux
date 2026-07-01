@@ -10,6 +10,8 @@
  */
 package se.soderbjorn.termtastic
 
+import se.soderbjorn.darkness.web.layout.LayoutPreset
+
 /**
  * Tab-only mutations on a [WindowConfig]. Pane mutations live in
  * [PaneManager]. This class is internal and only used by [WindowState].
@@ -20,6 +22,12 @@ internal object TabManager {
      * Create a new tab with a single terminal pane, append it to the tab
      * list, and return the updated config + the freshly minted session id
      * so the caller can register cleanup on it.
+     *
+     * The new tab is stamped with the [LayoutPreset.Auto] preset and made
+     * the active tab: creating a tab both defaults it to auto-tiling (so
+     * subsequent panes re-tile automatically — issue #86) and switches the
+     * user to it, matching the behaviour every client already expects from
+     * the [WindowConfig.activeTabId] echo.
      */
     fun addTab(
         cfg: WindowConfig,
@@ -48,8 +56,14 @@ internal object TabManager {
                     z = 1L,
                 )
             ),
+            // Focus the lone pane so it renders immediately in the freshly
+            // activated tab instead of waiting for a user click (mirrors
+            // WindowState.buildDefault's note for the cold-start tab).
+            focusedPaneId = newNodeId,
+            // Default every new tab to auto-tiling (issue #86).
+            layoutPreset = LayoutPreset.Auto.key,
         )
-        return cfg.copy(tabs = cfg.tabs + newTab)
+        return cfg.copy(tabs = cfg.tabs + newTab, activeTabId = newTabId)
     }
 
     /**
