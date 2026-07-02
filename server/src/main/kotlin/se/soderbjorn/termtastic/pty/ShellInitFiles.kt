@@ -3,7 +3,7 @@
  *
  * This file contains [ShellInitFiles], which configures shell environments
  * so that interactive shells emit OSC 7 escape sequences reporting their
- * current working directory. This enables [Osc7Scanner] to instantly detect
+ * current working directory. This enables [OscScanner] to instantly detect
  * directory changes without polling.
  *
  * Called by [TerminalSession.create] (in Application.kt) when spawning a
@@ -18,7 +18,7 @@
  *  - **bash**: appends an OSC 7 emitter to `PROMPT_COMMAND`.
  *  - **fish**: no action needed (fish emits OSC 7 by default).
  *
- * @see Osc7Scanner
+ * @see OscScanner
  * @see ProcessCwdReader
  * @see AppPaths
  */
@@ -28,7 +28,7 @@ import se.soderbjorn.termtastic.persistence.AppPaths
 import java.io.File
 
 /**
- * Makes interactive shells emit OSC 7 cwd reports so [Osc7Scanner] can pick
+ * Makes interactive shells emit OSC 7 cwd reports so [OscScanner] can pick
  * them up. Most distros that ship VTE already do this; macOS bash/zsh do not.
  *
  * Strategy:

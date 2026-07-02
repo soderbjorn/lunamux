@@ -13,7 +13,7 @@
  *
  * @see WindowState
  * @see ScreenEmulator
- * @see Osc7Scanner
+ * @see OscScanner
  * @see ProcessCwdReader
  */
 package se.soderbjorn.termtastic
@@ -33,12 +33,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import se.soderbjorn.termtastic.pty.Osc7Scanner
+import se.soderbjorn.termtastic.pty.OscScanner
 import se.soderbjorn.termtastic.pty.ProcessCwdReader
 import se.soderbjorn.termtastic.pty.ShellInitFiles
 import java.io.File
@@ -50,12 +53,14 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Registry of process-wide PTYs. Each created session also gets a watcher
  * coroutine that listens for cwd changes coming out of [TerminalSession.cwd]
- * and forwards them (debounced) into [WindowState.updatePaneCwd]. The
- * 750 ms debounce coalesces `cd` bursts before they ever touch the
- * WindowConfig flow; the existing 2 s persistence debouncer in `main()`
+ * and forwards them (debounced) into [WindowState.updatePaneCwd], and — while
+ * the opt-in [programTitlesEnabled] flag is on — does the same for program-set
+ * titles ([TerminalSession.programTitle] → [WindowState.applyProgramTitle]).
+ * The 750 ms debounce coalesces `cd` / title bursts before they ever touch
+ * the WindowConfig flow; the existing 2 s persistence debouncer in `main()`
  * then coalesces *those* updates into one SQLite write.
  */
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 object TerminalSessions {
     private val sessions = ConcurrentHashMap<String, TerminalSession>()
     private val watchJobs = ConcurrentHashMap<String, Job>()
@@ -95,6 +100,20 @@ object TerminalSessions {
     private val nullStreak = ConcurrentHashMap<String, Int>()
     private const val STATE_GRACE_POLLS = 3  // 3 polls × 3 s = 9 s grace
 
+    /**
+     * Live opt-in flag for the "use program-set terminal titles" feature (the
+     * [TERMINAL_PROGRAM_TITLE_KEY] UI setting). `main()`'s settings collector
+     * writes toggle flips into this — deliberately a stable [MutableStateFlow]
+     * that is mutated, never replaced: sessions (and their title watchers)
+     * are created during `WindowState.initialize`, *before* `main()` finishes
+     * wiring, and a watcher bound to a swapped-out flow instance would miss
+     * every later flip. Each watcher re-collects on an off→on flip, so a pane
+     * picks up the program's *current* title immediately — no restart, and no
+     * waiting for the next title change; `main()` additionally sweeps stored
+     * titles on an on→off flip.
+     */
+    val programTitlesEnabled = MutableStateFlow(false)
+
     /** Create a fresh session and return its newly minted id (nonce-suffixed
      *  once [idNonce] is assigned — see its kdoc). */
     fun create(initialCwd: String? = null, initialScrollback: ByteArray? = null): String {
@@ -103,11 +122,27 @@ object TerminalSessions {
         val session = TerminalSession.create(initialCwd, initialScrollback)
         sessions[id] = session
         watchJobs[id] = watchScope.launch {
-            session.cwd
-                .filterNotNull()
-                .debounce(750.milliseconds)
-                .distinctUntilChanged()
-                .collect { newCwd -> WindowState.updatePaneCwd(id, newCwd) }
+            launch {
+                session.cwd
+                    .filterNotNull()
+                    .debounce(750.milliseconds)
+                    .distinctUntilChanged()
+                    .collect { newCwd -> WindowState.updatePaneCwd(id, newCwd) }
+            }
+            // Program-set titles (OSC 0/2), debounced like cwd changes. The
+            // opt-in gate is the *outer* flow: while off nothing is collected
+            // (free), and on enable flatMapLatest re-collects the title
+            // StateFlow, which replays the current title so the pane is named
+            // right away. An empty title flows through so a program clearing
+            // its title falls the pane back to the cwd-based name.
+            launch {
+                programTitlesEnabled
+                    .flatMapLatest { enabled ->
+                        if (enabled) session.programTitle.filterNotNull().debounce(750.milliseconds)
+                        else emptyFlow()
+                    }
+                    .collect { newTitle -> WindowState.applyProgramTitle(id, newTitle) }
+            }
         }
         return id
     }
@@ -202,7 +237,23 @@ class TerminalSession private constructor(
     private val _cwd = MutableStateFlow<String?>(null)
     val cwd: StateFlow<String?> = _cwd.asStateFlow()
 
-    private val osc7 = Osc7Scanner { path -> _cwd.value = path }
+    private val _programTitle = MutableStateFlow<String?>(null)
+
+    /**
+     * Most recent program-set terminal title (OSC 0/2) we've observed for this
+     * pane, raw and unsanitized — parsed by the same inline [OscScanner] that
+     * handles OSC 7. `null` until a program first sets a title; an empty
+     * string means the program cleared its title. Collected (debounced, and
+     * only while the opt-in flag is on) by the watcher in
+     * [TerminalSessions.create], which forwards it to
+     * [WindowState.applyProgramTitle].
+     */
+    val programTitle: StateFlow<String?> = _programTitle.asStateFlow()
+
+    private val osc = OscScanner(
+        onCwd = { path -> _cwd.value = path },
+        onTitle = { title -> _programTitle.value = title },
+    )
 
     private val screen = ScreenEmulator(initialCols = 120, initialRows = 32)
 
@@ -249,7 +300,7 @@ class TerminalSession private constructor(
                 break
             }
             if (n <= 0) break
-            osc7.feed(buf, n)
+            osc.feed(buf, n)
             screen.feed(buf, n)
             val chunk = buf.copyOf(n)
             appendToRing(chunk)

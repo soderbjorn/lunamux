@@ -25,16 +25,19 @@
  *         when running inside the bundled Electron app ([isElectronClient])
  *         — the dialog opens on the server's desktop, which a remote
  *         browser can't see.
- *  2. An **Experimental features** section with two persisted boolean
- *     toggles:
+ *  2. An **Experimental features** section with persisted boolean toggles:
  *       - **Enable file browser** — when off, hides the File Browser
  *         entry from the topbar "New pane" hover dropdown.
  *       - **Enable Git change view** — same for the Git entry.
+ *       - **Use program-set terminal titles** — opt-in: panes take the
+ *         title the running program sets via OSC 0/2 (consumed
+ *         server-side); this row carries an explanatory description line.
  *
- * The flags persist server-side under two new top-level keys in
+ * The flags persist server-side under top-level keys in
  * `/api/ui-settings`:
  *   - `experimentalFileBrowser` (Boolean, default false)
  *   - `experimentalGitView` (Boolean, default false)
+ *   - `terminalProgramTitle` (Boolean, default false)
  *
  * Reads consult [toolkitSettingsSnapshot] (already mirrored from the
  * server's payload via [updateToolkitSettingsSnapshot]); writes
@@ -46,6 +49,7 @@
  * @see buildAppSettingsContent
  * @see isExperimentalFileBrowserEnabled
  * @see isExperimentalGitViewEnabled
+ * @see isTerminalProgramTitleEnabled
  */
 package se.soderbjorn.termtastic
 
@@ -66,6 +70,10 @@ private const val KEY_EXPERIMENTAL_FILE_BROWSER = "experimentalFileBrowser"
 
 /** Persistence key for the experimental Git-view flag. */
 private const val KEY_EXPERIMENTAL_GIT_VIEW = "experimentalGitView"
+
+// The opt-in "use program-set terminal titles" flag persists under
+// TERMINAL_PROGRAM_TITLE_KEY from the shared clientServer module — the server
+// reads the same constant, so the contract is compiler-enforced.
 
 /**
  * Tooltip/`title` of the toolkit's topbar Theme Manager (palette) button.
@@ -147,6 +155,18 @@ fun isExperimentalFileBrowserEnabled(): Boolean =
  */
 fun isExperimentalGitViewEnabled(): Boolean =
     snapshotBoolean(KEY_EXPERIMENTAL_GIT_VIEW)
+
+/**
+ * Whether panes should take the title the running program sets (OSC 0/2).
+ * Read only to seed the toggle's initial state in
+ * [buildExperimentalSection]; the actual feature logic lives server-side
+ * (the title watcher reads the same persisted key).
+ *
+ * @return `true` when the user has opted in.
+ * @see TERMINAL_PROGRAM_TITLE_KEY
+ */
+fun isTerminalProgramTitleEnabled(): Boolean =
+    snapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY)
 
 /**
  * Mirror a single boolean key into [toolkitSettingsSnapshot] without
@@ -370,6 +390,20 @@ private fun buildExperimentalSection(): HTMLElement {
             putJsonBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
         },
     ))
+    section.appendChild(buildToggleRow(
+        labelText = "Use program-set terminal titles",
+        initialValue = isTerminalProgramTitleEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY, v)
+            putJsonBoolean(TERMINAL_PROGRAM_TITLE_KEY, v)
+        },
+        descriptionText = "Lets programs running in a terminal name its tab, using " +
+            "the standard title sequence that terminals like iTerm2 honor. With " +
+            "Claude Code this means the tab shows a short summary of what you " +
+            "asked it to do instead of the folder name. Terminals you've renamed " +
+            "yourself are never changed, and turning this off returns tabs to " +
+            "their folder names.",
+    ))
 
     return section
 }
@@ -388,16 +422,19 @@ private fun buildExperimentalSection(): HTMLElement {
  * highlighted rectangle moves immediately, regardless of how long the
  * async server round-trip in [onChange] takes.
  *
- * @param labelText    the visible label text shown above the buttons.
- * @param initialValue which option ("On" = true) starts selected.
- * @param onChange     invoked with the new value every time the user
+ * @param labelText       the visible label text shown above the buttons.
+ * @param initialValue    which option ("On" = true) starts selected.
+ * @param onChange        invoked with the new value every time the user
  *   picks a different option.
+ * @param descriptionText optional muted help text rendered under the label to
+ *   explain what the setting does; omitted (`null`) renders no description.
  * @return the freshly-built row element.
  */
 private fun buildToggleRow(
     labelText: String,
     initialValue: Boolean,
     onChange: (Boolean) -> Unit,
+    descriptionText: String? = null,
 ): HTMLElement {
     val row = document.createElement("div") as HTMLElement
     row.className = "termtastic-app-settings-toggle-row"
@@ -406,6 +443,13 @@ private fun buildToggleRow(
     labelEl.className = "termtastic-app-settings-toggle-label"
     labelEl.textContent = labelText
     row.appendChild(labelEl)
+
+    if (descriptionText != null) {
+        val descEl = document.createElement("div") as HTMLElement
+        descEl.className = "termtastic-app-settings-toggle-desc"
+        descEl.textContent = descriptionText
+        row.appendChild(descEl)
+    }
 
     val btnRow = document.createElement("div") as HTMLElement
     btnRow.className = "dt-settings-button-row"
