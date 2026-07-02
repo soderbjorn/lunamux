@@ -662,6 +662,38 @@ class SettingsRepository(dbFile: File) {
         putString(CLAUDE_USAGE_POLL_KEY, value.toString())
     }
 
+    /**
+     * Per-database id nonce embedded in every newly minted tab / pane /
+     * session id (e.g. `t7-x4k9`), minted lazily on first use and then
+     * stable for the lifetime of this database.
+     *
+     * Why it exists: the toolkit's per-tab layout state lives in a
+     * machine-global settings file keyed by tab/pane id, but plain
+     * sequential ids (`t1`, `n1`, …) are only unique per database — a dev
+     * server, a packaged server, and any re-created database all mint the
+     * same ids and their layout-state entries collide (issue #86). The
+     * nonce makes ids from different databases distinct, so a stale entry
+     * can never masquerade as a brand-new tab's state. Pre-existing
+     * old-style ids in the persisted window config keep working unchanged;
+     * only ids minted after the first boot with this code carry the nonce.
+     *
+     * Called by [WindowState.initialize] once at boot, before any id is
+     * minted.
+     *
+     * @return the four-character base-36 nonce for this database.
+     * @see WindowState.initialize
+     */
+    fun instanceIdNonce(): String {
+        getString(INSTANCE_ID_NONCE_KEY)?.takeIf { it.isNotBlank() }?.let { return it }
+        val rng = java.security.SecureRandom()
+        val alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+        val fresh = buildString {
+            repeat(4) { append(alphabet[rng.nextInt(alphabet.length)]) }
+        }
+        putString(INSTANCE_ID_NONCE_KEY, fresh)
+        return fresh
+    }
+
     companion object {
         internal const val WINDOW_CONFIG_KEY_V1 = "window.config.v1"
         internal const val WINDOW_CONFIG_KEY_V2 = "window.config.v2"
@@ -670,6 +702,8 @@ class SettingsRepository(dbFile: File) {
         const val WINDOW_CONFIG_KEY = WINDOW_CONFIG_KEY_V3
         private const val ALLOW_REMOTE_KEY = "network.allow_remote.v1"
         private const val CLAUDE_USAGE_POLL_KEY = "claude.usage_poll.v1"
+        /** Key holding the per-database id nonce (see [instanceIdNonce]). */
+        private const val INSTANCE_ID_NONCE_KEY = "instance.id_nonce.v1"
     }
 }
 

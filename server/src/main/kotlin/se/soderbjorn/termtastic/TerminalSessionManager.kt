@@ -62,15 +62,44 @@ object TerminalSessions {
     private val idCounter = AtomicLong(0)
     private val watchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * Per-database nonce suffixed onto newly minted session ids
+     * (`s<n>-<nonce>`), matching the tab/pane id scheme so ids from
+     * different server databases never collide anywhere clients key on
+     * them. Assigned by [WindowState.initialize] before the first session
+     * is created; empty (legacy unsuffixed ids) until then, which keeps
+     * unit tests and pre-init paths working. User-facing session numbering
+     * strips the suffix via [displayNumber].
+     *
+     * @see WindowState.initialize
+     * @see displayNumber
+     */
+    @Volatile
+    var idNonce: String = ""
+
+    /**
+     * The user-facing numeric part of a session id: `"s7-x4k9"` and the
+     * legacy `"s7"` both yield `"7"`. Used wherever a default pane title
+     * (`"Session 7"`) is derived from a session id, so the nonce suffix
+     * never leaks into the UI.
+     *
+     * @param sessionId a session id as minted by [create].
+     * @return the counter portion of the id, as a string.
+     */
+    fun displayNumber(sessionId: String): String =
+        sessionId.removePrefix("s").substringBefore('-')
+
     private val stateOverrides = ConcurrentHashMap<String, String?>()
 
     private val lastNonNullState = ConcurrentHashMap<String, String>()
     private val nullStreak = ConcurrentHashMap<String, Int>()
     private const val STATE_GRACE_POLLS = 3  // 3 polls × 3 s = 9 s grace
 
-    /** Create a fresh session and return its newly minted id. */
+    /** Create a fresh session and return its newly minted id (nonce-suffixed
+     *  once [idNonce] is assigned — see its kdoc). */
     fun create(initialCwd: String? = null, initialScrollback: ByteArray? = null): String {
-        val id = "s${idCounter.incrementAndGet()}"
+        val n = idCounter.incrementAndGet()
+        val id = if (idNonce.isEmpty()) "s$n" else "s$n-$idNonce"
         val session = TerminalSession.create(initialCwd, initialScrollback)
         sessions[id] = session
         watchJobs[id] = watchScope.launch {

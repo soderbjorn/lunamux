@@ -44,8 +44,28 @@ object WindowState {
     private val nodeIdCounter = AtomicLong(0)
     private val tabIdCounter = AtomicLong(0)
 
-    private fun newNodeId(): String = "n${nodeIdCounter.incrementAndGet()}"
-    private fun newTabId(): String = "t${tabIdCounter.incrementAndGet()}"
+    /**
+     * Per-database nonce suffixed onto every newly minted tab / pane id
+     * (`t<n>-<nonce>` / `n<n>-<nonce>`). Sequential counters alone are
+     * only unique per database, and the toolkit's machine-global layout
+     * blob is keyed by these ids — two databases both minting `t1`/`n1`
+     * collide there and a stale entry gates the new tab's Auto re-tile
+     * off (issue #86 follow-up). Set from
+     * [SettingsRepository.instanceIdNonce] in [initialize]; empty until
+     * then, which keeps unit tests (and any pre-init path) on the legacy
+     * unsuffixed shape.
+     */
+    @Volatile
+    private var idNonce: String = ""
+
+    /** Renders `<base><counter>` plus the `-nonce` suffix when minted. */
+    private fun mintId(base: String, counter: AtomicLong): String {
+        val n = counter.incrementAndGet()
+        return if (idNonce.isEmpty()) "$base$n" else "$base$n-$idNonce"
+    }
+
+    private fun newNodeId(): String = mintId("n", nodeIdCounter)
+    private fun newTabId(): String = mintId("t", tabIdCounter)
 
     private val _config: MutableStateFlow<WindowConfig> = MutableStateFlow(WindowConfig(emptyList()))
     val config: StateFlow<WindowConfig> = _config.asStateFlow()
@@ -148,6 +168,14 @@ object WindowState {
         if (initialized) return
         initialized = true
 
+        // Resolve the per-database id nonce BEFORE any id (or session) is
+        // minted, so the very first cold-start tab/pane already carries it.
+        // Existing databases mint a nonce on their first boot with this
+        // code; ids persisted before that keep their legacy shape and stay
+        // valid (see [idNonce]).
+        idNonce = repo.instanceIdNonce()
+        TerminalSessions.idNonce = idNonce
+
         val loaded = repo.loadWindowConfig()
         val cfg = if (loaded != null && loaded.tabs.isNotEmpty()) {
             try {
@@ -198,7 +226,11 @@ object WindowState {
         var maxTabId = 0L
 
         fun trackNodeId(id: String) {
-            id.removePrefix("n").toLongOrNull()?.let { if (it > maxNodeId) maxNodeId = it }
+            // Ids may carry a `-nonce` suffix (post-#86 shape) — the counter
+            // lives in the numeric portion before the dash. Legacy ids have
+            // no dash, so substringBefore returns the whole remainder.
+            id.removePrefix("n").substringBefore('-').toLongOrNull()
+                ?.let { if (it > maxNodeId) maxNodeId = it }
         }
 
         fun rebuildLeaf(leaf: LeafNode): LeafNode {
@@ -214,7 +246,9 @@ object WindowState {
         }
 
         val rebuiltTabs = loaded.tabs.map { tab ->
-            tab.id.removePrefix("t").toLongOrNull()?.let { if (it > maxTabId) maxTabId = it }
+            // Same nonce-aware numeric extraction as [trackNodeId].
+            tab.id.removePrefix("t").substringBefore('-').toLongOrNull()
+                ?.let { if (it > maxTabId) maxTabId = it }
 
             val rebuiltPanes = tab.panes.map { p ->
                 val box = PaneGeometry.normalize(p.x, p.y, p.width, p.height)
@@ -244,7 +278,7 @@ object WindowState {
         val leaf = LeafNode(
             id = newNodeId(),
             sessionId = s1,
-            title = "Session ${s1.removePrefix("s")}",
+            title = "Session ${TerminalSessions.displayNumber(s1)}",
             content = TerminalContent(s1),
         )
         val tab1 = TabConfig(
@@ -675,7 +709,7 @@ object WindowState {
         val parentPaneId = tab.focusedPaneId
         val effectiveCwd = sanitizeIncomingCwd(initialCwd)
         val sessionId = TerminalSessions.create(initialCwd = effectiveCwd)
-        val fallbackTitle = "Session ${sessionId.removePrefix("s")}"
+        val fallbackTitle = "Session ${TerminalSessions.displayNumber(sessionId)}"
         val leaf = LeafNode(
             id = newNodeId(),
             sessionId = sessionId,

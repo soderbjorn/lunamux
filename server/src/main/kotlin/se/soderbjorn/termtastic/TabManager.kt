@@ -48,7 +48,9 @@ internal object TabManager {
         val leaf = LeafNode(
             id = newNodeId,
             sessionId = sessionId,
-            title = "Session ${sessionId.removePrefix("s")}",
+            // displayNumber strips the per-database id-nonce suffix so the
+            // default title stays "Session 7", not "Session 7-x4k9".
+            title = "Session ${TerminalSessions.displayNumber(sessionId)}",
             content = TerminalContent(sessionId),
         )
         val newTab = TabConfig(
