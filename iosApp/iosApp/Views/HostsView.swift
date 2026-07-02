@@ -66,6 +66,12 @@ struct HostsView: View {
                 }
                 .tint(Palette.headerAccent)
             }
+            // Shared info menu → support forum, website, legal pages. Mirrored
+            // in the Sessions toolbar so both primary screens expose the same
+            // links from the same place.
+            ToolbarItem(placement: .topBarTrailing) {
+                AboutMenu()
+            }
         }
         .sheet(isPresented: $showAddSheet) {
             HostEditSheet(initial: nil) { label, host, port in
@@ -123,29 +129,21 @@ struct HostsView: View {
 /// to the shared client's in-process demo simulation — instant, offline, and
 /// stateless, so it carries no edit/delete affordances.
 ///
-/// Rendered as a single muted row beneath a hairline divider: the "Try the live
-/// demo" affordance sits bottom-left and discreet "Privacy Policy" and "Terms"
-/// links sit bottom-right, opening the published pages in the browser. Both stay
-/// out of the way of the user's own servers while remaining reachable. Mirrors
-/// the Android `DemoFooter` composable.
+/// Rendered as a single muted row beneath a hairline divider, staying out of the
+/// way of the user's own servers. External links (support forum, website, legal
+/// pages) now live in the top bar's `AboutMenu` rather than here, keeping this
+/// footer to the one demo affordance. Mirrors the Android `DemoFooter`
+/// composable.
 private struct DemoFooter: View {
     let connecting: Bool
     let enabled: Bool
     let onConnect: () -> Void
 
-    /// Published privacy policy page. Mirrors the shared Kotlin
-    /// `TERMTASTIC_PRIVACY_URL` constant used by the Android client.
-    private let privacyURL = URL(string: "https://termtastic.soderbjorn.se/privacy.html")!
-
-    /// Published terms of service page. Mirrors the shared Kotlin
-    /// `TERMTASTIC_TERMS_URL` constant used by the Android client.
-    private let termsURL = URL(string: "https://termtastic.soderbjorn.se/terms.html")!
-
     var body: some View {
         VStack(spacing: 0) {
             Divider()
             HStack {
-                // Live demo — bottom-left.
+                // Live demo — the footer's sole affordance.
                 Button(action: { if enabled { onConnect() } }) {
                     HStack(spacing: 6) {
                         if connecting {
@@ -166,32 +164,6 @@ private struct DemoFooter: View {
                 .accessibilityLabel("Try the live demo, no server needed")
 
                 Spacer()
-
-                // Privacy policy + terms of service — bottom-right, separated
-                // by a thin dot so the two discreet links stay distinct.
-                HStack(spacing: 6) {
-                    Link(destination: privacyURL) {
-                        Text("Privacy Policy")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open the privacy policy")
-
-                    Text("·")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Link(destination: termsURL) {
-                        Text("Terms")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open the terms of service")
-                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)

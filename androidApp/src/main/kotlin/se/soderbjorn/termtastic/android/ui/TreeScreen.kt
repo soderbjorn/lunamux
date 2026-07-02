@@ -77,6 +77,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -368,6 +369,25 @@ private fun addLeaf(
  * @see GitListScreen
  * @see AppearanceSheet
  */
+/**
+ * Smallest device width (dp) at or above which the Sessions top bar still has
+ * room to show its "Sessions" title alongside the full action cluster.
+ *
+ * The Sessions bar carries many actions (add, layout, view toggle, appearance,
+ * news, and the shared [AboutMenu]); on narrow phones the Material top bar
+ * sacrifices the title first, crushing it to an unreadable sliver. Below this
+ * threshold we drop the title entirely (the back arrow plus the tab chips still
+ * convey context) so the icons get the width; at or above it the title fills
+ * what would otherwise read as awkward empty space between the back arrow and
+ * the icons.
+ *
+ * Gated on `smallestScreenWidthDp` (a stable per-device value) rather than the
+ * current width so the title never flickers in and out as the phone rotates.
+ *
+ * @see AboutMenu
+ */
+private const val SESSIONS_TITLE_MIN_WIDTH_DP = 440
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TreeScreen(
@@ -582,7 +602,16 @@ fun TreeScreen(
                         )
                     }
                 },
-                title = { Text("Sessions", color = SidebarTextPrimary) },
+                title = {
+                    // Drop the title on narrow phones so the action-heavy bar
+                    // doesn't crush it; keep it on wide screens where it also
+                    // fills the gap the back arrow would otherwise leave.
+                    if (LocalConfiguration.current.smallestScreenWidthDp >=
+                        SESSIONS_TITLE_MIN_WIDTH_DP
+                    ) {
+                        Text("Sessions", color = SidebarTextPrimary)
+                    }
+                },
                 actions = {
                     // Combined "+" menu: always offers "New tab"; in overview
                     // mode it also offers adding a pane to the current tab
@@ -691,6 +720,10 @@ fun TreeScreen(
                         shouldPulse = newsUpdatesState.hasNews,
                         muted = !newsUpdatesState.hasContent,
                     )
+                    // Shared info menu → support forum, website, legal pages.
+                    // Same control as the Hosts top bar so both primary screens
+                    // expose the same links from the same place.
+                    AboutMenu()
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = SidebarBackground,

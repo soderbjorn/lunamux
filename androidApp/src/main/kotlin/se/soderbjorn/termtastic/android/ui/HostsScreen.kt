@@ -70,7 +70,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -89,8 +88,6 @@ import se.soderbjorn.termtastic.android.net.ConnectionHolder
 import se.soderbjorn.termtastic.android.net.NewsUpdatesController
 import se.soderbjorn.termtastic.client.ServerUrl
 import se.soderbjorn.termtastic.client.demo.DEMO_HOST
-import se.soderbjorn.termtastic.client.viewmodel.TERMTASTIC_PRIVACY_URL
-import se.soderbjorn.termtastic.client.viewmodel.TERMTASTIC_TERMS_URL
 
 /**
  * Sentinel id used in the `connectingId` state for the built-in demo row —
@@ -220,6 +217,10 @@ fun HostsScreen(
                             tint = SidebarAccent,
                         )
                     }
+                    // Shared info menu → support forum, website, legal pages.
+                    // Mirrored in the Sessions top bar so both primary screens
+                    // expose the same links from the same place.
+                    AboutMenu()
                 },
                 // Keep the bar the sidebar colour in both expanded and collapsed
                 // states so the title region never flashes the default surface
@@ -420,15 +421,15 @@ private fun EmptyState(
  * shared client) — instant, offline, and stateless, so it needs no edit/delete
  * affordances.
  *
- * Rendered as a single muted row beneath a hairline divider: the "Try the live
- * demo" affordance sits bottom-left and discreet "Privacy Policy" and "Terms"
- * links sit bottom-right, opening the published pages ([TERMTASTIC_PRIVACY_URL]
- * and [TERMTASTIC_TERMS_URL]) in the browser via [LocalUriHandler]. Both stay
- * out of the way of the user's own servers while remaining reachable.
+ * Rendered as a single muted row beneath a hairline divider, staying out of the
+ * way of the user's own servers. External links (support forum, website, legal
+ * pages) now live in the top bar's [AboutMenu] rather than here, keeping this
+ * footer to the one demo affordance.
  *
  * @param connecting true while the demo connection is being set up.
  * @param enabled false while another host is connecting.
  * @param onConnect callback invoked when the footer is tapped.
+ * @see AboutMenu
  */
 @Composable
 private fun DemoFooter(
@@ -436,18 +437,15 @@ private fun DemoFooter(
     enabled: Boolean,
     onConnect: () -> Unit,
 ) {
-    val uriHandler = LocalUriHandler.current
     Column(modifier = Modifier.fillMaxWidth()) {
         HorizontalDivider(color = SidebarTextSecondary.copy(alpha = 0.2f))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Live demo — bottom-left. Only this cluster is clickable so the
-            // demo tap-target stays distinct from the privacy link.
+            // Live demo — the footer's sole affordance.
             Row(
                 modifier = Modifier
                     .clickable(enabled = enabled, onClick = onConnect)
@@ -480,47 +478,6 @@ private fun DemoFooter(
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                )
-            }
-            // Privacy policy + terms of service — bottom-right, separated by a
-            // thin dot so the two discreet links stay visually distinct.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Privacy Policy",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = SidebarTextSecondary.copy(alpha = 0.7f),
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .clickable { uriHandler.openUri(TERMTASTIC_PRIVACY_URL) }
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Open the privacy policy"
-                        }
-                        .padding(vertical = 2.dp),
-                )
-                Text(
-                    text = "·",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = SidebarTextSecondary.copy(alpha = 0.7f),
-                    ),
-                    modifier = Modifier.padding(horizontal = 6.dp),
-                )
-                Text(
-                    text = "Terms",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = SidebarTextSecondary.copy(alpha = 0.7f),
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .clickable { uriHandler.openUri(TERMTASTIC_TERMS_URL) }
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Open the terms of service"
-                        }
-                        .padding(vertical = 2.dp),
                 )
             }
         }

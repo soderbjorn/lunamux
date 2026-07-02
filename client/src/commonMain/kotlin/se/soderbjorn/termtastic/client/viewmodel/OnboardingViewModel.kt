@@ -60,6 +60,16 @@ const val TERMTASTIC_PRIVACY_URL: String = "https://termtastic.soderbjorn.se/pri
 const val TERMTASTIC_TERMS_URL: String = "https://termtastic.soderbjorn.se/terms.html"
 
 /**
+ * The GitHub Discussions board used as the app's community support forum,
+ * surfaced as a prominent "Support Forum" link at the bottom of the hosts
+ * screen on Android and iOS.
+ *
+ * Kept as a shared constant alongside [TERMTASTIC_SITE_URL] so every client
+ * that offers help points users at the same canonical destination.
+ */
+const val TERMTASTIC_DISCUSSIONS_URL: String = "https://github.com/soderbjorn/termtastic/discussions"
+
+/**
  * Semantic icon for an [OnboardingPage], decoupled from any platform's icon
  * set.
  *

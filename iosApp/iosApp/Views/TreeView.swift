@@ -249,6 +249,12 @@ struct TreeView: View {
         ToolbarItem(placement: .topBarTrailing) {
             NewsBellButton(action: onOpenNews)
         }
+        // Shared info menu → support forum, website, legal pages. Same control
+        // as the Hosts toolbar so both primary screens expose the same links
+        // from the same place.
+        ToolbarItem(placement: .topBarTrailing) {
+            AboutMenu()
+        }
     }
 
     /// The body's content area: the graphical overview when the toolbar toggle
