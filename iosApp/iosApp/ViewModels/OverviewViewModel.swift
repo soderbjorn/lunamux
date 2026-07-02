@@ -140,6 +140,23 @@ final class OverviewViewModel {
         Task { try? await backing.setActiveTab(tabId: tabId) }
     }
 
+    /// Hide or reveal `tabId` in the tab strip ("unlist"/"list" it). A hidden
+    /// tab stays reachable through the strip's trailing `⋮` unlisted-tabs menu
+    /// and remains visible while it is the active tab. Invoked from the tab
+    /// chip's context menu.
+    func setTabHidden(tabId: String, hidden: Bool) {
+        guard let backing else { return }
+        Task { try? await backing.setTabHidden(tabId: tabId, hidden: hidden) }
+    }
+
+    /// Hide or reveal `tabId` in the sidebar tab tree (and the sessions list,
+    /// which mirrors it). Orthogonal to the tab-strip flag. Invoked from the
+    /// tab chip's context menu.
+    func setTabHiddenFromSidebar(tabId: String, hidden: Bool) {
+        guard let backing else { return }
+        Task { try? await backing.setTabHiddenFromSidebar(tabId: tabId, hidden: hidden) }
+    }
+
     /// Focus `paneId` in `tabId` and raise it to the front — the desktop
     /// "click a window → it activates and comes forward" behaviour.
     func focusPane(tabId: String, paneId: String) {

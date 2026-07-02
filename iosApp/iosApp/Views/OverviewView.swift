@@ -80,6 +80,14 @@ struct OverviewView: View {
                                     renameTabText = tab.title
                                     renameTabTarget = PaneTarget(id: tab.id, title: tab.title)
                                 },
+                                onToggleHidden: { tab in
+                                    viewModel.setTabHidden(tabId: tab.id, hidden: !tab.isHidden)
+                                },
+                                onToggleSidebarHidden: { tab in
+                                    viewModel.setTabHiddenFromSidebar(
+                                        tabId: tab.id, hidden: !tab.isHiddenFromSidebar
+                                    )
+                                },
                                 onClose: { tab in
                                     closeTabTarget = PaneTarget(id: tab.id, title: tab.title)
                                 }
@@ -318,6 +326,11 @@ private struct OverviewTabStrip: View {
     let closeEnabled: Bool
     let onSelect: (String) -> Void
     let onRename: (Client.OverviewBackingViewModel.OverviewTab) -> Void
+    /// Flip the tab's hidden-from-tab-strip ("unlisted") flag.
+    let onToggleHidden: (Client.OverviewBackingViewModel.OverviewTab) -> Void
+    /// Flip the tab's hidden-from-sidebar flag (also hides it from the
+    /// sessions list, which mirrors the sidebar).
+    let onToggleSidebarHidden: (Client.OverviewBackingViewModel.OverviewTab) -> Void
     let onClose: (Client.OverviewBackingViewModel.OverviewTab) -> Void
 
     var body: some View {
@@ -337,6 +350,27 @@ private struct OverviewTabStrip: View {
                                 onRename(tab)
                             } label: {
                                 Label("Rename…", systemImage: "pencil")
+                            }
+                            // Listing toggles (issue #52 family): the strip flag
+                            // and the sidebar flag are orthogonal, so each gets
+                            // its own item labelled by its current state. The
+                            // wording mirrors the web/Electron overflow menu.
+                            Button {
+                                onToggleHidden(tab)
+                            } label: {
+                                Label(
+                                    tab.isHidden ? "Show in tab bar" : "Hide in tab bar",
+                                    systemImage: tab.isHidden ? "eye" : "eye.slash"
+                                )
+                            }
+                            Button {
+                                onToggleSidebarHidden(tab)
+                            } label: {
+                                Label(
+                                    tab.isHiddenFromSidebar
+                                        ? "Show in side bar" : "Hide in side bar",
+                                    systemImage: tab.isHiddenFromSidebar ? "eye" : "eye.slash"
+                                )
                             }
                             if closeEnabled {
                                 Button(role: .destructive) {

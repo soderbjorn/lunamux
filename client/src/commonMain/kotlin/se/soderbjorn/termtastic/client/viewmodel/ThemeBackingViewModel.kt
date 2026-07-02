@@ -43,7 +43,7 @@ import se.soderbjorn.termtastic.client.fetchThemeConfig
  *
  * Constructed once per connection by the Android/iOS theme host, seeded via
  * [load], observed through [snapshot], and mutated through [setAppearance] /
- * [setActiveSlotTheme].
+ * [setActiveTheme].
  *
  * @param client    the connected client whose `/api/ui-settings` endpoint is the
  *   source of truth for the canonical theme selection.
@@ -125,20 +125,41 @@ class ThemeBackingViewModel(
     }
 
     /**
-     * Assign [name] to a specific slot, chosen by the section the user tapped
-     * (the "Dark themes" section fills the dark slot, "Light themes" the light
-     * slot) — **not** by the active appearance or any device's OS. This makes a
-     * pick deterministic and device-independent: tapping a dark theme always
-     * sets the dark slot, so every client shows it whenever it is displaying
-     * dark, regardless of which OS each device is on. Emits immediately and
-     * persists.
+     * Whether the *active* slot — the one [ThemeSnapshotV2.resolve] reads for
+     * painting — is the dark slot, given the host OS dark-mode flag.
      *
-     * @param name     the theme to assign.
-     * @param darkSlot `true` to fill the dark slot, `false` for the light slot.
+     * Used by the pickers to decide which slot a tap fills ([setActiveTheme])
+     * and which assigned theme to highlight, mirroring the web theme manager's
+     * `isDarkActive` rule.
+     *
+     * @param systemIsDark whether the host OS is currently in dark mode (only
+     *   consulted when the appearance is [Appearance.Auto]).
+     * @return `true` when the dark slot is active, `false` for the light slot.
      */
-    suspend fun setSlotTheme(name: String, darkSlot: Boolean) {
+    fun activeSlotIsDark(systemIsDark: Boolean): Boolean =
+        when (_snapshot.value.appearance) {
+            Appearance.Dark -> true
+            Appearance.Light -> false
+            Appearance.Auto -> systemIsDark
+        }
+
+    /**
+     * Assign [name] to whichever slot is *currently active* (the appearance
+     * preference, or the OS dark-mode flag when Auto) — exactly like clicking a
+     * theme card in the Mac/Electron theme manager. The user is free to assign
+     * any theme to either slot; the picker's dark/light sections are just a
+     * catalog grouping, not the write target (issue #97). Because the written
+     * slot is the one currently displayed, every pick takes visible effect
+     * immediately. Emits the new snapshot right away and persists.
+     *
+     * @param name         the theme to assign to the active slot.
+     * @param systemIsDark whether the host OS is currently in dark mode (only
+     *   consulted when the appearance is [Appearance.Auto]).
+     * @see activeSlotIsDark
+     */
+    suspend fun setActiveTheme(name: String, systemIsDark: Boolean) {
         val cur = _snapshot.value
-        _snapshot.value = if (darkSlot) {
+        _snapshot.value = if (activeSlotIsDark(systemIsDark)) {
             cur.copy(darkThemeName = name)
         } else {
             cur.copy(lightThemeName = name)

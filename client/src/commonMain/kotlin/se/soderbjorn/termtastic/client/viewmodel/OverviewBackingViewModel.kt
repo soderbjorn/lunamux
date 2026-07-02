@@ -153,6 +153,13 @@ class OverviewBackingViewModel(
      * @property panes          the tab's **on-canvas** panes (minimized panes
      *   excluded), sorted bottom-to-top by z.
      * @property dock           the tab's minimized panes, for the dock strip.
+     * @property isHidden       whether the tab is hidden ("unlisted") from the
+     *   tab strip ([TabConfig.isHidden]) — `true` only for the active tab,
+     *   since other hidden tabs are projected into [State.unlistedTabs]
+     *   instead. Lets the tab context menu label its hide/show item correctly.
+     * @property isHiddenFromSidebar whether the tab is hidden from the sidebar
+     *   tab tree ([TabConfig.isHiddenFromSidebar]); orthogonal to [isHidden].
+     *   Also drives the tab context menu's hide/show-in-sidebar item.
      */
     data class OverviewTab(
         val id: String,
@@ -161,6 +168,8 @@ class OverviewBackingViewModel(
         val aggregateState: String?,
         val panes: List<OverviewPane>,
         val dock: List<DockedPane>,
+        val isHidden: Boolean,
+        val isHiddenFromSidebar: Boolean,
     )
 
     /**
@@ -267,6 +276,35 @@ class OverviewBackingViewModel(
      */
     suspend fun setActiveTab(tabId: String) {
         windowSocket.send(WindowCommand.SetActiveTab(tabId))
+    }
+
+    /**
+     * Hide or reveal [tabId] in the tab strip ("unlist"/"list" it). Server
+     * -authoritative; a hidden tab stays reachable through the strip's
+     * trailing "…" unlisted-tabs menu, and remains visible while it is the
+     * active tab. Invoked from the tab context menus' "Hide in tab bar" /
+     * "Show in tab bar" items.
+     *
+     * @param tabId  the tab to hide or reveal.
+     * @param hidden `true` to hide the tab from the strip, `false` to reveal it.
+     * @see setTabHiddenFromSidebar
+     */
+    suspend fun setTabHidden(tabId: String, hidden: Boolean) {
+        windowSocket.send(WindowCommand.SetTabHidden(tabId = tabId, hidden = hidden))
+    }
+
+    /**
+     * Hide or reveal [tabId] in the sidebar tab tree (and the mobile session
+     * list, which mirrors it). Orthogonal to the tab-strip flag
+     * ([setTabHidden]). Invoked from the tab context menus' "Hide in side
+     * bar" / "Show in side bar" items.
+     *
+     * @param tabId  the tab to hide or reveal.
+     * @param hidden `true` to hide the tab from the sidebar, `false` to reveal it.
+     * @see setTabHidden
+     */
+    suspend fun setTabHiddenFromSidebar(tabId: String, hidden: Boolean) {
+        windowSocket.send(WindowCommand.SetTabHiddenFromSidebar(tabId = tabId, hidden = hidden))
     }
 
     /**
@@ -576,6 +614,8 @@ class OverviewBackingViewModel(
                 aggregateState = aggregateState(tab, states),
                 panes = projectPanes(tab, states, effective),
                 dock = projectDock(tab, states, effective),
+                isHidden = tab.isHidden,
+                isHiddenFromSidebar = tab.isHiddenFromSidebar,
             )
         }
         // Hidden tabs other than the active one — offered via the overview's

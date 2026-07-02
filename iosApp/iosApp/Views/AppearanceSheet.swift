@@ -26,6 +26,10 @@ struct AppearanceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var hSize
 
+    /// The system dark-mode flag; decides which slot is active while the
+    /// appearance is Auto, and which colour scheme the nav bar needs.
+    @Environment(\.colorScheme) private var colorScheme
+
     private let columns = [GridItem(.flexible(), spacing: 12),
                            GridItem(.flexible(), spacing: 12)]
 
@@ -47,10 +51,8 @@ struct AppearanceSheet: View {
                             .foregroundStyle(Palette.textBright)
                         appearancePicker
                     }
-                    themeSection(title: "Dark themes", themes: viewModel.darkThemes,
-                                 selectedName: viewModel.darkThemeName, darkSlot: true)
-                    themeSection(title: "Light themes", themes: viewModel.lightThemes,
-                                 selectedName: viewModel.lightThemeName, darkSlot: false)
+                    themeSection(title: "Dark themes", themes: viewModel.darkThemes)
+                    themeSection(title: "Light themes", themes: viewModel.lightThemes)
                 }
                 .padding(16)
             }
@@ -59,7 +61,13 @@ struct AppearanceSheet: View {
             .navigationTitle("Appearance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Palette.background, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            // The bar's content scheme must follow the *theme's* surface, not a
+            // hard-coded `.dark` — otherwise the title renders white-on-light on
+            // light themes (issue #95).
+            .toolbarColorScheme(
+                Palette.backgroundIsDark(systemIsDark: colorScheme == .dark) ? .dark : .light,
+                for: .navigationBar
+            )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
@@ -101,15 +109,23 @@ struct AppearanceSheet: View {
         }
     }
 
-    /// A titled grid of theme cards for one slot. Tapping a card fills that
-    /// slot (`darkSlot`) regardless of the current appearance. Skipped when
+    /// The theme name assigned to the *active* slot (the one currently painted,
+    /// per the appearance preference / system dark flag). Only this card gets
+    /// the assigned-theme highlight, matching the Mac/Electron theme manager.
+    private var activeThemeName: String {
+        viewModel.activeSlotIsDark(systemIsDark: colorScheme == .dark)
+            ? viewModel.darkThemeName
+            : viewModel.lightThemeName
+    }
+
+    /// A titled grid of theme cards. The dark/light sections are just a catalog
+    /// grouping: tapping any card assigns that theme to the currently-active
+    /// slot (issue #97), like the Mac/Electron theme manager. Skipped when
     /// `themes` is empty.
     @ViewBuilder
     private func themeSection(
         title: String,
-        themes: [Client.Theme],
-        selectedName: String,
-        darkSlot: Bool
+        themes: [Client.Theme]
     ) -> some View {
         if !themes.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
@@ -122,8 +138,13 @@ struct AppearanceSheet: View {
                     ForEach(themes, id: \.name) { theme in
                         ThemeCardView(
                             theme: theme,
-                            selected: theme.name == selectedName,
-                            onTap: { viewModel.setSlotTheme(name: theme.name, darkSlot: darkSlot) }
+                            selected: theme.name == activeThemeName,
+                            onTap: {
+                                viewModel.setActiveTheme(
+                                    name: theme.name,
+                                    systemIsDark: colorScheme == .dark
+                                )
+                            }
                         )
                     }
                 }

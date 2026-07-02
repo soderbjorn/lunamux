@@ -104,6 +104,8 @@ import se.soderbjorn.termtastic.client.closePane
 import se.soderbjorn.termtastic.client.closeTab
 import se.soderbjorn.termtastic.client.renamePane
 import se.soderbjorn.termtastic.client.renameTab
+import se.soderbjorn.termtastic.client.setTabHidden
+import se.soderbjorn.termtastic.client.setTabHiddenFromSidebar
 import se.soderbjorn.termtastic.client.viewmodel.HttpSettingsPersister
 import se.soderbjorn.termtastic.client.viewmodel.OverviewBackingViewModel
 import se.soderbjorn.termtastic.client.viewmodel.SessionsViewModeStore
@@ -147,11 +149,20 @@ private sealed class TreeRow {
      * @property title the display title of the tab.
      * @property aggregateState "working", "waiting", or null -- the worst-case state
      *   across all leaves in this tab.
+     * @property isHidden whether the tab is hidden ("unlisted") from the tab
+     *   strip ([se.soderbjorn.termtastic.TabConfig.isHidden]). Labels the tab
+     *   menu's hide/show-in-tab-bar item.
+     * @property isHiddenFromSidebar whether the tab is hidden from the sidebar
+     *   tab tree — and therefore parked under this list's "Hidden" reveal
+     *   (issue #52). Orthogonal to [isHidden]; labels the tab menu's
+     *   hide/show-in-sidebar item.
      */
     data class TabHeader(
         val tabId: String,
         val title: String,
         val aggregateState: String?,
+        val isHidden: Boolean,
+        val isHiddenFromSidebar: Boolean,
     ) : TreeRow()
 
     /**
@@ -276,7 +287,15 @@ private fun appendTab(
         }
     }
 
-    rows.add(TreeRow.TabHeader(tab.id, tab.title, tabState))
+    rows.add(
+        TreeRow.TabHeader(
+            tabId = tab.id,
+            title = tab.title,
+            aggregateState = tabState,
+            isHidden = tab.isHidden,
+            isHiddenFromSidebar = tab.isHiddenFromSidebar,
+        )
+    )
     for (leaf in leaves) {
         rows.add(
             TreeRow.Leaf(
@@ -556,7 +575,10 @@ fun TreeScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Disconnect",
-                            tint = SidebarTextSecondary,
+                            // Same tint as every other bar action — mixed
+                            // per-icon tints read as a bug on light themes
+                            // (issue #96).
+                            tint = SidebarTextPrimary,
                         )
                     }
                 },
@@ -625,7 +647,9 @@ fun TreeScreen(
                         }
                     }
                     // Single toggle between the list and the overview. The icon
-                    // shows the mode you'll switch *to*.
+                    // shows the mode you'll switch *to*; the glyph swap alone
+                    // signals the mode — no accent tint on the active state, so
+                    // the bar keeps a single icon colour (issue #96).
                     IconButton(onClick = {
                         viewMode = when (viewMode) {
                             SessionsViewMode.LIST -> SessionsViewMode.OVERVIEW
@@ -644,7 +668,7 @@ fun TreeScreen(
                             SessionsViewMode.OVERVIEW -> Icon(
                                 Icons.AutoMirrored.Filled.ViewList,
                                 contentDescription = "Switch to list",
-                                tint = SidebarAccent,
+                                tint = SidebarTextPrimary,
                             )
                         }
                     }
@@ -740,6 +764,16 @@ fun TreeScreen(
                                     row = row,
                                     closeEnabled = cfg.tabs.size > 1,
                                     onRename = { renameTabTarget = row },
+                                    onToggleHidden = {
+                                        val socket = ConnectionHolder.windowSocket() ?: return@TabHeaderRow
+                                        scope.launch { setTabHidden(socket, row.tabId, !row.isHidden) }
+                                    },
+                                    onToggleSidebarHidden = {
+                                        val socket = ConnectionHolder.windowSocket() ?: return@TabHeaderRow
+                                        scope.launch {
+                                            setTabHiddenFromSidebar(socket, row.tabId, !row.isHiddenFromSidebar)
+                                        }
+                                    },
                                     onAddPane = { kind ->
                                         val socket = ConnectionHolder.windowSocket() ?: return@TabHeaderRow
                                         val cfgSnapshot = config
@@ -846,14 +880,18 @@ private fun HiddenToggleRow(row: TreeRow.HiddenToggle, onClick: () -> Unit) {
 /**
  * Renders a tab section header row with the tab title in uppercase and an
  * aggregate state dot. Long-pressing the row opens the tab's menu with
- * tab-level actions (rename, add panes, close), mirroring the long-press
- * gesture on the pane rows below. A plain tap also opens the menu, since the
+ * tab-level actions (rename, listing toggles, add panes, close), mirroring the
+ * long-press gesture on the pane rows below. A plain tap also opens the menu, since the
  * header has no other action and is the only entry point for adding panes.
  *
  * @param row the tab header data to render.
  * @param closeEnabled false when this is the last tab (the server refuses
  *   to close it, so the menu item is disabled).
  * @param onRename callback invoked when the user picks "Rename".
+ * @param onToggleHidden callback invoked when the user picks the tab-strip
+ *   listing toggle ("Hide in tab bar" / "Show in tab bar").
+ * @param onToggleSidebarHidden callback invoked when the user picks the
+ *   sidebar listing toggle ("Hide in side bar" / "Show in side bar").
  * @param onAddPane callback invoked with the wire kind ("terminal",
  *   "fileBrowser", or "git") to add a pane to this tab.
  * @param onClose callback invoked when the user picks "Close tab".
@@ -864,6 +902,8 @@ private fun TabHeaderRow(
     row: TreeRow.TabHeader,
     closeEnabled: Boolean,
     onRename: () -> Unit,
+    onToggleHidden: () -> Unit,
+    onToggleSidebarHidden: () -> Unit,
     onAddPane: (kind: String) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -914,6 +954,20 @@ private fun TabHeaderRow(
             DropdownMenuItem(
                 text = { Text("Rename…") },
                 onClick = { menuOpen = false; onRename() },
+            )
+            // Listing toggles: the tab-strip flag and the sidebar flag are
+            // orthogonal, so each gets its own item labelled by its current
+            // state. The wording mirrors the web/Electron overflow menu and
+            // the overview tab chip's context menu.
+            DropdownMenuItem(
+                text = { Text(if (row.isHidden) "Show in tab bar" else "Hide in tab bar") },
+                onClick = { menuOpen = false; onToggleHidden() },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(if (row.isHiddenFromSidebar) "Show in side bar" else "Hide in side bar")
+                },
+                onClick = { menuOpen = false; onToggleSidebarHidden() },
             )
             HorizontalDivider()
             DropdownMenuItem(

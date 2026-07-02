@@ -212,6 +212,38 @@ suspend fun closeTab(socket: WindowSocket, tabId: String) {
 }
 
 /**
+ * Hide or reveal the tab [tabId] in the tab strip. Sends a
+ * [WindowCommand.SetTabHidden]; the server no-ops when the flag is unchanged.
+ * A strip-hidden ("unlisted") tab stays reachable through the overview tab
+ * strip's trailing "…" menu. Used by the mobile tab context menus'
+ * "Hide in tab bar" / "Show in tab bar" items.
+ *
+ * @param socket the live window WebSocket connection.
+ * @param tabId  the tab to hide or reveal.
+ * @param hidden `true` to hide the tab from the strip, `false` to reveal it.
+ * @see setTabHiddenFromSidebar
+ */
+suspend fun setTabHidden(socket: WindowSocket, tabId: String, hidden: Boolean) {
+    socket.send(WindowCommand.SetTabHidden(tabId = tabId, hidden = hidden))
+}
+
+/**
+ * Hide or reveal the tab [tabId] in the sidebar tab tree (and the mobile
+ * session list, which mirrors it). Sends a
+ * [WindowCommand.SetTabHiddenFromSidebar]; the server no-ops when the flag is
+ * unchanged. Orthogonal to the tab-strip flag ([setTabHidden]). Used by the
+ * mobile tab context menus' "Hide in side bar" / "Show in side bar" items.
+ *
+ * @param socket the live window WebSocket connection.
+ * @param tabId  the tab to hide or reveal.
+ * @param hidden `true` to hide the tab from the sidebar, `false` to reveal it.
+ * @see setTabHidden
+ */
+suspend fun setTabHiddenFromSidebar(socket: WindowSocket, tabId: String, hidden: Boolean) {
+    socket.send(WindowCommand.SetTabHiddenFromSidebar(tabId = tabId, hidden = hidden))
+}
+
+/**
  * Add a new pane of [kindWire] directly to the tab [tabId] (rather than next
  * to a specific anchor pane). Resolves the new pane's starting directory from
  * the tab's focused pane via [resolveCwdForNewPane]. Used by the mobile tab

@@ -165,6 +165,41 @@ final class TreeViewModel {
         }
     }
 
+    /// Whether the tab is hidden ("unlisted") from the tab strip, straight off
+    /// the latest config. Labels the tab menu's hide/show-in-tab-bar item.
+    func isTabHidden(tabId: String) -> Bool {
+        latestConfig?.tabs.first { $0.id == tabId }?.isHidden ?? false
+    }
+
+    /// Whether the tab is hidden from the sidebar tab tree (and this list,
+    /// which mirrors it). Labels the tab menu's hide/show-in-sidebar item.
+    func isTabHiddenFromSidebar(tabId: String) -> Bool {
+        latestConfig?.tabs.first { $0.id == tabId }?.isHiddenFromSidebar ?? false
+    }
+
+    /// Hide or reveal a tab in the tab strip ("unlist"/"list" it). A hidden
+    /// tab stays reachable through the overview strip's `⋮` unlisted-tabs menu.
+    func setTabHidden(tabId: String, hidden: Bool) {
+        guard let socket = ConnectionHolder.shared.windowSocket else { return }
+        Task {
+            try? await Client.PaneActionsKt.setTabHidden(
+                socket: socket, tabId: tabId, hidden: hidden
+            )
+        }
+    }
+
+    /// Hide or reveal a tab in the sidebar tab tree — and therefore this
+    /// session list, where hidden tabs move under the "Hidden" reveal
+    /// (issue #52). Orthogonal to the tab-strip flag.
+    func setTabHiddenFromSidebar(tabId: String, hidden: Bool) {
+        guard let socket = ConnectionHolder.shared.windowSocket else { return }
+        Task {
+            try? await Client.PaneActionsKt.setTabHiddenFromSidebar(
+                socket: socket, tabId: tabId, hidden: hidden
+            )
+        }
+    }
+
     func disconnect() {
         flowObserver.clear()
         Task { @MainActor in

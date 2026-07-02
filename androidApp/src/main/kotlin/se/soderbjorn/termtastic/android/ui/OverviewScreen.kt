@@ -60,6 +60,8 @@ import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -191,6 +193,14 @@ fun OverviewContent(
                     closeEnabled = tabs.size > 1,
                     onSelect = { id -> scope.launch { vm.setActiveTab(id) } },
                     onRename = { tab -> renameTabTarget = tab },
+                    onToggleHidden = { tab ->
+                        scope.launch { vm.setTabHidden(tab.id, !tab.isHidden) }
+                    },
+                    onToggleSidebarHidden = { tab ->
+                        scope.launch {
+                            vm.setTabHiddenFromSidebar(tab.id, !tab.isHiddenFromSidebar)
+                        }
+                    },
                     onClose = { tab -> closeTabTarget = tab },
                 )
             } else {
@@ -771,6 +781,10 @@ private fun MiniPane(
  * @param closeEnabled whether "Close tab" is offered (false for the last tab).
  * @param onSelect     invoked with a tab id when a chip is tapped.
  * @param onRename     open the rename dialog for the long-pressed tab.
+ * @param onToggleHidden flip the long-pressed tab's hidden-from-tab-strip
+ *   ("unlisted") flag.
+ * @param onToggleSidebarHidden flip the long-pressed tab's hidden-from-sidebar
+ *   flag (also hides it from the sessions list, which mirrors the sidebar).
  * @param onClose      confirm + close the long-pressed tab.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -782,6 +796,8 @@ private fun OverviewTabStrip(
     closeEnabled: Boolean,
     onSelect: (String) -> Unit,
     onRename: (OverviewTab) -> Unit,
+    onToggleHidden: (OverviewTab) -> Unit,
+    onToggleSidebarHidden: (OverviewTab) -> Unit,
     onClose: (OverviewTab) -> Unit,
 ) {
     if (tabs.isEmpty()) return
@@ -845,9 +861,13 @@ private fun OverviewTabStrip(
                 )
                 TabContextMenu(
                     expanded = menuTabId == tab.id,
+                    isHidden = tab.isHidden,
+                    isHiddenFromSidebar = tab.isHiddenFromSidebar,
                     closeEnabled = closeEnabled,
                     onDismiss = { menuTabId = null },
                     onRename = { menuTabId = null; onRename(tab) },
+                    onToggleHidden = { menuTabId = null; onToggleHidden(tab) },
+                    onToggleSidebarHidden = { menuTabId = null; onToggleSidebarHidden(tab) },
                     onClose = { menuTabId = null; onClose(tab) },
                 )
             }
@@ -913,24 +933,47 @@ private fun UnlistedTabsMenu(
 
 /**
  * The per-tab context menu (anchored to a tab chip). Mirrors [PaneContextMenu]
- * but with the tab-level actions: rename, and close (the whole tab).
+ * but with the tab-level actions: rename, the two listing toggles (tab strip /
+ * sidebar — orthogonal flags, each labelled by its current state), and close
+ * (the whole tab).
  *
  * @param expanded     whether this tab's menu is open.
+ * @param isHidden     whether the tab is currently hidden ("unlisted") from
+ *   the tab strip; labels the strip toggle item.
+ * @param isHiddenFromSidebar whether the tab is currently hidden from the
+ *   sidebar tab tree; labels the sidebar toggle item.
  * @param closeEnabled whether "Close tab" is offered (false for the last tab).
  * @param onDismiss    dismiss without acting.
  * @param onRename     open the rename dialog.
+ * @param onToggleHidden flip the hidden-from-tab-strip flag.
+ * @param onToggleSidebarHidden flip the hidden-from-sidebar flag.
  * @param onClose      confirm + close the tab.
  */
 @Composable
 private fun TabContextMenu(
     expanded: Boolean,
+    isHidden: Boolean,
+    isHiddenFromSidebar: Boolean,
     closeEnabled: Boolean,
     onDismiss: () -> Unit,
     onRename: () -> Unit,
+    onToggleHidden: () -> Unit,
+    onToggleSidebarHidden: () -> Unit,
     onClose: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         MenuItem(Icons.Filled.Edit, "Rename…", onRename)
+        // Wording mirrors the web/Electron overflow menu.
+        MenuItem(
+            if (isHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+            if (isHidden) "Show in tab bar" else "Hide in tab bar",
+            onToggleHidden,
+        )
+        MenuItem(
+            if (isHiddenFromSidebar) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+            if (isHiddenFromSidebar) "Show in side bar" else "Hide in side bar",
+            onToggleSidebarHidden,
+        )
         if (closeEnabled) {
             HorizontalDivider()
             MenuItem(Icons.Filled.Close, "Close tab", onClose, destructive = true)

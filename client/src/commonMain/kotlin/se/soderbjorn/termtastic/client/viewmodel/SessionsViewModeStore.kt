@@ -12,7 +12,7 @@
  * whole process so the choice survives navigation away from and back to the
  * Sessions screen. It is **deliberately memory-only**: it is not persisted to
  * disk (no [se.soderbjorn.termtastic.client.LocalStore] round-trip), so it
- * resets to the default (list mode) on the next app launch, exactly as
+ * resets to the default (overview mode) on the next app launch, exactly as
  * requested in issue #54.
  *
  * Both the Compose and SwiftUI front-ends read [overviewMode] when their
@@ -40,12 +40,12 @@ object SessionsViewModeStore {
      * Whether the Sessions screen should currently render the miniaturised
      * overview (`true`) instead of the flat session list (`false`).
      *
-     * Defaults to `false` (list mode) on a fresh process. Set by the platform
-     * UI when the user flips the toolbar toggle and read back when the Sessions
-     * screen re-appears, so the mode persists across navigation but not across
-     * app restarts.
+     * Defaults to `true` (overview mode) on a fresh process. Set by the
+     * platform UI when the user flips the toolbar toggle and read back when the
+     * Sessions screen re-appears, so the mode persists across navigation but
+     * not across app restarts.
      */
-    var overviewMode: Boolean = false
+    var overviewMode: Boolean = true
 
     /**
      * Whether the Sessions screen should currently reveal the tabs the user

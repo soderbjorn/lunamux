@@ -23,6 +23,7 @@ package se.soderbjorn.termtastic.android.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -88,6 +89,18 @@ fun AppearanceSheet(
     val darkThemes = all.filter { it.group == ThemeGroup.Dark }
     val lightThemes = all.filter { it.group == ThemeGroup.Light }
 
+    // Which slot a tap fills — whichever is *currently painted* (the appearance
+    // preference, or the OS dark flag when Auto), exactly like clicking a card
+    // in the Mac/Electron theme manager (issue #97). Only that slot's assigned
+    // theme is highlighted.
+    val systemIsDark = isSystemInDarkTheme()
+    val activeIsDark = when (snapshot.appearance) {
+        Appearance.Dark -> true
+        Appearance.Light -> false
+        Appearance.Auto -> systemIsDark
+    }
+    val activeThemeName = if (activeIsDark) snapshot.darkThemeName else snapshot.lightThemeName
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -130,14 +143,14 @@ fun AppearanceSheet(
                     }
                 }
             }
-            // Each section fills its own slot (dark / light), independent of the
-            // current appearance — so a pick lands deterministically and shows on
-            // every client displaying that brightness.
-            themeSection("Dark themes", darkThemes, snapshot.darkThemeName) { name ->
-                scope.launch { vm.setSlotTheme(name, darkSlot = true) }
+            // The dark/light sections are just a catalog grouping — tapping any
+            // card assigns that theme to the currently-active slot, so the pick
+            // always takes visible effect (issue #97).
+            themeSection("Dark themes", darkThemes, activeThemeName) { name ->
+                scope.launch { vm.setActiveTheme(name, systemIsDark) }
             }
-            themeSection("Light themes", lightThemes, snapshot.lightThemeName) { name ->
-                scope.launch { vm.setSlotTheme(name, darkSlot = false) }
+            themeSection("Light themes", lightThemes, activeThemeName) { name ->
+                scope.launch { vm.setActiveTheme(name, systemIsDark) }
             }
         }
     }
@@ -150,7 +163,8 @@ fun AppearanceSheet(
  * @receiver the grid scope to populate.
  * @param label        the section heading ("Dark themes" / "Light themes").
  * @param themes       the themes in this section.
- * @param selectedName this slot's currently-bound theme name (highlighted here).
+ * @param selectedName the *active* slot's currently-bound theme name; only its
+ *   card is highlighted, in whichever section it sits (issue #97).
  * @param onPick       invoked with a theme name when its card is tapped.
  */
 private fun androidx.compose.foundation.lazy.grid.LazyGridScope.themeSection(

@@ -50,6 +50,24 @@ enum Palette {
             : resolved(isDark: UITraitCollection.current.userInterfaceStyle == .dark)
     }
 
+    /// Whether the active slot's `surface` token — the colour behind the
+    /// navigation bars (``background``) — is visually dark.
+    ///
+    /// Used by `TreeView` and `AppearanceSheet` to pick the navigation bar's
+    /// `toolbarColorScheme` from the *theme* instead of hard-coding `.dark`,
+    /// so default bar content (title text, button chrome) contrasts with the
+    /// themed bar background on light themes too (issue #95).
+    ///
+    /// - Parameter systemIsDark: the current system "prefers dark" flag.
+    /// - Returns: `true` when the surface's luminance reads as dark.
+    static func backgroundIsDark(systemIsDark: Bool) -> Bool {
+        let argb = resolved(isDark: systemIsDark).surface
+        let r = Double((argb >> 16) & 0xFF) / 255.0
+        let g = Double((argb >> 8) & 0xFF) / 255.0
+        let b = Double(argb & 0xFF) / 255.0
+        return (0.299 * r + 0.587 * g + 0.114 * b) < 0.5
+    }
+
     /// Theme accent colour derived from the terminal foreground.
     ///
     /// Like the other accessors below, this is a *dynamic* `UIColor` that

@@ -119,16 +119,33 @@ final class AppearanceViewModel {
         Task { try? await backing.setAppearance(appearance: appearance) }
     }
 
-    /// Assign `name` to a specific slot, chosen by the section tapped (dark /
-    /// light) rather than the current appearance — so the pick is deterministic
-    /// and shows on every client displaying that brightness. Applies + persists.
+    /// Whether the dark slot is the one currently painted, given the system
+    /// dark-mode flag — the appearance preference, or `systemIsDark` when Auto.
+    /// The sheet uses this to decide which assigned theme card to highlight,
+    /// mirroring the Mac/Electron theme manager.
+    ///
+    /// - Parameter systemIsDark: the current system "prefers dark" flag.
+    /// - Returns: `true` when the dark slot is active, `false` for the light slot.
+    func activeSlotIsDark(systemIsDark: Bool) -> Bool {
+        switch appearance {
+        case .dark: return true
+        case .light: return false
+        default: return systemIsDark
+        }
+    }
+
+    /// Assign `name` to whichever slot is currently active (the appearance
+    /// preference, or the OS when Auto) — exactly like clicking a card in the
+    /// Mac/Electron theme manager, so every pick takes visible effect
+    /// immediately (issue #97). Applies + persists.
     ///
     /// - Parameters:
-    ///   - name:     the theme to assign.
-    ///   - darkSlot: `true` to fill the dark slot, `false` for the light slot.
-    func setSlotTheme(name: String, darkSlot: Bool) {
+    ///   - name:         the theme to assign to the active slot.
+    ///   - systemIsDark: the current system "prefers dark" flag (only consulted
+    ///     when the appearance is Auto).
+    func setActiveTheme(name: String, systemIsDark: Bool) {
         guard let backing else { return }
-        Task { try? await backing.setSlotTheme(name: name, darkSlot: darkSlot) }
+        Task { try? await backing.setActiveTheme(name: name, systemIsDark: systemIsDark) }
     }
 
     deinit {

@@ -46,6 +46,10 @@ struct TreeView: View {
     /// Roomier (iPad) vs compact (iPhone) sizing for the list rows.
     @Environment(\.horizontalSizeClass) private var hSize
 
+    /// The system dark-mode flag; picks the navigation bar's colour scheme from
+    /// the active theme's surface luminance (issue #95).
+    @Environment(\.colorScheme) private var colorScheme
+
     // Creation flow state
     @State private var showTabNameAlert = false
     @State private var tabName = ""
@@ -92,16 +96,19 @@ struct TreeView: View {
             // session list reads as a peer landing screen. It collapses to an
             // inline title as the pane list scrolls under the bar.
             .navigationBarTitleDisplayMode(.large)
-            // Theme the bar dark (its content always sits on the dark sidebar
-            // palette regardless of system appearance) and force light bar
-            // content so the title/buttons stay legible. NOTE: do *not* add
+            // The bar's content scheme must follow the *theme's* surface, not a
+            // hard-coded `.dark` — on light themes a forced-dark bar renders its
+            // title white-on-light (issue #95). NOTE: do *not* add
             // `.toolbarBackground(.visible, …)` here — forcing the bar
             // background visible suppresses the large title entirely (it
             // reserves the title's space but never draws the text). Verified on
             // the simulator: with `.visible` the "Sessions" headline is blank;
             // without it the large title renders and still collapses on scroll.
             .toolbarBackground(Palette.background, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarColorScheme(
+                Palette.backgroundIsDark(systemIsDark: colorScheme == .dark) ? .dark : .light,
+                for: .navigationBar
+            )
             .toolbar { toolbarItems }
             .navigationBarBackButtonHidden(true)
             .onAppear { viewModel.subscribe() }
@@ -150,7 +157,9 @@ struct TreeView: View {
                     Image(systemName: "chevron.backward")
                     Text("Hosts")
                 }
-                .foregroundStyle(Palette.headerAccent)
+                // Same tint as every other bar action — mixed per-icon tints
+                // read as a bug on light themes (issue #96).
+                .foregroundStyle(Palette.textPrimary)
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -206,9 +215,10 @@ struct TreeView: View {
         ToolbarItem(placement: .topBarTrailing) {
             // List ⇄ overview toggle (issue #44). The icon shows the layout the
             // tap switches *to* — a grid while listing, a list while in the
-            // overview — and tints with the accent while the overview is active
-            // so the alternate mode reads as "on". Mirrors the Android
-            // `TreeScreen` view-mode IconButton.
+            // overview. The glyph swap alone signals the mode; no accent tint
+            // on the active state, so the bar keeps a single icon colour
+            // (issue #96). Mirrors the Android `TreeScreen` view-mode
+            // IconButton.
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     viewMode = (viewMode == .list) ? .overview : .list
@@ -218,7 +228,7 @@ struct TreeView: View {
                 Client.SessionsViewModeStore.shared.overviewMode = (viewMode == .overview)
             } label: {
                 Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                    .foregroundStyle(viewMode == .overview ? Palette.headerAccent : Palette.textPrimary)
+                    .foregroundStyle(Palette.textPrimary)
             }
             .accessibilityLabel(viewMode == .list ? "Switch to overview" : "Switch to list")
         }
@@ -406,13 +416,40 @@ struct TreeView: View {
         }
     }
 
-    /// Context menu for a tab header: rename, add panes to this tab, close.
+    /// Context menu for a tab header: rename, listing toggles, add panes to
+    /// this tab, close.
     @ViewBuilder
     private func tabMenu(tabId: String, title: String) -> some View {
         Button {
             beginRename(RenameTarget(kind: .tab, id: tabId, currentTitle: title))
         } label: {
             Label("Rename…", systemImage: "pencil")
+        }
+        // Listing toggles: the tab-strip flag and the sidebar flag are
+        // orthogonal, so each gets its own item labelled by its current state.
+        // The wording mirrors the web/Electron overflow menu and the overview
+        // tab chip's context menu.
+        Button {
+            viewModel.setTabHidden(
+                tabId: tabId, hidden: !viewModel.isTabHidden(tabId: tabId)
+            )
+        } label: {
+            Label(
+                viewModel.isTabHidden(tabId: tabId)
+                    ? "Show in tab bar" : "Hide in tab bar",
+                systemImage: viewModel.isTabHidden(tabId: tabId) ? "eye" : "eye.slash"
+            )
+        }
+        Button {
+            viewModel.setTabHiddenFromSidebar(
+                tabId: tabId, hidden: !viewModel.isTabHiddenFromSidebar(tabId: tabId)
+            )
+        } label: {
+            Label(
+                viewModel.isTabHiddenFromSidebar(tabId: tabId)
+                    ? "Show in side bar" : "Hide in side bar",
+                systemImage: viewModel.isTabHiddenFromSidebar(tabId: tabId) ? "eye" : "eye.slash"
+            )
         }
         Divider()
         Button {
