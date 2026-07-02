@@ -2394,12 +2394,14 @@ body.appearance-light .termtastic-hotkeys-cap {
     background: color-mix(in srgb, var(--t-text, #e6e6e6) 6%, transparent);
 }
 
-/* Amber "Mac only" tag on a custom chord the browser reserves for itself
-   (works in the bundled Electron app, not in a browser tab). */
+/* Warn-tinted "Mac only" tag on a custom chord the browser reserves for
+   itself (works in the bundled Electron app, not in a browser tab).
+   Uses the theme's --t-warn token — same convention as the shell-death
+   warning and usage bars — so it follows light/dark/custom themes. */
 .termtastic-hotkeys-badge--maconly {
-    color: rgb(230, 170, 60);
+    color: var(--t-warn, #FFD60A);
     background: transparent;
-    border-color: color-mix(in srgb, rgb(230, 170, 60) 65%, transparent);
+    border-color: color-mix(in srgb, var(--t-warn, #FFD60A) 65%, transparent);
 }
 
 /* Small italic tag on rows whose bindings the user has customized. */
