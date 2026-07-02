@@ -94,7 +94,7 @@ internal object PaneManager {
         var changed = false
         fun renameLeaf(leaf: LeafNode): LeafNode {
             if (leaf.id != paneId) return leaf
-            val newTitle = computeLeafTitle(newCustomName, leaf.cwd, leaf.title)
+            val newTitle = computeLeafTitle(newCustomName, leaf.programTitle, leaf.cwd, leaf.title)
             if (leaf.customName == newCustomName && leaf.title == newTitle) return leaf
             changed = true
             return leaf.copy(customName = newCustomName, title = newTitle)
@@ -120,13 +120,85 @@ internal object PaneManager {
         fun maybeUpdate(leaf: LeafNode): LeafNode {
             if (leaf.sessionId != sessionId || leaf.cwd == cwd) return leaf
             changed = true
-            val newTitle = computeLeafTitle(leaf.customName, cwd, leaf.title)
-            return leaf.copy(cwd = cwd, title = newTitle)
+            val updated = leaf.copy(cwd = cwd)
+            return updated.copy(title = computeLeafTitle(updated))
         }
         val newCfg = cfg.copy(
             tabs = cfg.tabs.map { tab ->
                 tab.copy(
                     panes = tab.panes.map { p -> p.copy(leaf = maybeUpdate(p.leaf)) },
+                )
+            }
+        )
+        return if (changed) newCfg else null
+    }
+
+    /**
+     * Apply a program-set terminal title (OSC 0/2) to the pane(s) backed by
+     * [sessionId].
+     *
+     * A sibling of [updatePaneCwd]: called by [WindowState.applyProgramTitle]
+     * when the program running in a terminal sets its title (e.g. Claude
+     * Code's task summary, or ssh/vim). The sanitized title is stored on
+     * [LeafNode.programTitle] and the denormalized [LeafNode.title] is
+     * recomputed via [computeLeafTitle], which keeps a user's
+     * [LeafNode.customName] winning — the pane's visible title never changes
+     * when it was manually renamed, though the program title is still recorded
+     * in case the manual name is later cleared.
+     *
+     * An empty/unusable [rawTitle] clears [LeafNode.programTitle] (the
+     * standard way for a program to reset the title), falling back to the
+     * cwd-based title.
+     *
+     * @param cfg the current window config snapshot.
+     * @param sessionId the PTY session id whose pane should be titled.
+     * @param rawTitle the raw OSC payload; sanitized via [sanitizeProgramTitle].
+     * @return the new config, or `null` when no leaf matched or nothing changed.
+     * @see computeLeafTitle
+     * @see updatePaneCwd
+     */
+    fun applyProgramTitle(cfg: WindowConfig, sessionId: String, rawTitle: String): WindowConfig? {
+        if (sessionId.isEmpty()) return null
+        val sanitized = sanitizeProgramTitle(rawTitle)
+        var changed = false
+        fun maybeTitle(leaf: LeafNode): LeafNode {
+            if (leaf.sessionId != sessionId || leaf.programTitle == sanitized) return leaf
+            changed = true
+            val updated = leaf.copy(programTitle = sanitized)
+            return updated.copy(title = computeLeafTitle(updated))
+        }
+        val newCfg = cfg.copy(
+            tabs = cfg.tabs.map { tab ->
+                tab.copy(
+                    panes = tab.panes.map { p -> p.copy(leaf = maybeTitle(p.leaf)) },
+                )
+            }
+        )
+        return if (changed) newCfg else null
+    }
+
+    /**
+     * Drop every stored [LeafNode.programTitle] and recompute the affected
+     * titles. Called by [WindowState.clearProgramTitles] when the user turns
+     * the "use program-set terminal titles" setting off, so panes revert to
+     * their cwd-based names instead of keeping stale program titles around
+     * (they are persisted, so they would otherwise survive restarts too).
+     *
+     * @param cfg the current window config snapshot.
+     * @return the new config, or `null` when no leaf had a program title.
+     */
+    fun clearProgramTitles(cfg: WindowConfig): WindowConfig? {
+        var changed = false
+        fun maybeClear(leaf: LeafNode): LeafNode {
+            if (leaf.programTitle == null) return leaf
+            changed = true
+            val updated = leaf.copy(programTitle = null)
+            return updated.copy(title = computeLeafTitle(updated))
+        }
+        val newCfg = cfg.copy(
+            tabs = cfg.tabs.map { tab ->
+                tab.copy(
+                    panes = tab.panes.map { p -> p.copy(leaf = maybeClear(p.leaf)) },
                 )
             }
         )

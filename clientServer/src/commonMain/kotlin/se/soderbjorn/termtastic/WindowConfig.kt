@@ -156,13 +156,21 @@ data class LeafNode(
     val sessionId: String,
     /**
      * Display title shown in the pane header. Always equals
-     * `customName ?: prettifyPath(cwd) ?: defaultLabel` — kept denormalized so
-     * the websocket payload doesn't have to compute it client-side and so
-     * persisted blobs round-trip without recomputation.
+     * `customName ?: programTitle ?: prettifyPath(cwd) ?: defaultLabel` — kept
+     * denormalized so the websocket payload doesn't have to compute it
+     * client-side and so persisted blobs round-trip without recomputation.
      */
     val title: String,
     /** User-set name. `null` means "fall back to the cwd-based title". */
     val customName: String? = null,
+    /**
+     * Title set by the program running in the terminal via the standard OSC 0/2
+     * escape sequence (e.g. Claude Code's live task summary), sanitized
+     * server-side. Ranks below [customName] and above the cwd-based title —
+     * see `computeLeafTitle`. `null` when no program has set one (or the
+     * feature is off); persisted like [cwd] so restored layouts keep it.
+     */
+    val programTitle: String? = null,
     /** Last known shell working directory, learned from OSC 7 / proc polling. */
     val cwd: String? = null,
     /**

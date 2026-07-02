@@ -37,7 +37,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import org.slf4j.LoggerFactory
 import se.soderbjorn.termtastic.persistence.AppPaths
 import se.soderbjorn.termtastic.persistence.SettingsRepository
@@ -55,6 +61,23 @@ private const val PING_PERIOD_MS = 20_000L
 private const val PING_TIMEOUT_MS = 40_000L
 
 /**
+ * Read the "use program-set terminal titles" opt-in flag
+ * ([TERMINAL_PROGRAM_TITLE_KEY]) out of a UI-settings snapshot, tolerating
+ * both JSON-boolean and stringified-"true" shapes (writes can land either
+ * way — see `snapshotBoolean` in the web client). Called by [main] when
+ * mapping [SettingsRepository.uiSettings] into the live
+ * [TerminalSessions.programTitlesEnabled] flag flow.
+ *
+ * @receiver a UI-settings snapshot from [SettingsRepository.uiSettings].
+ * @return `true` when the user has enabled program-set titles.
+ */
+internal fun JsonObject.terminalProgramTitleEnabled(): Boolean {
+    val el = this[TERMINAL_PROGRAM_TITLE_KEY] as? JsonPrimitive ?: return false
+    el.booleanOrNull?.let { return it }
+    return el.isString && el.content == "true"
+}
+
+/**
  * Application entry point. Initialises the persistence layer, restores the
  * window layout, starts background coroutines, launches the Claude usage
  * monitor, and starts the Netty HTTP/WebSocket server.
@@ -67,6 +90,23 @@ fun main() {
     WindowState.initialize(repo)
 
     val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Opt-in program-set terminal titles (OSC 0/2). Mirror the toggle into
+    // TerminalSessions' stable flag flow: per-session watchers re-collect on
+    // enable (so the current title applies immediately, no restart), and an
+    // off value sweeps every stored program title so panes revert to
+    // cwd-based names (including scrubbing titles persisted from an earlier
+    // enabled run when the app starts disabled).
+    persistenceScope.launch {
+        repo.uiSettings
+            .map { it.terminalProgramTitleEnabled() }
+            .distinctUntilChanged()
+            .collect { enabled ->
+                TerminalSessions.programTitlesEnabled.value = enabled
+                if (!enabled) WindowState.clearProgramTitles()
+            }
+    }
+
     installWindowConfigPersister(persistenceScope, repo)
     val scrollbackSaver = installScrollbackSaver(persistenceScope, repo)
     val sessionStates = installSessionStatePoller(persistenceScope)

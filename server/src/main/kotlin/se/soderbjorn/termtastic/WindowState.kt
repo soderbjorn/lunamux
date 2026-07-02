@@ -590,6 +590,38 @@ object WindowState {
     }
 
     /**
+     * Apply a program-set terminal title (OSC 0/2) to the pane backed by
+     * [sessionId]. Called by the title watcher in `TerminalSessions.create`
+     * when the program running in a terminal sets (or clears) its title.
+     * Mutating `_config` re-broadcasts the layout to every client and triggers
+     * the debounced SQLite persist, exactly like [updatePaneCwd]. A user's
+     * manual name always wins (see [computeLeafTitle]).
+     *
+     * @param sessionId the PTY session id whose pane should be titled.
+     * @param rawTitle the raw OSC title payload (sanitized downstream).
+     * @see PaneManager.applyProgramTitle
+     */
+    fun applyProgramTitle(sessionId: String, rawTitle: String) = synchronized(this) {
+        val cfg = _config.value
+        val newCfg = PaneManager.applyProgramTitle(cfg, sessionId, rawTitle) ?: return@synchronized
+        _config.value = newCfg
+    }
+
+    /**
+     * Drop every stored program title and revert the affected panes to their
+     * cwd-based names. Called from `main()` when the "use program-set terminal
+     * titles" setting turns off (including at startup while the feature is
+     * disabled, which scrubs any titles persisted from an earlier enabled run).
+     *
+     * @see PaneManager.clearProgramTitles
+     */
+    fun clearProgramTitles() = synchronized(this) {
+        val cfg = _config.value
+        val newCfg = PaneManager.clearProgramTitles(cfg) ?: return@synchronized
+        _config.value = newCfg
+    }
+
+    /**
      * Update the position and size of [paneId]. The user has overridden
      * preset-driven geometry, so the affected tab's `layoutPreset` is
      * cleared (transitions to Custom mode) — subsequent pane add/remove
@@ -714,7 +746,7 @@ object WindowState {
             id = newNodeId(),
             sessionId = sessionId,
             cwd = effectiveCwd,
-            title = computeLeafTitle(null, effectiveCwd, fallbackTitle),
+            title = computeLeafTitle(null, null, effectiveCwd, fallbackTitle),
             content = TerminalContent(sessionId),
         )
         val (ox, oy) = PaneManager.randomSnappedOrigin()
@@ -747,7 +779,7 @@ object WindowState {
             id = newNodeId(),
             sessionId = "",
             cwd = effectiveCwd,
-            title = computeLeafTitle(null, effectiveCwd, "Files"),
+            title = computeLeafTitle(null, null, effectiveCwd, "Files"),
             content = FileBrowserContent(),
         )
         val (ox, oy) = PaneManager.randomSnappedOrigin()
@@ -777,7 +809,7 @@ object WindowState {
             id = newNodeId(),
             sessionId = "",
             cwd = effectiveCwd,
-            title = computeLeafTitle(null, effectiveCwd, "Git"),
+            title = computeLeafTitle(null, null, effectiveCwd, "Git"),
             content = GitContent(),
         )
         val (ox, oy) = PaneManager.randomSnappedOrigin()

@@ -15,7 +15,7 @@
  *  - macOS: runs `lsof -a -p <pid> -d cwd -Fn`.
  *  - Windows: not supported (returns null); ConPTY shells typically handle OSC 7.
  *
- * @see Osc7Scanner
+ * @see OscScanner
  * @see ShellInitFiles
  * @see TerminalSession
  */
