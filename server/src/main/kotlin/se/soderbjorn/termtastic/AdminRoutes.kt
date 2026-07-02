@@ -30,7 +30,7 @@ private val LOG = LoggerFactory.getLogger("AdminRoutes")
  * accept the IPv4 and IPv6 short and long forms so a request that
  * arrives on the IPv6 loopback isn't rejected.
  *
- * @param host the resolved remote host string from the request origin
+ * @param host the raw remote address string from the request origin
  * @return whether [host] is a localhost address
  */
 private fun isLocalhost(host: String?): Boolean =
@@ -69,8 +69,11 @@ internal fun Route.adminRoutes(
 ) {
     post("/admin/shutdown") {
         val origin = call.request.origin
-        if (!isLocalhost(origin.remoteHost)) {
-            LOG.warn("Refusing /admin/shutdown from non-loopback origin: ${origin.remoteHost}")
+        // remoteAddress, not remoteHost: remoteHost reverse-DNS-resolves the
+        // peer, which blocks ~5 s for LAN addresses without PTR records. The
+        // raw IP is also the safer input for a loopback policy check.
+        if (!isLocalhost(origin.remoteAddress)) {
+            LOG.warn("Refusing /admin/shutdown from non-loopback origin: ${origin.remoteAddress}")
             call.respond(HttpStatusCode.Forbidden)
             return@post
         }

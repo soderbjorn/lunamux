@@ -571,6 +571,14 @@ class SettingsRepository(dbFile: File) {
      * from another Darkness app and termtastic only race within their
      * respective scopes.
      *
+     * No-op guard: when the merge produces a value identical to the current
+     * in-memory snapshot (every incoming key already stored with the same
+     * value), the call returns immediately — no disk writes, no file-watcher
+     * churn, no `uiSettings` flow update. Misbehaving or merely chatty
+     * clients re-POSTing unchanged blobs (the `LAYOUT_STATE` write storm
+     * behind issue #93) then cost one JSON merge instead of two file
+     * rewrites plus a broadcast to every connected client.
+     *
      * @param incoming JSON object with the keys to merge (new keys are added,
      *                 existing keys are overwritten)
      * @return the merged [JsonObject] after persistence
@@ -578,6 +586,8 @@ class SettingsRepository(dbFile: File) {
     fun mergeUiSettings(incoming: JsonObject): JsonObject {
         val existing = _uiSettings.value
         val merged = JsonObject(existing + incoming)
+        // Identical merge — nothing to persist or publish (issue #93).
+        if (merged == existing) return existing
         val sharedKeys = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
         val perAppKeys = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
         for ((k, v) in merged) {

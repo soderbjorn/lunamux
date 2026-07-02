@@ -314,7 +314,7 @@ object DeviceAuth {
 
     /**
      * Heuristic: is [remoteAddress] one of the usual loopback forms Ktor's
-     * `origin.remoteHost` hands us? We can't fully trust this for policy in
+     * `origin.remoteAddress` hands us? We can't fully trust this for policy in
      * general, but we bind to `0.0.0.0` only so the network-setting gate
      * works, and the filter below is an additional defence layered on top of
      * the per-device token check.

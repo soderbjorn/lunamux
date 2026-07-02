@@ -55,7 +55,16 @@ internal fun ApplicationCall.readAuthToken(): String? {
     return null
 }
 
-/** Build a [DeviceAuth.ClientInfo] from the incoming request. */
+/**
+ * Build a [DeviceAuth.ClientInfo] from the incoming request.
+ *
+ * Uses `origin.remoteAddress` (the raw socket IP), NOT `origin.remoteHost`:
+ * on the Netty engine `remoteHost` reverse-DNS-resolves the client address,
+ * and for LAN peers without a PTR record (e.g. a phone connecting via a
+ * link-local IPv6 address) that lookup blocks ~5 s on every new connection —
+ * window socket, each pty socket, each API call — which made mobile connects
+ * and pane opens crawl while localhost clients stayed fast (issue #93).
+ */
 internal fun ApplicationCall.readClientInfo(): DeviceAuth.ClientInfo {
     fun first(headerName: String, queryName: String): String? {
         val q = request.queryParameters[queryName]
@@ -71,7 +80,7 @@ internal fun ApplicationCall.readClientInfo(): DeviceAuth.ClientInfo {
         type = type,
         hostname = hostname,
         selfReportedIp = selfIp,
-        remoteAddress = request.origin.remoteHost,
+        remoteAddress = request.origin.remoteAddress,
     )
 }
 

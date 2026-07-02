@@ -174,7 +174,30 @@ private fun start() {
         override fun fireAndForgetPutSettings(settings: Map<String, String>) = Unit
         override suspend fun putJsonSettings(settings: kotlinx.serialization.json.JsonObject) = Unit
     } else object : SettingsPersister {
-        private fun postSettings(body: dynamic) {
+        /**
+         * Tail of the in-flight LAYOUT_STATE POST chain, or `null` when no
+         * layout write is pending. Each toolkit layout persist replaces
+         * the whole `darkness.layoutState` blob on the server, and a
+         * single gesture (Auto re-tile of an n-pane tab) fans out into a
+         * burst of writes. Fired as independent `fetch`es they can arrive
+         * at the server out of order — an older blob (e.g. the cascade
+         * seed geometry written just before the re-tile) then lands last
+         * and becomes what the next page load / other clients hydrate,
+         * reverting a freshly tiled pane to a random floating rectangle
+         * (observed while debugging issue #86). Chaining each layout POST
+         * behind the previous one guarantees last-write-wins matches the
+         * client's in-memory state. Only the layout key is chained: other
+         * settings keep the fire-immediately behaviour that the
+         * `electronCustomTitleBar` teardown path relies on.
+         */
+        private var layoutStatePostChain: dynamic = null
+
+        /**
+         * POSTs [body] to `/api/ui-settings` and returns the in-flight
+         * fetch promise (already `.catch`-ed, so it always settles) so
+         * callers can chain ordered writes off it.
+         */
+        private fun postSettings(body: dynamic): dynamic {
             val init: dynamic = js("({})")
             init.method = "POST"
             init.headers = json(
@@ -196,13 +219,23 @@ private fun start() {
             // when keepalive carries the request through. We don't want
             // those expected rejections to surface as uncaught promise
             // errors in the console.
-            window.fetch("/api/ui-settings", init)
+            return window.fetch("/api/ui-settings", init)
                 .asDynamic()
                 .catch { _: dynamic -> }
         }
 
         override suspend fun putSetting(key: String, value: String) {
-            postSettings(json(key to value))
+            if (key == se.soderbjorn.darkness.core.PersistKeys.LAYOUT_STATE) {
+                // Serialize layout-state posts — see [layoutStatePostChain].
+                val chain = layoutStatePostChain
+                layoutStatePostChain = if (chain == null) {
+                    postSettings(json(key to value))
+                } else {
+                    chain.then { postSettings(json(key to value)) }
+                }
+            } else {
+                postSettings(json(key to value))
+            }
         }
 
         override suspend fun putSettings(settings: Map<String, String>) {

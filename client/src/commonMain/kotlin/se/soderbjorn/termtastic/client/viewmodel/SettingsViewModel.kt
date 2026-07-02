@@ -36,12 +36,20 @@ internal class SettingsViewModel(
     private val settingsPersister: SettingsPersister?,
 ) {
     /**
-     * Monotonic timestamp of the most recent local settings mutation. Used to
+     * Monotonic timestamp of the most recent local settings mutation, or
+     * `null` when this client has not mutated any setting yet. Used to
      * suppress server-pushed UiSettings echoes that arrive shortly after the
      * client itself POSTed.
+     *
+     * Starts as `null` (not "now"): the guard exists to swallow echoes of
+     * *our own writes*, and before the first local write there is nothing to
+     * echo. Initialising it to construction time made the guard drop every
+     * UiSettings envelope for the first two seconds of a connection —
+     * including the server's initial replay that carries the theme — so a
+     * freshly connected mobile client rendered with default colors until a
+     * later, unrelated settings push happened to arrive (issue #93).
      */
-    var lastLocalSettingsChange: TimeSource.Monotonic.ValueTimeMark =
-        TimeSource.Monotonic.markNow()
+    var lastLocalSettingsChange: TimeSource.Monotonic.ValueTimeMark? = null
         private set
 
     /** Stamp [lastLocalSettingsChange] without persisting. */

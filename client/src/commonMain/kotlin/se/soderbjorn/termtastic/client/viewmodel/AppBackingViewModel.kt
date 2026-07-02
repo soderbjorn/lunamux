@@ -135,8 +135,14 @@ class AppBackingViewModel(
                 emit(_stateFlow.value.copy(claudeUsage = usage))
             },
             onUiSettings = { uiSettings ->
-                val elapsed = settings.lastLocalSettingsChange.elapsedNow()
-                if (elapsed > 2.seconds) {
+                // Echo guard: suppress pushes only within 2 s of a *local*
+                // settings write (the server's broadcast of our own POST).
+                // Before any local write there is nothing to echo, so the
+                // very first push — the connection's initial replay that
+                // carries the theme — must always apply (issue #93: mobile
+                // showed default colors until a later unrelated push).
+                val lastLocal = settings.lastLocalSettingsChange
+                if (lastLocal == null || lastLocal.elapsedNow() > 2.seconds) {
                     applyServerUiSettings(uiSettings)
                 }
             },
