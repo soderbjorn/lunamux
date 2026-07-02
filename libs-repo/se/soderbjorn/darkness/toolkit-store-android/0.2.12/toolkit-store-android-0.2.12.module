@@ -1,0 +1,142 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-store/0.2.12/toolkit-store-0.2.12.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-store",
+    "version": "0.2.12",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.12"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-release.aar",
+          "url": "toolkit-store-android-0.2.12.aar",
+          "size": 43214,
+          "sha512": "992dbb37194fca1f786b6e62dbad5e0de899092feae160e320d0c680773f5718326017f54395ffe52be9c7618f7f6ac5ab8906eba7c5d5e8023e04e094ee01c0",
+          "sha256": "d1e8857d1953e730df31ca387f27432b922e754dac3ff63981c2b0467093618c",
+          "sha1": "d13f04fb41ad17fb804910da9bf771cdc747f15d",
+          "md5": "1ee09133dc0a6a1ec393263d253270f3"
+        }
+      ]
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.12"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-release.aar",
+          "url": "toolkit-store-android-0.2.12.aar",
+          "size": 43214,
+          "sha512": "992dbb37194fca1f786b6e62dbad5e0de899092feae160e320d0c680773f5718326017f54395ffe52be9c7618f7f6ac5ab8906eba7c5d5e8023e04e094ee01c0",
+          "sha256": "d1e8857d1953e730df31ca387f27432b922e754dac3ff63981c2b0467093618c",
+          "sha1": "d13f04fb41ad17fb804910da9bf771cdc747f15d",
+          "md5": "1ee09133dc0a6a1ec393263d253270f3"
+        }
+      ]
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "files": [
+        {
+          "name": "toolkit-store-android-0.2.12-sources.jar",
+          "url": "toolkit-store-android-0.2.12-sources.jar",
+          "size": 15810,
+          "sha512": "e3c8e06be4bbe9f020bb2d1b4af363d0236ee6e9027ca8eba7651471e9dff57c68275eca3430f05f403206b0eb1f1f846d3750e6a17f4b088b8584fe6656a886",
+          "sha256": "aa40cad071c19baadfb1b6f2b4359e0ef405dc60b58d07968a9e057addffb25b",
+          "sha1": "27baedbb72a1d346f756aac2457dc13d103cb7ea",
+          "md5": "2ccb32737985f085f1305d2e3b96feae"
+        }
+      ]
+    }
+  ]
+}
