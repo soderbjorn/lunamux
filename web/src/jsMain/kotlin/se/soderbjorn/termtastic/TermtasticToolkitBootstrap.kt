@@ -824,14 +824,19 @@ fun bootViaToolkitShell(root: HTMLElement) {
             },
             paneIcon = { _, paneId -> termtasticPaneIcon(findLeafDynamic(paneId)) },
             paneActions = { _, paneId -> termtasticPaneActions(paneId) },
-            // Pane rename commits via WindowCommand.Rename. Empty
-            // `newLabel` is honoured server-side (PaneManager.renamePane
-            // clears `customName` and reverts the title to the cwd-based
-            // fallback). The toolkit input swap already trims the value
-            // and skips no-op commits, so we only see meaningful changes.
+            // Pane rename commits via WindowCommand.Rename. An empty
+            // `newLabel` is meaningful here: PaneManager.renamePane clears
+            // `customName` server-side and reverts the title to the
+            // program-title / cwd fallback. `allowEmptyPaneRename = true`
+            // below tells the toolkit's inline-rename input to forward an
+            // empty commit instead of discarding it as a cancel, so users
+            // can clear a name by emptying the field. The toolkit still
+            // trims the value and skips a commit that just repeats the
+            // current title.
             paneRename = { _, paneId, newLabel ->
                 launchCmd(WindowCommand.Rename(paneId = paneId, title = newLabel))
             },
+            allowEmptyPaneRename = true,
             // Pane HEADER status indicator: a `.tt-status-dot` (header size)
             // carrying `data-session=<sid>` so `updateStateIndicators` finds it
             // via `querySelectorAll`. Non-terminal panes (file browser, git,

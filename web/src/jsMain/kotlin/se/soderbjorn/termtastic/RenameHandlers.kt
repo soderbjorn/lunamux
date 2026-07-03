@@ -159,11 +159,14 @@ internal fun installSidebarPaneDoubleClickRename() {
  * Close cousin of [startTabRename]: swaps [labelEl] for a focused,
  * pre-selected `<input>` and commits the new name to the server via
  * [WindowCommand.Rename] — the same command the pane-header rename and
- * the kebab "Rename pane" item use. Commit fires on Enter / blur (when
- * the trimmed value is non-empty and changed); Escape, an empty value,
- * or no change restores the label in place. On a real commit the input
- * is left in the DOM; the server's config push rebuilds the sidebar row
- * with the new name, discarding the transient input.
+ * the kebab "Rename pane" item use. Commit fires on Enter / blur when the
+ * trimmed value differs from the current label; an **empty** value is a
+ * valid commit that clears the pane's custom name (the title reverts to
+ * the program-title / cwd fallback), matching the pane-header rename.
+ * Escape, or a commit equal to the current label, restores it in place.
+ * On a real commit the input is left in the DOM; the server's config push
+ * rebuilds the sidebar row with the new name, discarding the transient
+ * input.
  *
  * @param labelEl the `.dt-sidebar-row-label` span showing the pane name
  * @param paneId  the pane id, read from the row's `data-pane-id`
@@ -191,7 +194,12 @@ internal fun startSidebarPaneRename(labelEl: HTMLElement, paneId: String) {
         if (settled) return
         settled = true
         val newTitle = input.value.trim()
-        if (newTitle.isEmpty() || newTitle == current) {
+        // An empty commit is meaningful for a pane: it clears the custom
+        // name server-side (PaneManager.renamePane) so the title reverts to
+        // the program-title / cwd fallback. Only a commit that repeats the
+        // current label is a no-op — restore the label in place, since the
+        // server won't push a changed config to rebuild the row.
+        if (newTitle == current) {
             if (input.parentElement === parent) parent.replaceChild(labelEl, input)
             return
         }

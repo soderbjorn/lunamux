@@ -1,0 +1,144 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-web/0.2.16/toolkit-web-0.2.16.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-web",
+    "version": "0.2.16",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "jsApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.16"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-dom-api-compat",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-web-js-0.2.16.klib",
+          "url": "toolkit-web-js-0.2.16.klib",
+          "size": 715693,
+          "sha512": "1eb3cbe8a54d31d1521c80f7a3c58a80f9b477c40acb04a5fa7466709f09b956a80aa2c5b0c1e25385bbb7b392f612862afd14179d4d2705ff3564a109ffc183",
+          "sha256": "5a4385f0d7267ffd187a6eb3bf982e471f6655662b01544c15716c2559c3d3fb",
+          "sha1": "4b946ea1b70dbc3674aaad6a0418faa4cd88d623",
+          "md5": "ef59ab0fa000c98ec639640c46584173"
+        }
+      ]
+    },
+    {
+      "name": "jsRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.16"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-dom-api-compat",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-html",
+          "version": {
+            "requires": "0.12.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-web-js-0.2.16.klib",
+          "url": "toolkit-web-js-0.2.16.klib",
+          "size": 715693,
+          "sha512": "1eb3cbe8a54d31d1521c80f7a3c58a80f9b477c40acb04a5fa7466709f09b956a80aa2c5b0c1e25385bbb7b392f612862afd14179d4d2705ff3564a109ffc183",
+          "sha256": "5a4385f0d7267ffd187a6eb3bf982e471f6655662b01544c15716c2559c3d3fb",
+          "sha1": "4b946ea1b70dbc3674aaad6a0418faa4cd88d623",
+          "md5": "ef59ab0fa000c98ec639640c46584173"
+        }
+      ]
+    },
+    {
+      "name": "jsSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "files": [
+        {
+          "name": "toolkit-web-js-0.2.16-sources.jar",
+          "url": "toolkit-web-js-0.2.16-sources.jar",
+          "size": 303095,
+          "sha512": "a582a1fb2f6ea67b395264490d1dc5e9ae717f641a9aa5d02266bda5c83e7815ce4b4a0408737af1d3fc3c52e6c52090d53a59b80d090ae61ef17d4202ab452f",
+          "sha256": "ef097a14260b01bfd17ee8ea2ce36e4128a347ea009d69c019f912d4decbb2d0",
+          "sha1": "cedfa303616e241f404d5a5db37b88b88e0b2321",
+          "md5": "e780100f1f40474e4d6f93de8fac247f"
+        }
+      ]
+    }
+  ]
+}
