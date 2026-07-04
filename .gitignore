@@ -26,6 +26,7 @@ local.properties
 .claude/*
 !.claude/commands/
 !.claude/skills/
+.mcp.json
 
 # macOS
 .DS_Store

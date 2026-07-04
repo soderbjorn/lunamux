@@ -3240,7 +3240,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 64px;
+    top: 28px;
     text-align: center;
     font-family: Menlo, Monaco, 'Courier New', monospace;
     font-size: 15px;
@@ -3255,7 +3255,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 28px;
+    top: 56px;
     text-align: center;
     font-family: Menlo, Monaco, 'Courier New', monospace;
     font-size: 11px;

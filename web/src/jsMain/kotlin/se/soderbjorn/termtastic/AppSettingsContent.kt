@@ -100,9 +100,14 @@ private const val TOPBAR_TITLE_APP_SETTINGS = "App settings"
 private const val ICON_THEMES =
     """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1.2"/><circle cx="17.5" cy="10.5" r="1.2"/><circle cx="8.5" cy="7.5" r="1.2"/><circle cx="6.5" cy="12.5" r="1.2"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c1.7 0 3-1.3 3-3 0-.8-.3-1.5-.8-2-.5-.5-.8-1.2-.8-2 0-1.7 1.3-3 3-3h2c2.2 0 4-1.8 4-4 0-4.4-4.5-8-10-8z"/></svg>"""
 
-/** "Format text" glyph for the "Appearance" navigation button. */
+/**
+ * Typography "Aa" glyph for the "Appearance" navigation button — a verbatim
+ * copy of the toolkit topbar's Appearance ("Aa") button glyph
+ * (`ICON_APPEARANCE` in darkness-toolkit `TopBarActions.kt`) so the settings
+ * row and the toolbar button that both open Appearance show the same mark.
+ */
 private const val ICON_APPEARANCE =
-    """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>"""
+    """<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><text x="1" y="18" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-size="14" font-weight="700" letter-spacing="-0.5">A</text><text x="12" y="18" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" font-size="10" font-weight="500" letter-spacing="-0.3">a</text></svg>"""
 
 /** Keyboard glyph for the "Hotkeys" navigation button. */
 private const val ICON_HOTKEYS =

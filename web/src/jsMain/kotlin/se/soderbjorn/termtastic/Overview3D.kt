@@ -3,23 +3,29 @@
  *
  * A task-switcher-style full-screen overlay that presents every visible tab
  * as a card on a slowly turning 3D ring, each card textured with a *live*
- * thumbnail of the tab's focused terminal. The thumbnail pipeline is the
- * exact one the terminal-link picker already uses ([LinkThumbnailRenderer]):
- * a hidden read-only xterm.js instance per PTY session receives the stream
- * over its own `/pty/{sessionId}` WebSocket, and every repaint of a 2D
- * thumbnail canvas simply flags its [three.CanvasTexture] dirty so the GPU
- * re-uploads it. Hidden terminals are deduplicated per session id in
- * [ovSources]; one session can feed several canvases (a tab card and a pane
- * tile). Fresh PTY output also drives a fading accent glow behind the card,
- * so active sessions visibly "breathe" in the ring.
+ * view of the tab's focused terminal. Content is sourced directly from each
+ * pane's **live** xterm.js instance in the [terminals] registry — the exact
+ * buffer the visible pane renders — so no second `/pty` socket is opened and
+ * the PTY is never resized (reading a buffer is size-neutral). A [ThumbSource]
+ * subscribes to the live term's `onWriteParsed` and repaints on output, which
+ * also drives a fading accent glow so active sessions "breathe" in the ring.
+ * Sources are deduplicated per pane id in [ovSources]; one pane can feed both
+ * a tab card and its pane tile.
+ *
+ * **Fidelity:** the **selected** (front) tab's terminal pane tiles render at
+ * full fidelity — the pane's exact colored cell grid (ANSI/256/truecolor +
+ * attributes + cursor) via [renderTerminalGrid] / [buildTermPalette] — while
+ * the rest of the ring keeps the cheaper monochrome re-wrapped thumbnail
+ * ([renderThumbnail]) for cost. [applyFidelity] promotes/demotes tiles as the
+ * selection rotates.
  *
  * **Split-into-panes:** when a card settles at the front of the ring it
- * crossfades into its individual panes — one tile per pane, each with its
- * own live thumbnail, arranged exactly per the tab's *real* layout geometry
- * (read live from the toolkit via [AppShellHandle.currentLayoutStateJson],
- * falling back to the wire-model [Pane] rectangle). The tiles ease slightly
- * apart and toward the camera (a gentle exploded view); rotating away
- * reassembles them into the flat card.
+ * crossfades into its individual panes — one tile per pane, arranged exactly
+ * per the tab's *real* layout geometry (read live from the toolkit via
+ * [AppShellHandle.currentLayoutStateJson], falling back to the wire-model
+ * [Pane] rectangle). The tiles ease apart, lift toward the camera, and bow
+ * into a shallow inward curve (see [CURVE_K]); the tab's focused pane keeps a
+ * persistent accent ring. Rotating away reassembles them into the flat card.
  *
  * Interaction model:
  *  - `←`/`→` or mouse wheel rotates the ring one card at a time.
@@ -39,13 +45,13 @@
  * Performance: the WebGL renderer, scene, and camera are created once and
  * cached for the app's lifetime — [prewarmOverview3d] pays context creation
  * and first-shader compilation at boot, so opening the overview later is
- * just "build cards + unhide". Per-open resources (hidden terminals,
- * preview sockets, textures, tile geometry) are torn down on close. The
+ * just "build cards + unhide". Per-open resources (live-term subscriptions,
+ * textures, tile geometry) are torn down on close. The
  * render loop traps per-frame exceptions so a single bad frame can never
  * kill the animation (a lesson learned: see [pickUserData]).
  *
  * Wired from [bootViaToolkitShell]: [registerOverview3dHotkey] binds the
- * configurable toggle chord (default ⌃⌥O) to [toggleOverview3d].
+ * configurable toggle chord (default ⌥⌘→) to [toggleOverview3d].
  *
  * @see LinkThumbnailRenderer
  * @see PaneTypeModal
@@ -111,8 +117,20 @@ private const val TILE_STRIP_PX = 18
 /** Monospace font stack for thumbnail title bars / placeholders. */
 private const val THUMB_FONT = "Menlo, Monaco, 'Courier New', monospace"
 
-/** Camera distance from the *front* card (world units). */
-private const val CAMERA_DISTANCE = 4.4
+/** Camera distance from the *front* card (world units). Closer = the front
+ * tab fills more of the screen (bigger, more legible panes). Kept a touch
+ * back from the legibility floor so the split front card's bottom row of
+ * panes (spread + lifted + idle-bobbing) always clears the viewport edges. */
+private const val CAMERA_DISTANCE = 3.35
+
+/**
+ * Camera height above the ring center (world units). A gentle downward tilt
+ * that keeps the ring grounded; deliberately shallow so the framing stays
+ * roughly symmetric top-to-bottom and the split card's bottom panes don't
+ * fall off the lower edge. Shared by the open pose and the dive-in animation
+ * so they never disagree.
+ */
+private const val CAMERA_Y = 0.32
 
 /** Ring radius floor so 2–3 tabs still form a visible ring. */
 private const val MIN_RING_RADIUS = 2.2
@@ -127,10 +145,41 @@ private const val DIVE_MS = 340.0
 private const val TILE_GAP = 0.05
 
 /** How far apart (scale factor) tiles spread when the card is split. */
-private const val SPLIT_SPREAD = 1.14
+private const val SPLIT_SPREAD = 1.28
 
 /** How far tiles lift toward the camera when split (world units). */
 private const val SPLIT_LIFT = 0.16
+
+/**
+ * Ring-rotation arc (radians, measured from dead-center) over which the
+ * selected card dissolves from its flat whole-tab thumbnail into its pane
+ * tiles. The tiles carry the pane borders and the active-pane accent header,
+ * so cross-dissolving on the *incoming rotation* — rather than at the split —
+ * makes that chrome fade in **with** the panes, as one unit, while the card is
+ * still turning to the front. Otherwise the flat card (which already shows the
+ * focused pane's body) sits underneath until the split, and the border + header
+ * appear to pop in as a separate step after the pane is already visible.
+ */
+private const val REVEAL_ARC = 0.9
+
+/**
+ * Inward-curve strength for split panes: radians of tilt per world-unit of a
+ * tile's offset from the card center. Panes right of center yaw left, left of
+ * center yaw right, top tiles pitch down and bottom tiles pitch up, so the
+ * exploded panes bend back toward the center like a shallow bowl facing the
+ * camera — deepening the 3D read. Scaled by the split factor (flat when
+ * assembled) and capped by [CURVE_MAX_RAD].
+ */
+private const val CURVE_K = 0.18
+
+/** Cap on the per-tile inward-curve tilt (radians, ≈17°). */
+private const val CURVE_MAX_RAD = 0.3
+
+/** Plane subdivisions per axis for the dished pane geometry ([dishGeometry]). */
+private const val DISH_SEGMENTS = 14
+
+/** Depth (world units) the pane corners recede in the dish curvature. */
+private const val DISH_DEPTH = 0.34
 
 /**
  * One thumbnail canvas + GPU texture, painted from a terminal transcript
@@ -151,6 +200,8 @@ private const val SPLIT_LIFT = 0.16
  *   rather than the bottom (terminal tail). Forwarded to [renderThumbnail].
  * @property placeholder centered placeholder text painted when the view has
  *   no content yet (non-terminal panes / tabs), or `null`.
+ * @property paneBorder whether to stroke a pane outline into the canvas — true
+ *   for pane tiles (they read as little windows), false for the whole-tab card.
  */
 private class ThumbView(
     val canvas: HTMLCanvasElement,
@@ -164,25 +215,54 @@ private class ThumbView(
     val accent: String,
     val topAnchored: Boolean = false,
     val placeholder: String? = null,
+    val paneBorder: Boolean = false,
 ) {
     /**
+     * When `true`, this view paints its terminal's *exact* colored cell grid
+     * via [paintGrid] instead of the monochrome re-wrapped [renderThumbnail].
+     * Only the selected tab's terminal pane tiles are promoted (set by
+     * [applyFidelity]); back cards and the whole-tab card stay on the cheap
+     * path.
+     */
+    var fullFidelity: Boolean = false
+
+    /**
+     * Whether [paintGrid] should draw the cursor block — true only for the
+     * tab's focused pane, so the overview shows one cursor where the real tab
+     * would.
+     */
+    var showCursor: Boolean = false
+
+    /**
+     * `true` when this tile is its tab's active (focused) pane — gives the
+     * header an accent tint and the border a steady accent glow, mirroring the
+     * real pane chrome.
+     */
+    var paneActive: Boolean = false
+
+    /**
+     * `true` when this tile is the current keyboard/hover selection in the
+     * overview — a brighter, thicker glowing border than [paneActive].
+     */
+    var paneSelected: Boolean = false
+
+    /** Inner content padding (device px) so glyphs clear the pane border. */
+    private val contentPad: Double get() = 7.0 * res
+
+    /**
      * Paints the view: transcript body (supersampled at [res]) when [lines]
-     * is non-null, placeholder body otherwise, then an opaque themed
-     * title bar; flags the texture for re-upload.
-     *
-     * The title bar is drawn as a solid, near-opaque strip in the theme
-     * background with an accent underline — a mini pane header — so the title
-     * never collides with the terminal text scrolling behind it (the old
-     * 42%-opacity strip let text bleed through and read as garbled).
+     * is non-null, placeholder body otherwise, then the themed title bar and
+     * pane border; flags the texture for re-upload.
      *
      * @param lines transcript logical lines from [readLogicalLines], or
      *   `null` to paint the placeholder body.
      */
     fun paint(lines: List<String>?) {
         if (lines != null) {
-            // Top-anchored content must clear the opaque title bar drawn below.
-            val inset = if (topAnchored && stripPx > 0) stripPx * res else 0.0
-            renderThumbnail(canvas, lines, fg, bg, res, topAnchored, inset)
+            // Reserve the title-bar height so content never sits under it, and
+            // pad the sides/bottom so text clears the border.
+            val inset = if (stripPx > 0 && stripTitle != null) stripPx * res else 0.0
+            renderThumbnail(canvas, lines, fg, bg, res, topAnchored, inset, contentPad)
         } else {
             val d = canvas.getContext("2d").asDynamic() ?: return
             d.fillStyle = bg
@@ -198,22 +278,104 @@ private class ThumbView(
                 d.textAlign = "left"
             }
         }
-        if (stripPx > 0 && stripTitle != null) {
-            val d = canvas.getContext("2d").asDynamic() ?: return
-            val h = stripPx * res
-            d.fillStyle = bg
-            d.globalAlpha = 0.92
-            d.fillRect(0.0, 0.0, canvas.width.toDouble(), h)
-            d.globalAlpha = 1.0
-            d.fillStyle = accent
-            d.fillRect(0.0, h - res, canvas.width.toDouble(), res)
-            d.font = "600 ${stripFontPx * res}px $THUMB_FONT"
-            d.fillStyle = fg
-            d.textAlign = "left"
-            d.textBaseline = "middle"
-            d.fillText(stripTitle, 10.0 * res, h / 2.0)
-        }
+        drawStrip()
+        drawPaneBorder()
         texture.needsUpdate = true
+    }
+
+    /**
+     * Paints the *faithful* body: the live terminal's exact colored cell grid
+     * ([renderTerminalGrid]) below the title strip, then the strip and border.
+     * Used for the selected tab's terminal tiles.
+     *
+     * @param term the live xterm.js terminal (from the pane registry).
+     * @param palette resolved colors ([buildTermPalette]).
+     */
+    fun paintGrid(term: Terminal, palette: TermPalette) {
+        val topInset = if (stripPx > 0 && stripTitle != null) stripPx * res else 0.0
+        renderTerminalGrid(canvas, term, palette, showCursor, topInset, contentPad)
+        drawStrip()
+        drawPaneBorder()
+        texture.needsUpdate = true
+    }
+
+    /**
+     * Draws the opaque themed title strip (background + accent underline +
+     * title) across the top of the canvas, shared by [paint] and [paintGrid].
+     * Active/selected panes get an accent-tinted header, matching how the real
+     * pane chrome distinguishes the focused pane. When the tile carries a
+     * rounded border ([paneBorder]) the strip fills are clipped to the same
+     * rounded-rect as [drawPaneBorder] so the header background follows the top
+     * corners instead of squaring off outside the curve.
+     */
+    private fun drawStrip() {
+        if (stripPx <= 0 || stripTitle == null) return
+        val d = canvas.getContext("2d").asDynamic() ?: return
+        val w = canvas.width.toDouble()
+        val h = stripPx * res
+        d.save()
+        // When the tile carries a rounded border, clip the strip fills to the
+        // same rounded-rect so the header background follows the top corners
+        // instead of squaring off outside the curve.
+        if (paneBorder) {
+            val lw = (if (paneSelected) 3.0 else 2.0) * res
+            val inset = lw / 2.0 + res
+            val radius = 6.0 * res
+            d.beginPath()
+            d.roundRect(inset, inset, w - 2.0 * inset, canvas.height.toDouble() - 2.0 * inset, radius)
+            d.clip()
+        }
+        // Fully opaque base — terminal content must never show through.
+        d.globalAlpha = 1.0
+        d.fillStyle = bg
+        d.fillRect(0.0, 0.0, w, h)
+        // Accent-tinted header for the active / selected pane.
+        if (paneActive || paneSelected) {
+            d.globalAlpha = if (paneSelected) 0.22 else 0.13
+            d.fillStyle = accent
+            d.fillRect(0.0, 0.0, w, h)
+        }
+        // Accent underline (brighter when active/selected).
+        d.globalAlpha = if (paneActive || paneSelected) 1.0 else 0.65
+        d.fillStyle = accent
+        d.fillRect(0.0, h - res, w, res)
+        d.globalAlpha = 1.0
+        d.font = "600 ${stripFontPx * res}px $THUMB_FONT"
+        d.fillStyle = fg
+        d.textAlign = "left"
+        d.textBaseline = "middle"
+        // Extra left padding so the title clears the pane border.
+        d.fillText(stripTitle, contentPad + 8.0 * res, h / 2.0)
+        d.restore()
+    }
+
+    /**
+     * Strokes a rounded pane outline into the canvas so the border hugs the
+     * content exactly and curves/foreshortens with the tile (unlike a separate
+     * glow plane, which detaches under the tilt). The active pane gets a steady
+     * accent glow, the selected pane a brighter/thicker one, others a faint
+     * neutral edge.
+     */
+    private fun drawPaneBorder() {
+        if (!paneBorder) return
+        val d = canvas.getContext("2d").asDynamic() ?: return
+        val w = canvas.width.toDouble()
+        val h = canvas.height.toDouble()
+        val lw = (if (paneSelected) 3.0 else 2.0) * res
+        val inset = lw / 2.0 + res
+        val radius = 6.0 * res
+        d.save()
+        d.globalAlpha = 1.0
+        d.lineWidth = lw
+        when {
+            paneSelected -> { d.strokeStyle = accent; d.shadowColor = accent; d.shadowBlur = 16.0 * res }
+            paneActive -> { d.strokeStyle = accent; d.shadowColor = accent; d.shadowBlur = 9.0 * res }
+            else -> { d.strokeStyle = fg; d.globalAlpha = 0.22; d.shadowBlur = 0.0 }
+        }
+        d.beginPath()
+        d.roundRect(inset, inset, w - 2.0 * inset, h - 2.0 * inset, radius)
+        d.stroke()
+        d.restore()
     }
 
     /** Frees the GPU texture. */
@@ -223,19 +385,38 @@ private class ThumbView(
 }
 
 /**
- * One live PTY thumbnail source: the hidden read-only xterm.js buffer model
- * plus its preview WebSocket, fanned out to any number of [ThumbView]s.
- * Deduplicated per session id in [ovSources] so a session mirrored by both
- * a tab card and a pane tile only costs one terminal + one socket.
+ * One content source for the overview, fanned out to any number of
+ * [ThumbView]s (a tab card + that pane's tile). Two flavors, distinguished by
+ * [live]:
  *
- * @property term hidden xterm.js data source fed by the session PTY.
- * @property hiddenHost off-screen DOM host the hidden terminal renders into.
+ *  - **Live** ([live] = `true`): wraps the pane's real xterm.js [Terminal] from
+ *    the [terminals] registry — the exact instance the visible pane renders.
+ *    Reading its buffer is size-neutral (sends nothing to the server, never
+ *    resizes the PTY) and it can drive **full-fidelity** colored tiles. Used
+ *    for mounted tabs (the active tab and any previously visited); in demo mode
+ *    the registry terms stream the in-process simulation (see [connectDemoPane]).
+ *    The term is owned by the registry, so [dispose] must not dispose it.
+ *  - **Mirror** ([live] = `false`): a small hidden xterm this source owns, fed
+ *    by a read-only preview `/pty` socket (or [attachDemoPreview] in demo mode)
+ *    — the same proven pattern the link picker uses. This is the fallback for
+ *    tabs that have never been mounted (so have no registry term yet), so the
+ *    overview can still preview *every* tab. Mirror sources stay on the cheap
+ *    thumbnail path (their fixed 120×40 size isn't the pane's real geometry);
+ *    [dispose] tears down the socket, term, and host.
+ *
+ * Both flavors repaint on the term's `onWriteParsed`, which also lights the
+ * activity glow. Deduplicated per pane id in [ovSources].
+ *
+ * @property term the xterm.js buffer model (live registry term, or owned mirror).
+ * @property live `true` for a registry term (full-fidelity capable, not owned).
+ * @property hiddenHost off-screen host for a mirror term, else `null`.
  */
 private class ThumbSource(
     val term: Terminal,
-    val hiddenHost: HTMLElement,
+    val live: Boolean,
+    private val hiddenHost: HTMLElement?,
 ) {
-    /** Preview PTY socket feeding [term]; `null` in demo mode. */
+    /** Preview PTY socket feeding a mirror [term]; `null` for live/demo sources. */
     var socket: WebSocket? = null
 
     /** Views repainted whenever fresh output arrives. */
@@ -244,8 +425,26 @@ private class ThumbSource(
     /** `performance.now()` of the last PTY chunk — drives the glow decay. */
     var lastActivity: Double = -1e9
 
+    /** The `onWriteParsed` disposable, released on [dispose]. */
+    private var listener: dynamic = null
+
     /** Pending rAF handle for a coalesced repaint, if any. */
     private var rafHandle: Int? = null
+
+    /**
+     * Subscribes to the term's output so the overview repaints on new data.
+     * For live sources this reads the pane's own buffer (no socket); for mirror
+     * sources the preview socket writes into [term] and this fires on the parse.
+     * Called once after construction.
+     */
+    fun subscribe() {
+        listener = runCatching {
+            term.onWriteParsed {
+                lastActivity = window.performance.now()
+                scheduleRepaint()
+            }
+        }.getOrNull()
+    }
 
     /**
      * Schedules a coalesced repaint of all attached views (one per animation
@@ -259,20 +458,39 @@ private class ThumbSource(
         }
     }
 
-    /** Reads the transcript once and repaints every attached view from it. */
+    /**
+     * Repaints every attached view from the live buffer: full-fidelity views
+     * ([ThumbView.fullFidelity]) get the exact colored grid, the rest the cheap
+     * re-wrapped transcript (computed once, lazily, and shared).
+     */
     fun repaint() {
-        val lines = runCatching { readLogicalLines(term) }.getOrDefault(emptyList())
-        for (view in views) view.paint(lines)
+        var lines: List<String>? = null
+        for (view in views) {
+            if (view.fullFidelity && ovPalette != null) {
+                runCatching { view.paintGrid(term, ovPalette!!) }
+            } else {
+                if (lines == null) lines = runCatching { readLogicalLines(term) }.getOrDefault(emptyList())
+                view.paint(lines)
+            }
+        }
     }
 
-    /** Cancels pending repaints and releases the socket/terminal/host. */
+    /**
+     * Cancels pending repaints and unsubscribes. A live term is owned by the
+     * pane registry and left running; a mirror term (with its socket and host)
+     * is fully torn down here.
+     */
     fun dispose() {
         rafHandle?.let { window.cancelAnimationFrame(it) }
         rafHandle = null
-        runCatching { socket?.close() }
-        socket = null
-        runCatching { term.dispose() }
-        runCatching { hiddenHost.remove() }
+        runCatching { listener?.dispose() }
+        listener = null
+        if (!live) {
+            runCatching { socket?.close() }
+            socket = null
+            runCatching { term.dispose() }
+            runCatching { hiddenHost?.remove() }
+        }
     }
 }
 
@@ -303,11 +521,10 @@ private class PaneRect(val x: Double, val y: Double, val w: Double, val h: Doubl
  * @property paneTitle pane title, shown in the overlay readout when selected.
  * @property mesh the tile plane (child of the card mesh).
  * @property material tile material; opacity follows the split factor.
- * @property geometry per-tile plane geometry (sizes differ per pane).
- * @property glowMaterial selection-halo material behind the tile; opacity is
- *   animated up when the tile is the keyboard/hover pane selection.
- * @property glowGeometry the selection halo's plane geometry.
- * @property view the tile's thumbnail view.
+ * @property geometry per-tile plane geometry (sizes differ per pane; bent into
+ *   a shallow dish for real curvature).
+ * @property view the tile's thumbnail view (its canvas carries the pane border
+ *   and header, so no separate glow plane is needed).
  * @property source live source feeding [view], or `null` for placeholders.
  * @property homeX/homeY/homeZ assembled position (card-local).
  * @property splitX/splitY/splitZ split position (card-local).
@@ -319,8 +536,6 @@ private class PaneTile(
     val mesh: Mesh,
     val material: MeshBasicMaterial,
     val geometry: PlaneGeometry,
-    val glowMaterial: MeshBasicMaterial,
-    val glowGeometry: PlaneGeometry,
     val view: ThumbView,
     val source: ThumbSource?,
     val homeX: Double, val homeY: Double, val homeZ: Double,
@@ -331,8 +546,6 @@ private class PaneTile(
         view.dispose()
         runCatching { material.dispose() }
         runCatching { geometry.dispose() }
-        runCatching { glowMaterial.dispose() }
-        runCatching { glowGeometry.dispose() }
     }
 }
 
@@ -352,6 +565,8 @@ private class PaneTile(
  * @property cardView the full-card thumbnail view.
  * @property source live source feeding [cardView], or `null` (placeholder).
  * @property tiles the pane tiles, in tab pane order.
+ * @property focusedPaneId the tab's active pane, marked with a persistent
+ *   accent ring in the split view.
  */
 private class OverviewCard(
     val tabId: String,
@@ -362,9 +577,19 @@ private class OverviewCard(
     val cardView: ThumbView,
     val source: ThumbSource?,
     val tiles: List<PaneTile>,
+    val focusedPaneId: String?,
 ) {
     /** Split factor, eased 0 (assembled card) → 1 (exploded panes). */
     var split: Double = 0.0
+
+    /**
+     * Reveal factor, eased 0 (flat whole-tab thumbnail) → 1 (pane tiles shown,
+     * assembled and flush). Driven by how centered this card is on the ring (see
+     * [REVEAL_ARC]) rather than by [split], so the pane borders + active-pane
+     * accent header dissolve in *with* the incoming rotation — as one unit with
+     * the panes — instead of popping in after the flat card has already split.
+     */
+    var reveal: Double = 0.0
 
     /** Latest activity timestamp across the card's + tiles' sources. */
     fun latestActivity(): Double {
@@ -411,8 +636,15 @@ private var ovRing: Group? = null
 /** Per-open card list, ring order = config tab order. */
 private val ovCards = mutableListOf<OverviewCard>()
 
-/** Per-open live thumbnail sources, deduplicated by PTY session id. */
+/** Per-open live content sources, deduplicated by pane id. */
 private val ovSources = mutableMapOf<String, ThumbSource>()
+
+/**
+ * Resolved terminal color palette for the current open ([buildTermPalette]),
+ * used by full-fidelity tiles. Rebuilt each open (the theme is stable during a
+ * session) and cleared on close.
+ */
+private var ovPalette: TermPalette? = null
 
 /** Shared card plane geometry (per open). */
 private var ovCardGeometry: PlaneGeometry? = null
@@ -462,6 +694,41 @@ private val ovRaycaster = Raycaster()
 private var ovWheelAcc = 0.0
 
 /**
+ * True once the current wheel/trackpad gesture has already stepped the
+ * selection. A trackpad swipe emits a long tail of momentum events, so
+ * without this latch one physical swipe would cross the ±60 threshold
+ * repeatedly and skip several tabs. Cleared when a gap in wheel events
+ * (see [OV_WHEEL_GESTURE_GAP_MS]) marks the start of a fresh gesture.
+ */
+private var ovWheelLatched = false
+
+/** Timestamp (`performance.now()`) of the last observed wheel event. */
+private var ovWheelLastTs = 0.0
+
+/** `|delta|` of the previous wheel event, for rising-edge detection. */
+private var ovWheelPrevMag = 0.0
+
+/**
+ * Idle gap (ms) between wheel events that ends one gesture and arms the
+ * next. Covers cleanly separated swipes where the momentum tail has fully
+ * stopped before the next physical swipe.
+ */
+private const val OV_WHEEL_GESTURE_GAP_MS = 150.0
+
+/**
+ * A wheel event whose magnitude both exceeds this floor and climbs
+ * meaningfully above the previous event (see [OV_WHEEL_RISE_FACTOR]) is
+ * treated as a fresh finger push cutting through the decaying momentum tail
+ * of the prior swipe. macOS momentum deltas decay monotonically, so a rising
+ * edge above a sane floor is only ever a new gesture — this is what lets two
+ * quick back-to-back swipes each register even before momentum stops.
+ */
+private const val OV_WHEEL_RISE_FLOOR = 12.0
+
+/** Factor by which a delta must exceed the prior one to count as a new push. */
+private const val OV_WHEEL_RISE_FACTOR = 1.5
+
+/**
  * Set on every `mousemove`, consumed once per frame. Gates hover-driven pane
  * selection on actual pointer movement, so a mouse resting over one tile
  * doesn't keep yanking the highlight back while you navigate with ↑/↓.
@@ -470,7 +737,7 @@ private var ovPointerMoved = false
 
 /**
  * Toggles the 3D overview: opens it if closed, closes it if open. The
- * target of the configurable ⌃⌥O hotkey ([registerOverview3dHotkey] in
+ * target of the configurable ⌥⌘→ hotkey ([registerOverview3dHotkey] in
  * [TermtasticToolkitBootstrap]).
  *
  * @see openOverview3d
@@ -540,13 +807,37 @@ private fun ensureOverlay(): HTMLElement {
     hint.textContent = "← → tabs · ↑ ↓ panes · ⏎ open · click a pane to jump · esc close"
     overlay.appendChild(hint)
 
-    // Wheel steps the selection; passive=false so the page never scrolls.
+    // Wheel / trackpad swipe steps the selection along the dominant axis, so a
+    // horizontal two-finger swipe (or a vertical scroll) rotates between tabs.
+    // A single swipe steps exactly one tab: once the ±60 threshold is crossed
+    // we latch and ignore the rest of that gesture's momentum tail. The latch
+    // re-arms either after OV_WHEEL_GESTURE_GAP_MS of wheel silence, or the
+    // moment a fresh finger push makes the delta magnitude climb back up out of
+    // the decaying tail — so quick back-to-back swipes each register even
+    // before momentum stops. passive=false so the page never scrolls and macOS
+    // back/forward-swipe navigation is suppressed.
     overlay.addEventListener("wheel", { ev: Event ->
         ev.preventDefault()
         if (!ovDiveStart.isNaN()) return@addEventListener
-        ovWheelAcc += (ev as WheelEvent).deltaY
-        if (ovWheelAcc > 60.0) { stepSelection(1); ovWheelAcc = 0.0 }
-        if (ovWheelAcc < -60.0) { stepSelection(-1); ovWheelAcc = 0.0 }
+        val we = ev as WheelEvent
+        val now = window.performance.now()
+        val delta = if (abs(we.deltaX) > abs(we.deltaY)) we.deltaX else we.deltaY
+        val mag = abs(delta)
+        val gap = now - ovWheelLastTs > OV_WHEEL_GESTURE_GAP_MS
+        // Rising edge only counts as a new gesture once we're latched — while
+        // still accumulating the first swipe, ramping deltas are expected.
+        val risingEdge = ovWheelLatched &&
+            mag > OV_WHEEL_RISE_FLOOR && mag > ovWheelPrevMag * OV_WHEEL_RISE_FACTOR
+        if (gap || risingEdge) {
+            ovWheelLatched = false
+            ovWheelAcc = 0.0
+        }
+        ovWheelLastTs = now
+        ovWheelPrevMag = mag
+        if (ovWheelLatched) return@addEventListener
+        ovWheelAcc += delta
+        if (ovWheelAcc > 60.0) { stepSelection(1); ovWheelAcc = 0.0; ovWheelLatched = true }
+        if (ovWheelAcc < -60.0) { stepSelection(-1); ovWheelAcc = 0.0; ovWheelLatched = true }
     }, json("passive" to false))
 
     // Track the pointer for hover feedback (consumed in the render loop).
@@ -579,11 +870,11 @@ private fun ensureOverlay(): HTMLElement {
 }
 
 /**
- * Opens the overview: builds one live-thumbnail card (plus pane tiles) per
- * visible tab from the current [latestWindowConfig], lays them out on the
- * ring, connects the preview PTY sockets, wires the key handlers, and
- * starts the render loop. No-op when already open or before the first
- * config arrives.
+ * Opens the overview: builds one card (plus pane tiles) per visible tab from
+ * the current [latestWindowConfig], lays them out on the ring, attaches each
+ * pane's live-term source, promotes the front tab to full fidelity, wires the
+ * key handlers, and starts the render loop. No-op when already open or before
+ * the first config arrives.
  *
  * @see closeOverview3d
  */
@@ -595,6 +886,9 @@ internal fun openOverview3d() {
     ovOpen = true
     ovDiveStart = Double.NaN
     ovWheelAcc = 0.0
+    ovWheelLatched = false
+    ovWheelLastTs = 0.0
+    ovWheelPrevMag = 0.0
     val renderer = ensureRenderer()
     val scene = ovScene!!
     val camera = ovCamera!!
@@ -615,6 +909,9 @@ internal fun openOverview3d() {
     val bg = (theme.background as? String) ?: "#1e1e1e"
     val accent = (theme.cursor as? String)?.takeIf { it.isNotBlank() } ?: fg
     applyThemedBackdrop(overlay, bg, accent)
+
+    // Resolved 256-color palette for full-fidelity terminal tiles (front tab).
+    ovPalette = buildTermPalette()
 
     // Ring sizing: keep a comfortable chord gap between card centers.
     val n = tabs.size
@@ -642,15 +939,17 @@ internal fun openOverview3d() {
         ovCards.add(card)
     }
 
-    // Start with the active tab at the front, ring already settled on it,
-    // and no specific pane highlighted yet.
+    // Start with the active tab at the front, ring already settled on it, and
+    // the pane highlight seeded on that tab's active pane so the first ↑/↓/Tab
+    // steps to its neighbour.
     ovSelected = tabs.indexOfFirst { it.id == cfg.activeTabId }.takeIf { it >= 0 } ?: 0
-    ovPaneSelected = -1
+    ovPaneSelected = focusedTileIndex(ovSelected)
     ovRingAngle = -ovSelected * step
     ring.rotation.y = ovRingAngle
     updateTitleReadout()
+    applyFidelity()
 
-    camera.position.set(0.0, 0.45, ovRadius + CAMERA_DISTANCE)
+    camera.position.set(0.0, CAMERA_Y, ovRadius + CAMERA_DISTANCE)
     camera.lookAt(0.0, 0.0, 0.0)
 
     layoutRenderer()
@@ -726,50 +1025,58 @@ private fun resolvePaneRects(tab: TabConfig): List<PaneRect> {
 }
 
 /**
- * Returns (creating on first use) the shared live thumbnail source for a
- * PTY session: hidden xterm.js + preview socket (or the demo replay), the
- * same read-only preview plumbing the link picker uses.
+ * Returns (creating on first use) the shared content source for a pane,
+ * deduplicated per pane id in [ovSources].
  *
- * @param sessionId the PTY session to mirror.
- * @return the per-open shared source for that session.
+ * Prefers the pane's **live** xterm from the [terminals] registry — the same
+ * buffer the visible pane renders, read size-neutrally (no socket, no resize),
+ * and full-fidelity capable. Mounted tabs (the active tab and any previously
+ * visited) have one, including in demo mode ([connectDemoPane]). Tabs never
+ * mounted yet have no registry term, so the overview falls back to a hidden
+ * **mirror** term fed by a read-only preview socket (or [attachDemoPreview] in
+ * demo) — the link picker's proven pattern — so every tab still previews.
+ *
+ * @param paneId the pane (leaf) id — the dedup key and registry key.
+ * @param sessionId the PTY session id (used by the mirror fallback).
+ * @return the shared source (live or mirror).
  */
-private fun ensureSource(sessionId: String): ThumbSource {
-    ovSources[sessionId]?.let { return it }
+private fun ensureSource(paneId: String, sessionId: String): ThumbSource {
+    ovSources[paneId]?.let { return it }
 
-    // Hidden xterm.js data source (needs an attached host to parse output
-    // into its buffer) — identical setup to the link picker's previews.
-    val hiddenHost = document.createElement("div") as HTMLElement
-    hiddenHost.className = "link-preview-hidden-host"
-    document.body?.appendChild(hiddenHost)
-    val term = Terminal(json(
-        "cursorBlink" to false, "disableStdin" to true,
-        "fontFamily" to "Menlo, Monaco, 'Courier New', monospace",
-        "fontSize" to 9, "cols" to 120, "rows" to 40,
-        "scrollback" to 200, "theme" to buildXtermTheme(),
-    ))
-    term.open(hiddenHost)
-
-    val source = ThumbSource(term, hiddenHost)
-    if (isDemoClient) {
-        // Demo mode: replay the simulated session's scrollback once; the
-        // write lands asynchronously, so repaint shortly after.
-        attachDemoPreview(term, sessionId)
-        window.setTimeout({ source.scheduleRepaint() }, 120)
+    val liveTerm = terminals[paneId]?.term
+    val source: ThumbSource = if (liveTerm != null) {
+        ThumbSource(liveTerm, live = true, hiddenHost = null)
     } else {
-        val url = "$proto://${window.location.host}/pty/$sessionId?$authQueryParam"
-        val socket = WebSocket(url)
-        socket.asDynamic().binaryType = "arraybuffer"
-        socket.onmessage = { event ->
-            val data = event.asDynamic().data
-            if (data !is String) {
-                term.write(Uint8Array(data as ArrayBuffer))
-                source.lastActivity = window.performance.now()
-                source.scheduleRepaint()
+        // Unmounted tab: mirror the session into a hidden term (cheap preview),
+        // matching the link picker's hidden-host setup exactly.
+        val hiddenHost = document.createElement("div") as HTMLElement
+        hiddenHost.className = "link-preview-hidden-host"
+        document.body?.appendChild(hiddenHost)
+        val term = Terminal(json(
+            "cursorBlink" to false, "disableStdin" to true,
+            "fontFamily" to "Menlo, Monaco, 'Courier New', monospace",
+            "fontSize" to 9, "cols" to 120, "rows" to 40,
+            "scrollback" to 200, "theme" to buildXtermTheme(),
+        ))
+        term.open(hiddenHost)
+        val s = ThumbSource(term, live = false, hiddenHost = hiddenHost)
+        if (isDemoClient) {
+            attachDemoPreview(term, sessionId)
+        } else {
+            val url = "$proto://${window.location.host}/pty/$sessionId?$authQueryParam"
+            val socket = WebSocket(url)
+            socket.asDynamic().binaryType = "arraybuffer"
+            socket.onmessage = { event ->
+                val data = event.asDynamic().data
+                if (data !is String) term.write(Uint8Array(data as ArrayBuffer))
             }
+            s.socket = socket
         }
-        source.socket = socket
+        s
     }
-    ovSources[sessionId] = source
+    source.subscribe()
+    source.scheduleRepaint()
+    ovSources[paneId] = source
     return source
 }
 
@@ -801,7 +1108,7 @@ private fun buildCard(tab: TabConfig, fg: String, bg: String, accent: String): O
     // terminal pane), titled with the tab name.
     val focusPane = tab.panes.firstOrNull { it.leaf.id == tab.focusedPaneId && paneSessionId(it) != null }
         ?: tab.panes.firstOrNull { paneSessionId(it) != null }
-    val cardSource = focusPane?.let { ensureSource(paneSessionId(it)!!) }
+    val cardSource = focusPane?.let { ensureSource(it.leaf.id, paneSessionId(it)!!) }
 
     val cardCanvas = document.createElement("canvas") as HTMLCanvasElement
     cardCanvas.width = (CARD_CANVAS_W * RES).roundToInt()
@@ -810,20 +1117,28 @@ private fun buildCard(tab: TabConfig, fg: String, bg: String, accent: String): O
     cardTexture.colorSpace = "srgb"
     val cardView = ThumbView(
         cardCanvas, cardTexture, tab.title, TITLE_STRIP_PX, 14, fg, bg, RES, accent,
-        placeholder = if (cardSource == null) "no terminal" else null,
+        // No "no terminal" placeholder on the card: a tab with only
+        // file-browser/git panes would flash that text during the split
+        // crossfade before its tiles fade in. A plain dark panel morphs cleanly
+        // into the tiles.
+        placeholder = null,
     )
 
-    // side=2 is THREE.DoubleSide: cards on the far half of the ring face away
-    // from the camera and would be back-face-culled (invisible) otherwise.
-    // transparent=true because the card fades out as it splits into panes.
+    // FrontSide (side 0): cards on the far half of the ring face away and are
+    // back-face-culled — otherwise their DoubleSide backface showed through as
+    // a dark, *mirrored* filled rectangle that flashed during tab switches.
+    // transparent=true because the card fades out as it splits into panes;
+    // depthWrite=false so the (invisible, faded) card never depth-occludes the
+    // pane tiles that lift in front of it during the split.
     val cardMaterial = MeshBasicMaterial(json(
-        "map" to cardTexture, "side" to 2, "transparent" to true,
+        "map" to cardTexture, "side" to 0, "transparent" to true,
+        "depthWrite" to false,
     ))
     val mesh = Mesh(ovCardGeometry!!, cardMaterial)
 
     val glowMaterial = MeshBasicMaterial(json(
         "color" to accent, "transparent" to true, "opacity" to 0.0,
-        "depthWrite" to false, "side" to 2,
+        "depthWrite" to false, "side" to 0,
     ))
     val glow = Mesh(ovGlowGeometry!!, glowMaterial)
     glow.position.set(0.0, 0.0, -0.02)
@@ -842,7 +1157,7 @@ private fun buildCard(tab: TabConfig, fg: String, bg: String, accent: String): O
     }
     for (tile in tiles) mesh.add(tile.mesh)
 
-    val card = OverviewCard(tab.id, tab.title, mesh, cardMaterial, glowMaterial, cardView, cardSource, tiles)
+    val card = OverviewCard(tab.id, tab.title, mesh, cardMaterial, glowMaterial, cardView, cardSource, tiles, tab.focusedPaneId)
     if (cardSource != null) cardSource.views.add(cardView)
     cardView.paint(null)
     cardSource?.scheduleRepaint()
@@ -871,7 +1186,7 @@ private fun buildPaneTile(
     accent: String,
 ): PaneTile {
     val sessionId = paneSessionId(pane)
-    val source = sessionId?.let { ensureSource(it) }
+    val source = sessionId?.let { ensureSource(pane.leaf.id, it) }
 
     // Physical backing store is the pane's fraction of the (supersampled)
     // card canvas — so a tile is as crisp as the full card would be there.
@@ -902,29 +1217,28 @@ private fun buildPaneTile(
     // Only tall-enough tiles get a title bar (a bar on a sliver of a tile
     // just eats the whole thumbnail). Threshold is in physical px.
     val stripPx = if (hPx >= 80 * RES) TILE_STRIP_PX else 0
-    val view = ThumbView(canvas, texture, pane.leaf.title, stripPx, 11, fg, bg, RES, accent, topAnchored, placeholder)
+    val view = ThumbView(
+        canvas, texture, pane.leaf.title, stripPx, 11, fg, bg, RES, accent, topAnchored, placeholder,
+        paneBorder = true,
+    )
 
     val tileW = max(0.1, rect.w * CARD_W - TILE_GAP)
     val tileH = max(0.1, rect.h * CARD_H - TILE_GAP)
-    val geometry = PlaneGeometry(tileW, tileH)
+    // Subdivided + dished so the pane reads as a genuinely curved surface (its
+    // outer edges bow away from the camera), not just a flat tilted quad.
+    val geometry = PlaneGeometry(tileW, tileH, DISH_SEGMENTS, DISH_SEGMENTS)
+    dishGeometry(geometry, tileW, tileH, DISH_DEPTH)
+    // FrontSide (side 0) + depthWrite so the curved sheet never z-fights its
+    // own backface (which punched a lens-shaped "hole" through the pane under
+    // DoubleSide) and overlapping tiles occlude correctly. Tiles are only ever
+    // viewed from the front (their card is at the ring front when split), so
+    // the backface is never needed.
     val material = MeshBasicMaterial(json(
-        "map" to texture, "side" to 2, "transparent" to true,
-        "opacity" to 0.0, "depthWrite" to false,
+        "map" to texture, "side" to 0, "transparent" to true,
+        "opacity" to 0.0, "depthWrite" to true,
     ))
     val mesh = Mesh(geometry, material)
     mesh.visible = false
-
-    // Selection halo: an accent plane a touch larger than the tile, sitting
-    // just behind it, faded up when this tile is the pane selection (mirrors
-    // the card glow). Child of the tile so it tracks the split animation.
-    val glowGeometry = PlaneGeometry(tileW + 0.12, tileH + 0.12)
-    val glowMaterial = MeshBasicMaterial(json(
-        "color" to accent, "transparent" to true, "opacity" to 0.0,
-        "depthWrite" to false, "side" to 2,
-    ))
-    val glowMesh = Mesh(glowGeometry, glowMaterial)
-    glowMesh.position.set(0.0, 0.0, -0.01)
-    mesh.add(glowMesh)
 
     // Card-local placements: assembled = flush with the card at the pane's
     // layout position; split = spread outward from the card center + lifted
@@ -936,12 +1250,47 @@ private fun buildPaneTile(
     mesh.position.set(homeX, homeY, homeZ)
 
     val tile = PaneTile(
-        pane.leaf.id, pane.leaf.title, kind, mesh, material, geometry, glowMaterial, glowGeometry, view, source,
+        pane.leaf.id, pane.leaf.title, kind, mesh, material, geometry, view, source,
         homeX, homeY, homeZ,
         homeX * SPLIT_SPREAD, homeY * SPLIT_SPREAD, splitZ,
     )
     if (source != null) source.views.add(view) else view.paint(null)
     return tile
+}
+
+/**
+ * Bends a subdivided [PlaneGeometry] into a shallow dish so a pane tile reads as
+ * a curved surface: the center bulges toward the camera and the outer
+ * edges/corners bow away, in proportion to squared distance from the center.
+ *
+ * The displacement is kept **entirely non-negative** (center at `+depth`,
+ * corners at `0`) so every vertex sits *in front of* the flat card plane behind
+ * it — otherwise a receding corner would dip behind the (faded) card and get
+ * depth-clipped into a visible hole. Recomputes normals so the curvature is
+ * well-formed (harmless for the unlit material).
+ *
+ * @param geometry the subdivided plane geometry (mutated in place).
+ * @param w the pane width in world units. @param h the pane height.
+ * @param depth how far (world units) the center bulges forward of the corners.
+ */
+private fun dishGeometry(geometry: PlaneGeometry, w: Double, h: Double, depth: Double) {
+    runCatching {
+        val pos = geometry.asDynamic().attributes.position
+        val count = (pos.count as Number).toInt()
+        val hx = w / 2.0
+        val hy = h / 2.0
+        for (i in 0 until count) {
+            val x = (pos.getX(i) as Number).toDouble()
+            val y = (pos.getY(i) as Number).toDouble()
+            val nx = if (hx > 0) x / hx else 0.0
+            val ny = if (hy > 0) y / hy else 0.0
+            // Normalized squared radius (0 at center, up to 2 at the corners),
+            // mapped so center = +depth (forward) and corners = 0.
+            pos.setZ(i, depth * (1.0 - (nx * nx + ny * ny) / 2.0))
+        }
+        pos.needsUpdate = true
+        geometry.asDynamic().computeVertexNormals()
+    }
 }
 
 /**
@@ -1066,8 +1415,69 @@ private fun stepSelection(delta: Int) {
 private fun selectCard(index: Int) {
     if (index !in ovCards.indices) return
     ovSelected = index
-    ovPaneSelected = -1
+    // Start the pane highlight on the tab's *active* pane so the first ↑/↓/Tab
+    // moves to its neighbour (not from a "whole tab" slot the user has to step
+    // off first). Falls back to "whole tab" (-1) if there's no focused pane.
+    ovPaneSelected = focusedTileIndex(index)
     updateTitleReadout()
+    applyFidelity()
+}
+
+/**
+ * The tile index of a card's active (focused) pane, or `-1` when the card has
+ * no focused pane (so the selection starts on the "whole tab" slot). Used to
+ * seed [ovPaneSelected] on open / tab switch so pane navigation is relative to
+ * the active pane.
+ *
+ * @param cardIndex index into [ovCards].
+ * @return the focused pane's tile index, or `-1`.
+ */
+private fun focusedTileIndex(cardIndex: Int): Int {
+    val card = ovCards.getOrNull(cardIndex) ?: return -1
+    val focused = card.focusedPaneId ?: return -1
+    return card.tiles.indexOfFirst { it.paneId == focused }
+}
+
+/**
+ * Recomputes every tile view's render state and repaints, so it shows at once:
+ *  - **fidelity**: the selected tab's live terminal tiles paint the exact
+ *    colored cell grid; all others stay on the cheap thumbnail (only the front
+ *    tab paints grids; mirror fallbacks never do — their 120×40 isn't the real
+ *    geometry);
+ *  - **highlights**: each tile's `paneActive` (its tab's focused pane → steady
+ *    accent glow + tinted header) and `paneSelected` (the front tab's current
+ *    keyboard/hover pane → brighter, thicker glow) flags, drawn into the tile
+ *    canvas as a border/header by [ThumbView].
+ *
+ * Called on open and on every tab/pane selection change ([selectCard],
+ * [cyclePane], [setPaneSelection]).
+ */
+private fun applyFidelity() {
+    ovCards.forEachIndexed { i, card ->
+        val front = i == ovSelected
+        card.tiles.forEachIndexed { ti, tile ->
+            val term = tile.contentKind == TileKind.TERMINAL
+            // Only live registry terms (real geometry) render at full fidelity;
+            // mirror fallbacks (fixed 120×40) stay on the cheap thumbnail.
+            val full = front && term && tile.source?.live == true
+            tile.view.fullFidelity = full
+            tile.view.paneActive = tile.paneId == card.focusedPaneId
+            tile.view.paneSelected = front && ti == ovPaneSelected
+            tile.view.showCursor = full && tile.view.paneActive
+        }
+    }
+    for (source in ovSources.values) source.repaint()
+    // Non-terminal tiles have no source, so repaint them directly to reflect
+    // highlight changes (data tiles keep their cached listing; others show the
+    // placeholder).
+    for (card in ovCards) for (tile in card.tiles) {
+        if (tile.source == null) {
+            when (tile.contentKind) {
+                TileKind.FILE_BROWSER, TileKind.GIT -> repaintDataTile(tile)
+                else -> tile.view.paint(null)
+            }
+        }
+    }
 }
 
 /**
@@ -1087,6 +1497,7 @@ private fun cyclePane(delta: Int) {
         if (ovPaneSelected <= -1) n - 1 else ovPaneSelected - 1
     }
     updateTitleReadout()
+    applyFidelity()
 }
 
 /**
@@ -1100,6 +1511,7 @@ private fun setPaneSelection(index: Int) {
     if (index == ovPaneSelected) return
     ovPaneSelected = index
     updateTitleReadout()
+    applyFidelity()
 }
 
 /**
@@ -1231,40 +1643,66 @@ private fun startRenderLoop(renderer: WebGLRenderer, scene: Scene, camera: Persp
         ovPointerMoved = false
 
         ovCards.forEachIndexed { i, card ->
-            // Gentle idle float so the scene never feels frozen.
-            card.mesh.position.y = sin(now * 0.0012 + i * 1.3) * 0.05
+            // Gentle idle float so the scene never feels frozen. Kept shallow
+            // so the front card's bottom row of split panes never bobs off the
+            // lower edge of the viewport.
+            card.mesh.position.y = sin(now * 0.0012 + i * 1.3) * 0.04
 
-            // Glow = selection halo + decaying PTY-activity boost.
+            // Glow = decaying PTY-activity breathing on *background* tabs only.
+            // The front tab gets no glow: it's already obvious (forward + about
+            // to split), and a big card-sized accent halo there just flashed a
+            // stray rectangle on every tab switch and behind the split panes.
             val activity = max(0.0, 1.0 - (now - card.latestActivity()) / GLOW_FADE_MS)
-            val glowTarget = (if (i == ovSelected) 0.30 else 0.0) + activity * 0.45
+            val glowTarget = if (i == ovSelected) 0.0 else activity * 0.45
             card.glowMaterial.opacity += (glowTarget - card.glowMaterial.opacity) * 0.12
 
             val scaleTarget = if (i == hoverIndex) 1.05 else 1.0
             val s = (card.mesh.scale.x as Double) + (scaleTarget - (card.mesh.scale.x as Double)) * 0.2
             card.mesh.scale.set(s, s, 1.0)
 
-            // Split-into-panes: the settled front card crossfades from the
-            // whole-tab thumbnail into its pane tiles at their real layout
-            // positions, gently spread apart and lifted toward the camera.
-            val splitTarget = if (i == ovSelected && settled) 1.0 else 0.0
+            val isFront = i == ovSelected
+
+            // Reveal: dissolve the selected card from its flat whole-tab
+            // thumbnail into its (bordered, accent-headed) pane tiles as it
+            // rotates to dead-center — driven by the ring delta, NOT the split
+            // (see [REVEAL_ARC]). Easing toward the target smooths the handoff
+            // when the selection changes, so the outgoing card melts back to a
+            // flat card and the incoming one grows its panes + chrome as one
+            // unit with the turn, never popping the border/header in afterward.
+            val revealTarget = if (isFront) (1.0 - abs(delta) / REVEAL_ARC).coerceIn(0.0, 1.0) else 0.0
+            card.reveal += (revealTarget - card.reveal) * 0.2
+            val r = ease(card.reveal.coerceIn(0.0, 1.0))
+            card.cardMaterial.opacity = 1.0 - r
+
+            // Split-into-panes: once the front card is fully revealed and
+            // settled, its pane tiles ease apart from their assembled (flush)
+            // layout, lifting toward the camera. Opacity is the reveal above;
+            // the split only drives position/curvature, so the panes are
+            // already solid (with chrome) before they spread.
+            val splitTarget = if (isFront && settled) 1.0 else 0.0
             card.split += (splitTarget - card.split) * 0.14
             val e = ease(card.split.coerceIn(0.0, 1.0))
-            card.cardMaterial.opacity = 1.0 - e
-            val isFront = i == ovSelected
             card.tiles.forEachIndexed { ti, tile ->
-                tile.material.opacity = e
-                tile.mesh.visible = e > 0.02
+                tile.material.opacity = r
+                tile.mesh.visible = r > 0.02
                 tile.mesh.position.set(
                     tile.homeX + (tile.splitX - tile.homeX) * e,
                     tile.homeY + (tile.splitY - tile.homeY) * e,
                     tile.homeZ + (tile.splitZ - tile.homeZ) * e,
                 )
-                // Highlight the selected pane: accent halo + slight pop,
-                // both scaled by the split factor so they only show once the
-                // tiles are actually out.
+                // Outward curve: each tile tilts so its *outer* edges bow away
+                // from the camera (top-left corner furthest back), complementing
+                // the per-pane dish geometry so the exploded panes read as a
+                // curved wall wrapping the viewer. Scaled by the split factor so
+                // they lie flat when assembled.
+                val yaw = (CURVE_K * tile.splitX).coerceIn(-CURVE_MAX_RAD, CURVE_MAX_RAD) * e
+                val pitch = (-CURVE_K * tile.splitY).coerceIn(-CURVE_MAX_RAD, CURVE_MAX_RAD) * e
+                tile.mesh.rotation.set(pitch, yaw, 0.0)
+                // The active-pane ring and keyboard-selection highlight are
+                // drawn into the tile canvas (see [ThumbView.drawPaneBorder]),
+                // set by [applyFidelity]; here we only add a slight pop to the
+                // selected pane.
                 val selected = isFront && ti == ovPaneSelected
-                val glowT = if (selected) 0.6 * e else 0.0
-                tile.glowMaterial.opacity += (glowT - tile.glowMaterial.opacity) * 0.18
                 val tScaleTarget = if (selected) 1.05 else 1.0
                 val ts = (tile.mesh.scale.x as Double) + (tScaleTarget - (tile.mesh.scale.x as Double)) * 0.2
                 tile.mesh.scale.set(ts, ts, 1.0)
@@ -1278,7 +1716,7 @@ private fun startRenderLoop(renderer: WebGLRenderer, scene: Scene, camera: Persp
             val ez = ease(p)
             val baseZ = ovRadius + CAMERA_DISTANCE
             val targetZ = ovRadius + 0.9
-            camera.position.set(0.0, 0.45 * (1.0 - ez), baseZ - (baseZ - targetZ) * ez)
+            camera.position.set(0.0, CAMERA_Y * (1.0 - ez), baseZ - (baseZ - targetZ) * ez)
             if (p >= 1.0) {
                 closeOverview3d()
                 return
@@ -1302,10 +1740,11 @@ private fun startRenderLoop(renderer: WebGLRenderer, scene: Scene, camera: Persp
 
 /**
  * Closes the overview and releases every per-open resource: stops the
- * render loop, detaches key/resize handlers, disposes the shared thumbnail
- * sources (sockets + hidden terminals), the cards' and tiles' GPU
- * resources, and hides the overlay. The renderer/scene/camera/overlay
- * caches stay warm so the next open is instant.
+ * render loop, detaches key/resize handlers, disposes the content sources
+ * (unsubscribing from the live terms — which are left running — and freeing
+ * only the demo hidden terms), the cards' and tiles' GPU resources, and hides
+ * the overlay. The renderer/scene/camera/overlay caches stay warm so the next
+ * open is instant.
  *
  * @see openOverview3d
  */
@@ -1324,6 +1763,7 @@ internal fun closeOverview3d() {
 
     for (source in ovSources.values) source.dispose()
     ovSources.clear()
+    ovPalette = null
     for (card in ovCards) card.dispose()
     ovCards.clear()
     ovRing?.let { ring -> ovScene?.remove(ring) }

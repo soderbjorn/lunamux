@@ -33,6 +33,19 @@ external class Terminal(options: dynamic = definedExternally) {
     fun write(data: dynamic)
     fun onData(cb: (String) -> Unit)
     fun onResize(cb: (dynamic) -> Unit)
+
+    /**
+     * Registers a listener that fires after a chunk of data has been fully
+     * parsed into the terminal's buffer (i.e. the on-screen state may have
+     * changed). Used by the 3D overview ([Overview3D]) to repaint a pane's
+     * live-content tile and light its activity glow *without* opening a second
+     * PTY socket — reading the already-live buffer is size-neutral.
+     *
+     * @param cb invoked (no args) after each processed write.
+     * @return an xterm `IDisposable`; call `.dispose()` to unsubscribe (the
+     *   overview does so on close so the live term keeps no overview state).
+     */
+    fun onWriteParsed(cb: () -> Unit): dynamic
     fun loadAddon(addon: dynamic)
     fun focus()
     fun paste(data: String)

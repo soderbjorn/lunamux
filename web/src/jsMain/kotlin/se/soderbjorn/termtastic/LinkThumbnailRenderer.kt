@@ -58,7 +58,7 @@ private const val THUMBNAIL_CHAR_PX = 5.4
 private const val THUMBNAIL_MAX_LINES = 80
 
 /** Monospace font stack matching the live terminal previews. */
-private const val THUMBNAIL_FONT_FAMILY = "Menlo, Monaco, 'Courier New', monospace"
+internal const val THUMBNAIL_FONT_FAMILY = "Menlo, Monaco, 'Courier New', monospace"
 
 // --- Cross-platform consolidation opportunity --------------------------------
 // The terminal-thumbnail pipeline is currently reimplemented once per platform:
@@ -206,9 +206,10 @@ private fun wrapLine(line: String, cols: Int): List<String> {
  *   bottom — right for a file listing or git status, which read top-down. The
  *   3D overview passes `true` for file-browser / git tiles.
  * @param topInset extra space (px, already in device units) left clear at the
- *   top when [topAnchored] — used by the overview to keep the first line from
- *   being hidden behind the opaque title bar the caller paints afterward.
- *   Ignored when not top-anchored (the tail already sits at the bottom).
+ *   top for the opaque title bar the caller paints afterward — reserved for
+ *   *both* anchors so terminal content never renders under the header.
+ * @param sidePad extra padding (device px) added on the left/right/bottom so
+ *   content clears the pane border in the 3D overview (0 for the link picker).
  * @see LinkThumbnail
  */
 internal fun renderThumbnail(
@@ -219,6 +220,7 @@ internal fun renderThumbnail(
     scale: Double = 1.0,
     topAnchored: Boolean = false,
     topInset: Double = 0.0,
+    sidePad: Double = 0.0,
 ) {
     // Use a dynamic 2D context so the string-typed canvas state properties
     // (fillStyle, font, textBaseline) assign cleanly under Kotlin/JS.
@@ -228,12 +230,14 @@ internal fun renderThumbnail(
     if (width <= 0 || height <= 0) return
 
     // All layout metrics scale together, so a larger canvas at a higher
-    // [scale] keeps the same column/row count but more pixels per glyph.
+    // [scale] keeps the same column/row count but more pixels per glyph. The
+    // extra [sidePad] (device px) keeps content clear of the pane border in the
+    // 3D overview.
     val fontPx = THUMBNAIL_FONT_PX * scale
     val linePx = THUMBNAIL_LINE_PX * scale
     val charPx = THUMBNAIL_CHAR_PX * scale
-    val padX = THUMBNAIL_PAD_X * scale
-    val padY = THUMBNAIL_PAD_Y * scale
+    val padX = THUMBNAIL_PAD_X * scale + sidePad
+    val padY = THUMBNAIL_PAD_Y * scale + sidePad
 
     val d = ctx.asDynamic()
     d.fillStyle = bg
@@ -250,10 +254,11 @@ internal fun renderThumbnail(
     }
     if (rows.isEmpty()) return
 
-    // Reserve the caller's inset at the top only when top-anchored (so the
-    // first row clears an overlaid title bar); the bottom-anchored tail
-    // already sits clear of the top.
-    val inset = if (topAnchored) topInset else 0.0
+    // Reserve the caller's inset at the top for *both* anchors so terminal
+    // content never sits under an opaque title bar (the top-anchored listing
+    // starts below it; the bottom-anchored tail is clipped so its topmost
+    // visible row also clears it).
+    val inset = topInset
     val availableHeight = height - padY * 2 - inset
     val maxVisible = maxOf(1, (availableHeight / linePx).toInt())
     // Keep only the rows that fit: the leading rows (top clip off the bottom)
@@ -269,9 +274,10 @@ internal fun renderThumbnail(
     d.textBaseline = "top"
 
     // Top-anchor starts below the inset+padding; bottom-anchor puts the newest
-    // visible row at the bottom with older rows filling upward.
+    // visible row at the bottom with older rows filling upward — but never
+    // higher than the reserved title-bar inset.
     var y = if (topAnchored) padY + inset else height - padY - visible.size * linePx
-    if (y < padY) y = padY
+    if (y < padY + inset) y = padY + inset
     for (row in visible) {
         d.fillText(row, padX, y)
         y += linePx

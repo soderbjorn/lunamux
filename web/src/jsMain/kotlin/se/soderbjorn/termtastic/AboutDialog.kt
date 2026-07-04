@@ -51,6 +51,7 @@ private val DEPENDENCIES = listOf(
     "SwiftTerm",
     "xterm.js",
     "xterm-addon-fit",
+    "three.js",
     "Electron",
     "Chromium",
     "pty4j",

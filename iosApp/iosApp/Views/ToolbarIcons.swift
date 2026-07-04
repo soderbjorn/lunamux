@@ -9,16 +9,16 @@
 
 import SwiftUI
 
-/// The "layout presets" shape: one large pane on the left with two smaller
-/// panes stacked on the right.
-/// Inspired by the SF Symbol `rectangle.3.group`. Stroked (not filled) so it
-/// reads as an outline glyph matching the other toolbar symbols.
+/// The "layout presets" shape: four unequal panes in a 2×2 "Mondrian" tiling
+/// with roomy 3-unit gaps.
+/// Stroked (not filled) so it reads as an outline glyph matching the other
+/// toolbar symbols.
 private struct LayoutGridShape: Shape {
-    /// Builds three rounded-rectangle panes scaled into `rect` from the shared
+    /// Builds four rounded-rectangle panes scaled into `rect` from the shared
     /// 24-unit design space.
     ///
     /// - Parameter rect: the bounds the glyph is laid out in.
-    /// - Returns: a `Path` containing the three pane outlines.
+    /// - Returns: a `Path` containing the four pane outlines.
     func path(in rect: CGRect) -> Path {
         let u = min(rect.width, rect.height) / 24
         func pane(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> Path {
@@ -29,13 +29,14 @@ private struct LayoutGridShape: Shape {
                     width: w * u,
                     height: h * u
                 ),
-                cornerRadius: 1.2 * u
+                cornerRadius: 1.6 * u
             )
         }
         var path = Path()
-        path.addPath(pane(4, 5, 8.5, 14))
-        path.addPath(pane(14.5, 5, 5.5, 6))
-        path.addPath(pane(14.5, 13, 5.5, 6))
+        path.addPath(pane(3, 3, 9.5, 8))
+        path.addPath(pane(15.5, 3, 5.5, 8))
+        path.addPath(pane(3, 14, 5, 7))
+        path.addPath(pane(11, 14, 10, 7))
         return path
     }
 }

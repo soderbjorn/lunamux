@@ -146,12 +146,22 @@ external class WebGLRenderer(parameters: dynamic = definedExternally) {
 }
 
 /**
- * three.js `PlaneGeometry` — the flat rectangle each tab card (and its glow
- * halo) is built from. One geometry instance is shared by all cards.
+ * three.js `PlaneGeometry` — the flat rectangle each tab card is built from.
+ * Cards use the two-arg (unsubdivided) form; pane tiles pass segment counts so
+ * their vertices can be displaced into a shallow dish (`dishGeometry`) for a
+ * genuinely curved surface. `attributes.position` / `computeVertexNormals` are
+ * reached through `asDynamic()` at the (single) call site that bends the mesh.
  *
  * @param width world-space width. @param height world-space height.
+ * @param widthSegments columns of subdivision (default 1 = flat quad).
+ * @param heightSegments rows of subdivision (default 1 = flat quad).
  */
-external class PlaneGeometry(width: Double, height: Double) {
+external class PlaneGeometry(
+    width: Double,
+    height: Double,
+    widthSegments: Int = definedExternally,
+    heightSegments: Int = definedExternally,
+) {
     /** Frees GPU buffers. Called when the overview closes. */
     fun dispose()
 }

@@ -76,6 +76,7 @@ Load the `iosApp` folder into [Xcode](https://developer.apple.com/xcode/) and ru
 | Server | [pty4j](https://github.com/JetBrains/pty4j) | Shell process management |
 | Server | [JediTerm](https://github.com/JetBrains/jediterm) | Headless terminal emulation |
 | Web | [xterm.js](https://xtermjs.org/) | Terminal rendering |
+| Web | [three.js](https://threejs.org/) | 3D tab/pane overview |
 | Android | [Termux](https://termux.dev/) | Terminal emulation (vendored code) |
 | iOS | [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | Terminal emulation |
 

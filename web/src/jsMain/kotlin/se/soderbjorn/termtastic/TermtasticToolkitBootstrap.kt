@@ -44,6 +44,7 @@ import se.soderbjorn.darkness.web.shell.AppShellHandle
 import se.soderbjorn.darkness.web.shell.AppShellSpec
 import se.soderbjorn.darkness.web.shell.ThemeBootstrap
 import se.soderbjorn.darkness.web.shell.TopbarAction
+import se.soderbjorn.darkness.web.shell.buildTopbarIconButton
 import se.soderbjorn.darkness.web.shell.mountAppShell
 
 /* -------------------------------------------------------------------- */
@@ -65,6 +66,18 @@ private const val ICON_ABOUT =
  */
 private const val ICON_NEWS =
     """<svg class="tt-news-topbar" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>"""
+
+/**
+ * Globe — opens the 3D tab/pane overview (carousel ring). A classic
+ * wireframe globe (outer circle + equator + a meridian ellipse), drawn in
+ * the same 24×24 stroke style as [ICON_ABOUT] / [ICON_NEWS] so it reads as
+ * part of the same topbar icon set. Sits immediately left of the trailing
+ * "+" New button.
+ *
+ * @see buildOverview3dTopbarAction
+ */
+private const val ICON_GLOBE =
+    """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>"""
 
 /** Material Symbols "content_copy" — file-browser path-copy action. */
 private const val PA_ICON_COPY =
@@ -370,7 +383,7 @@ private fun registerReformatHotkey() {
 
 /**
  * Register the configurable **3D tab overview** toggle hotkey (default
- * ⌃⌥O / Ctrl+Alt+O) with the toolkit's [HotkeyBindings].
+ * ⌥⌘→ / Alt+Meta+ArrowRight) with the toolkit's [HotkeyBindings].
  *
  * Same registration mechanics as [registerReformatHotkey]: going through
  * [HotkeyBindings.registerAction] makes the chord user-changeable via the
@@ -387,7 +400,7 @@ private fun registerOverview3dHotkey() {
         HotkeyActionSpec(
             id = OVERVIEW3D_HOTKEY_ACTION_ID,
             label = "3D tab overview",
-            defaults = listOf(Hotkey(key = "o", ctrl = true, alt = true)),
+            defaults = listOf(Hotkey(key = "ArrowRight", alt = true, meta = true)),
         ),
     ) { toggleOverview3d() }
 }
@@ -575,6 +588,31 @@ private fun buildNewsTopbarAction(): TopbarAction = TopbarAction(
     onActivate = {
         newsUpdatesViewModel?.let { showNewsDialog(it, it.stateFlow.value) }
     },
+)
+
+/**
+ * Builds the "3D overview" leading topbar action — a globe that toggles the
+ * carousel-ring tab/pane overview ([toggleOverview3d]). Placed in the
+ * [AppShellSpec.extraTopbarBeforeStandard] slot so it renders immediately to
+ * the LEFT of the trailing "+" New split-button, giving mouse users a click
+ * target for what was previously only reachable via the ⌥⌘→ hotkey
+ * (see [registerOverview3dHotkey]).
+ *
+ * @return the globe topbar action; its click toggles the overview open/closed.
+ * @see toggleOverview3d
+ */
+private fun buildOverview3dTopbarAction(): TopbarAction = TopbarAction(
+    id = "tt-topbar-overview3d",
+    label = "3D tab overview",
+    onActivate = { toggleOverview3d() },
+    // Pre-build the button through the toolkit's canonical
+    // [buildTopbarIconButton] so it carries the `.dt-topbar-icon-button`
+    // class — same sizing, vertical centering, currentColor tint, and hover
+    // affordance as the adjacent standard cluster ("+" / Layout / Appearance).
+    // The plain [TopbarAction] fallback renders a bare button with none of
+    // that styling, which made the globe read as off-colour and mis-centred
+    // with no hover. `element` takes precedence over `iconHtml` in the shell.
+    element = buildTopbarIconButton(ICON_GLOBE, "3D tab overview") { toggleOverview3d() },
 )
 
 /**
@@ -903,6 +941,15 @@ fun bootViaToolkitShell(root: HTMLElement) {
             // `for (tab in cfg.tabs)` block and repaints every
             // `.tt-status-dot[data-tab-state='<tabId>']` element it finds.
             tabTrailingBadge = { tabId -> buildTabStatusDot(tabId) },
+            // Globe button in the LEADING trailing-cluster slot — the toolkit
+            // renders `extraTopbarBeforeStandard` immediately to the left of the
+            // standard "+" New split-button (with a small divider between), so
+            // this places the 3D-overview toggle right where the user asked:
+            // just left of "+". Click routes to the same [toggleOverview3d] as
+            // the ⌥⌘→ hotkey.
+            extraTopbarBeforeStandard = buildList {
+                add(buildOverview3dTopbarAction())
+            },
             extraTopbarTrailing = buildList {
                 add(buildNewsTopbarAction())
                 add(buildAboutTopbarAction())
