@@ -2781,7 +2781,10 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
    foreground, sharing the `fade-warning` 1 → 0.3 → 1 curve with the waiting
    triangle so both breathe in lockstep. */
 .app-logo-dot.state-working {
-    animation: fade-warning 2.5s ease-in-out infinite;
+    /* Opacity is driven by the shared JS pulse loop (WebStateActions.pulseTick),
+       NOT a CSS animation: the toolkit recreates these elements on chrome
+       rebuilds, and a CSS keyframe animation restarts from opacity 1 on a fresh
+       element, snapping the dot to full brightness on every rebuild. */
     /* Isolate the pulse onto its own compositor layer so each frame's repaint
        stays inside this bead's backing store and never re-rasterizes the
        topbar↔body boundary beneath the tab strip. Without this, on a browser
@@ -2807,7 +2810,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     box-shadow: none;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
-    animation: fade-warning 2.5s ease-in-out infinite;
+    /* Opacity driven by the shared JS pulse loop — see `.app-logo-dot.state-working`. */
     /* Own compositor layer while pulsing — see `.app-logo-dot.state-working`
        (issue #37): keeps the per-frame repaint off the topbar↔body seam. */
     will-change: opacity;
@@ -2815,14 +2818,8 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     backface-visibility: hidden;
 }
 
-/* Respect prefers-reduced-motion: drop the breathe but keep the indicator
-   visible (the base rule paints the static foreground dot / masked triangle). */
-@media (prefers-reduced-motion: reduce) {
-    .app-logo-dot.state-working,
-    .app-logo-dot.state-waiting {
-        animation: none;
-    }
-}
+/* Reduced motion is honoured in JS ([startPulse] holds a static full opacity
+   and skips the rAF loop), so no CSS override is needed here. */
 
 /* ── Status indicator (sidebar rows, pane headers, tab strip) ─────────────────
    The unified per-pane / per-tab session indicator. It replaces the former
@@ -2864,7 +2861,8 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
    the foreground, so only the intensity animates. Shares the `fade-warning`
    1 → 0.3 → 1 curve with the waiting triangle so both breathe in lockstep. */
 .tt-status-dot.state-working {
-    animation: fade-warning 2.5s ease-in-out infinite;
+    /* Opacity driven by the shared JS pulse loop (WebStateActions.pulseTick),
+       not a CSS animation — see `.app-logo-dot.state-working` for why. */
     /* Own compositor layer while pulsing — see `.app-logo-dot.state-working`
        (issue #37): keeps the per-frame repaint off the topbar↔body seam under
        the tab strip so no flickering hairline appears at fractional DPR. */
@@ -2885,7 +2883,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     box-shadow: none;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
-    animation: fade-warning 2.5s ease-in-out infinite;
+    /* Opacity driven by the shared JS pulse loop, not a CSS animation. */
     /* Own compositor layer while pulsing — see `.app-logo-dot.state-working`
        (issue #37): keeps the per-frame repaint off the topbar↔body seam. */
     will-change: opacity;
@@ -2897,12 +2895,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     width: 13px;
     height: 13px;
 }
-@media (prefers-reduced-motion: reduce) {
-    .tt-status-dot.state-working,
-    .tt-status-dot.state-waiting {
-        animation: none;
-    }
-}
+/* Reduced motion is honoured in JS ([startPulse]); no CSS override needed. */
 
 /* Hide the indicator entirely when idle (issue #43): an idle `.tt-status-dot`
    carries neither modifier class, so this removes it from sidebar rows, the tab
@@ -3068,3 +3061,142 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     }
 }
 
+
+/* ── Agent-activity indicators (MCP) ────────────────────────────────────
+   .agent-badge is the per-window chip rendered by AgentIndicators.kt for
+   panes whose leaf carries an `agentNote` (set via the MCP annotate_window
+   tool or the automatic agent-touch marker). .agent-toast is the transient
+   notification pushed by the MCP `notify` tool. */
+
+.terminal-cell.tt-pane-body {
+    position: relative; /* anchor for the floating .agent-badge chip */
+}
+
+.agent-badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    z-index: 30;
+    pointer-events: none;
+    font-family: var(--font-ui, -apple-system, sans-serif);
+    font-size: 10.5px;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: var(--t-accent-contrast, #0b0f14);
+    background: var(--t-accent, #2fd4e0);
+    opacity: 0.85;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.agent-toast-host {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.agent-toast {
+    max-width: 420px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: var(--font-ui, -apple-system, sans-serif);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--t-text, #e8eaed);
+    background: var(--t-surface, #1b232c);
+    border: 1px solid var(--t-border, rgba(255, 255, 255, 0.14));
+    border-left: 3px solid var(--t-accent, #2fd4e0);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+}
+
+.agent-toast-warn { border-left-color: #f2a93b; }
+.agent-toast-error { border-left-color: #f2555a; }
+
+/* ── Agent console pane (transcript mode) ───────────────────────────────
+   Built by AgentPane.kt: .agent-view hosts the scrolling transcript list
+   and the input row, fed by the /agent/{id} socket. Screen-mode agent
+   panes render through the ordinary .terminal path instead. */
+
+.agent-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    margin: 0 0 4px 4px; /* same chrome inset as .terminal/.md-view */
+    background: var(--t-bg, var(--terminal-bg));
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.agent-transcript {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 12px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--t-text, #e8eaed);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.agent-item { margin: 0 0 6px; }
+.agent-item-prompt {
+    color: var(--t-accent, #2fd4e0);
+    font-weight: 600;
+}
+.agent-item-input {
+    color: var(--t-text-dim, #9aa0aa);
+}
+.agent-item-input::before { content: "❯ "; }
+.agent-item-ended {
+    color: var(--t-text-tertiary, #777);
+    font-style: italic;
+    text-align: center;
+    margin-top: 10px;
+}
+
+.agent-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    border-top: 1px solid var(--t-border, rgba(255, 255, 255, 0.12));
+    background: var(--t-surface, rgba(255, 255, 255, 0.03));
+}
+
+.agent-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--t-border, rgba(255, 255, 255, 0.16));
+    background: var(--t-bg, #10151b);
+    color: var(--t-text, #e8eaed);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 13px;
+    outline: none;
+}
+.agent-view[data-awaiting="true"] .agent-input {
+    border-color: var(--t-accent, #2fd4e0);
+    box-shadow: 0 0 0 1px var(--t-accent, #2fd4e0);
+}
+
+.agent-send {
+    flex: 0 0 auto;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--t-border, rgba(255, 255, 255, 0.16));
+    background: var(--t-surface, rgba(255, 255, 255, 0.06));
+    color: var(--t-text, #e8eaed);
+    font-size: 13px;
+    cursor: pointer;
+}
+.agent-send:hover { background: var(--t-accent-soft, rgba(47, 212, 224, 0.15)); }
+.agent-send:disabled, .agent-input:disabled { opacity: 0.45; cursor: default; }

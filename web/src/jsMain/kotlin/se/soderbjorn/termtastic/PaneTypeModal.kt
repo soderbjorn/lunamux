@@ -135,7 +135,10 @@ fun openTerminalLinkPicker(
                 val leaf = p.leaf
                 val kind = (leaf.content?.kind as? String) ?: "terminal"
                 val sid = leaf.sessionId as String
-                if (kind == "terminal" && sid.isNotEmpty()) {
+                // Agent consoles carry a real session id whose byte stream is
+                // served like a PTY's, so they are link-target eligible too —
+                // a linked view renders the console through a terminal pane.
+                if ((kind == "terminal" || kind == "agent") && sid.isNotEmpty()) {
                     leaves.add(TermLeaf(leaf.id as String, leaf.title as String, sid))
                 }
             }

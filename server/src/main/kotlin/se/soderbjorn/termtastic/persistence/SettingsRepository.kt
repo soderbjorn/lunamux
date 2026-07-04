@@ -663,6 +663,30 @@ class SettingsRepository(dbFile: File) {
     }
 
     /**
+     * Whether the MCP endpoint (`/mcp`) is enabled — the global MCP kill
+     * switch surfaced in the settings dialog's MCP section. Defaults to
+     * `true`: the endpoint is only usable with an explicitly minted
+     * MCP-labelled token, so leaving it on exposes nothing by itself.
+     * Checked per-request by `McpRoutes`, so flipping the switch takes
+     * effect immediately without a restart.
+     *
+     * @return true unless the user has switched MCP off.
+     */
+    fun isMcpEnabled(): Boolean =
+        getString(MCP_ENABLED_KEY)?.equals("false", ignoreCase = true) != true
+
+    /**
+     * Toggle the global MCP kill switch.
+     *
+     * @param value true to enable the `/mcp` endpoint, false to disable it
+     *   for every token until re-enabled.
+     * @see isMcpEnabled
+     */
+    fun setMcpEnabled(value: Boolean) {
+        putString(MCP_ENABLED_KEY, value.toString())
+    }
+
+    /**
      * Per-database id nonce embedded in every newly minted tab / pane /
      * session id (e.g. `t7-x4k9`), minted lazily on first use and then
      * stable for the lifetime of this database.
@@ -702,6 +726,8 @@ class SettingsRepository(dbFile: File) {
         const val WINDOW_CONFIG_KEY = WINDOW_CONFIG_KEY_V3
         private const val ALLOW_REMOTE_KEY = "network.allow_remote.v1"
         private const val CLAUDE_USAGE_POLL_KEY = "claude.usage_poll.v1"
+        /** Key holding the global MCP kill switch (see [isMcpEnabled]). */
+        private const val MCP_ENABLED_KEY = "mcp.enabled.v1"
         /** Key holding the per-database id nonce (see [instanceIdNonce]). */
         private const val INSTANCE_ID_NONCE_KEY = "instance.id_nonce.v1"
     }

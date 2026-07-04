@@ -76,6 +76,7 @@ import org.slf4j.LoggerFactory
 import se.soderbjorn.termtastic.ClaudeUsageMonitor
 import se.soderbjorn.termtastic.auth.DeviceAuth
 import se.soderbjorn.termtastic.persistence.SettingsRepository
+import se.soderbjorn.termtastic.tls.CertStore
 import java.awt.GraphicsEnvironment
 import javax.swing.SwingUtilities
 import java.net.Inet4Address
@@ -251,6 +252,8 @@ object SettingsDialog {
             Spacer(Modifier.height(16.dp))
             ClaudeUsageSection(repo)
             Spacer(Modifier.height(16.dp))
+            McpSection(repo, isShowing)
+            Spacer(Modifier.height(16.dp))
             TrustedDevicesSection(repo, isShowing)
             Spacer(Modifier.height(16.dp))
             DeniedDevicesSection(repo, isShowing)
@@ -368,6 +371,201 @@ object SettingsDialog {
         }
 
         HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+    }
+
+    /**
+     * Render the "MCP" section: the global kill switch, token minting with
+     * a ready-to-paste `.mcp.json` snippet, the scope/revoke list for
+     * existing MCP tokens, and the TLS-trust instructions for Node-based
+     * clients (`NODE_EXTRA_CA_CERTS` pointing at the exported leaf PEM).
+     *
+     * Called from [SettingsContent]. Tokens are stored hashed, so the raw
+     * token (and the snippet embedding it) is only shown for the token
+     * generated in this dialog session — once the dialog closes it cannot
+     * be recovered, only revoked and re-minted.
+     *
+     * @param repo settings repository backing the kill switch and token list
+     * @param refreshKey changing this value re-reads the token list (the
+     *   dialog window stays composed while hidden — see [TrustedDevicesSection])
+     * @see DeviceAuth.addTrustedToken
+     * @see DeviceAuth.listMcpTokens
+     * @see CertStore.leafPemFile
+     */
+    @Composable
+    private fun McpSection(repo: SettingsRepository, refreshKey: Any) {
+        SectionHeader("MCP server")
+
+        var enabled by remember { mutableStateOf(repo.isMcpEnabled()) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable(onClick = {
+                enabled = !enabled
+                repo.setMcpEnabled(enabled)
+                log.info("Settings: MCP enabled toggled to {}", enabled)
+            }),
+        ) {
+            Checkbox(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    repo.setMcpEnabled(it)
+                    log.info("Settings: MCP enabled toggled to {}", it)
+                },
+            )
+            Text("Enable MCP server (/mcp, localhost only)", fontSize = 14.sp)
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        var tokens by remember(refreshKey) { mutableStateOf(DeviceAuth.listMcpTokens(repo)) }
+        // Raw token + snippet for the token minted in this dialog session.
+        var freshSnippet by remember(refreshKey) { mutableStateOf<String?>(null) }
+
+        Button(onClick = {
+            val raw = generateMcpToken()
+            DeviceAuth.addTrustedToken(repo, raw, DeviceAuth.MCP_LABEL, DeviceAuth.MCP_SCOPE_READ)
+            tokens = DeviceAuth.listMcpTokens(repo)
+            freshSnippet = mcpJsonSnippet(raw)
+            log.info("Settings: generated a new MCP token (scope=read)")
+        }) {
+            Text("Generate MCP token")
+        }
+
+        freshSnippet?.let { snippet ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Paste into your project's .mcp.json (shown once — copy it now):",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(snippet, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            Row {
+                Button(onClick = { copyToClipboard(snippet) }) { Text("Copy snippet") }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        if (tokens.isEmpty()) {
+            Text(
+                "No MCP tokens yet.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+            )
+        } else {
+            val df = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT) }
+            tokens.forEach { token ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "MCP token #${token.tokenHash.take(10)}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
+                        Text(
+                            "scope: ${token.scope ?: "?"} · last used " +
+                                df.format(Date(token.lastSeenEpochMs)),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    val isWrite = token.scope == DeviceAuth.MCP_SCOPE_READ_WRITE
+                    Button(onClick = {
+                        val newScope = if (isWrite) DeviceAuth.MCP_SCOPE_READ
+                        else DeviceAuth.MCP_SCOPE_READ_WRITE
+                        DeviceAuth.setMcpTokenScope(repo, token.tokenHash, newScope)
+                        tokens = DeviceAuth.listMcpTokens(repo)
+                        log.info("Settings: MCP token {} scope set to {}", token.tokenHash.take(10), newScope)
+                    }) {
+                        Text(if (isWrite) "Make read-only" else "Allow writes")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        DeviceAuth.revokeTrustedDevice(repo, token.tokenHash)
+                        tokens = DeviceAuth.listMcpTokens(repo)
+                        log.info("Settings: revoked MCP token {}", token.tokenHash.take(10))
+                    }) {
+                        Text("Revoke")
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        // Compact agent-activity list: the most recent MCP write calls
+        // (tool + redacted args), newest first. Re-read on each dialog show.
+        val activity = remember(refreshKey) { se.soderbjorn.termtastic.mcp.McpActivityLog.recent(12) }
+        if (activity.isNotEmpty()) {
+            Text("Recent agent activity:", fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val adf = remember { SimpleDateFormat("HH:mm:ss", Locale.ROOT) }
+            activity.forEach { entry ->
+                Text(
+                    "${adf.format(Date(entry.atEpochMs))}  ${entry.tool}  ${entry.detail}",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        val pemPath = remember { CertStore.leafPemFile().absolutePath }
+        Text(
+            "TLS trust for Node clients (Claude Code): export before launching —",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "NODE_EXTRA_CA_CERTS=$pemPath",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+        )
+        Row {
+            Button(onClick = { copyToClipboard("NODE_EXTRA_CA_CERTS=$pemPath") }) {
+                Text("Copy env line")
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
+    }
+
+    /** Mint a fresh 256-bit hex MCP token. */
+    private fun generateMcpToken(): String {
+        val bytes = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        return "mcp-" + bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Build the ready-to-paste `.mcp.json` snippet embedding [rawToken] and
+     * the server's live port.
+     */
+    private fun mcpJsonSnippet(rawToken: String): String {
+        val port = listeningPort ?: 8443
+        return """
+            {
+              "mcpServers": {
+                "termtastic": {
+                  "type": "http",
+                  "url": "https://localhost:$port/mcp",
+                  "headers": { "X-Termtastic-Auth": "$rawToken" }
+                }
+              }
+            }
+        """.trimIndent()
+    }
+
+    /** Copy [text] to the system clipboard (best effort). */
+    private fun copyToClipboard(text: String) {
+        runCatching {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                java.awt.datatransfer.StringSelection(text), null,
+            )
+        }.onFailure { log.warn("Failed to copy to clipboard", it) }
     }
 
     /**

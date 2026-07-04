@@ -45,6 +45,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import org.slf4j.LoggerFactory
+import se.soderbjorn.termtastic.mcp.mcpRoutes
 import se.soderbjorn.termtastic.persistence.AppPaths
 import se.soderbjorn.termtastic.persistence.SettingsRepository
 import se.soderbjorn.termtastic.tls.CertStore
@@ -233,7 +234,10 @@ fun Application.module(
         }
         uiSettingsRoutes(settingsRepo)
         ptyRoutes(settingsRepo)
+        agentRoutes(settingsRepo)
         windowRoutes(settingsRepo, sessionStates, usageMonitor)
         adminRoutes(settingsRepo, scrollbackSaver)
+        // MCP endpoint (localhost-only, MCP-token gated) — see mcp/McpRoutes.kt.
+        mcpRoutes(settingsRepo, usageMonitor)
     }
 }

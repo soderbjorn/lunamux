@@ -69,6 +69,17 @@ object CertStore {
     private const val KEYSTORE_FILE = "server.p12"
     private const val PASSWORD_FILE = "keystore.pass"
     private const val FINGERPRINT_FILE = "server.p12.fingerprint"
+    private const val LEAF_PEM_FILE = "server-leaf.pem"
+
+    /**
+     * Absolute path of the exported PEM copy of the TLS leaf certificate
+     * (written by [ensureKeystore] on every boot). Surfaced in the settings
+     * dialog's MCP section so the user can point a Node-based MCP client at
+     * it via `NODE_EXTRA_CA_CERTS`, making the self-signed cert trusted.
+     *
+     * @return the sidecar PEM file (may not exist before the first boot).
+     */
+    fun leafPemFile(): java.io.File = AppPaths.tlsDir().resolve(LEAF_PEM_FILE)
 
     /**
      * Ensure a usable keystore exists on disk and return its in-memory form.
@@ -101,6 +112,7 @@ object CertStore {
                 }
                 val bundle = KeyStoreBundle(ks, ALIAS, pw, computeFingerprint(ks))
                 writeFingerprintSidecar(fpFile, bundle.sha256Fingerprint)
+                writeLeafPemSidecar(ks)
                 logFingerprint(bundle, regenerated = false)
                 return bundle
             }.onFailure {
@@ -127,8 +139,31 @@ object CertStore {
 
         val bundle = KeyStoreBundle(ks, ALIAS, pw, computeFingerprint(ks))
         writeFingerprintSidecar(fpFile, bundle.sha256Fingerprint)
+        writeLeafPemSidecar(ks)
         logFingerprint(bundle, regenerated = true)
         return bundle
+    }
+
+    /**
+     * Export the leaf certificate as a PEM sidecar (`server-leaf.pem`) next
+     * to the keystore. Rewritten on every boot so it always matches the
+     * live keystore. The PEM holds only the public certificate — no key
+     * material — so default file permissions are fine; it exists so MCP /
+     * Node clients can trust the self-signed cert via `NODE_EXTRA_CA_CERTS`.
+     *
+     * @param ks the loaded keystore whose [ALIAS] leaf gets exported.
+     * @see leafPemFile
+     */
+    private fun writeLeafPemSidecar(ks: KeyStore) {
+        runCatching {
+            val cert = ks.getCertificate(ALIAS)
+                ?: error("Keystore is missing alias '$ALIAS' — cannot export PEM.")
+            val b64 = java.util.Base64.getMimeEncoder(64, "\n".toByteArray())
+                .encodeToString(cert.encoded)
+            leafPemFile().writeText(
+                "-----BEGIN CERTIFICATE-----\n$b64\n-----END CERTIFICATE-----\n"
+            )
+        }.onFailure { log.warn("Failed to write leaf PEM sidecar", it) }
     }
 
     /**

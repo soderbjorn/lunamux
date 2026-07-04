@@ -113,7 +113,7 @@ internal fun Route.ptyRoutes(settingsRepo: SettingsRepository) {
  * to the [TerminalSession]. Unknown or malformed messages are silently
  * dropped.
  */
-internal fun handleControl(session: TerminalSession, clientId: String, text: String) {
+internal fun handleControl(session: TermSession, clientId: String, text: String) {
     val control = runCatching {
         controlJson.decodeFromString<PtyControl>(text)
     }.getOrNull() ?: return

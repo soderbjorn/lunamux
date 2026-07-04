@@ -171,7 +171,11 @@ class RealWindowSocket internal constructor(
                             is WindowEnvelope.GitError,
                             is WindowEnvelope.WorktreeDefaults,
                             is WindowEnvelope.WorktreeCreated,
-                            is WindowEnvelope.WorktreeError -> Unit
+                            is WindowEnvelope.WorktreeError,
+                            // Agent notifications only need the passthrough
+                            // emit below; platform UIs collect [envelopes]
+                            // and render their own toast/banner.
+                            is WindowEnvelope.AgentNotify -> Unit
                         }
                         _envelopes.emit(envelope)
                     }

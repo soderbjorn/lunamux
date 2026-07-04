@@ -28,6 +28,10 @@ const val PANE_ICON_LINK: String =
 const val PANE_ICON_TERMINAL: String =
     """<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="1" y="2" width="14" height="12" rx="1.5"/><polyline points="4,7 6,5 4,3"/><line x1="7" y1="7" x2="11" y2="7" stroke-linecap="round"/></svg>"""
 
+/** Robot-head glyph for `agent` console panes (MCP-driven). */
+const val PANE_ICON_AGENT: String =
+    """<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="5" width="10" height="8" rx="1.5"/><line x1="8" y1="5" x2="8" y2="2.5"/><circle cx="8" cy="2" r="0.6"/><circle cx="6" cy="8.5" r="0.8"/><circle cx="10" cy="8.5" r="0.8"/><line x1="6.5" y1="11" x2="9.5" y2="11"/></svg>"""
+
 /**
  * Looks up the icon SVG for a given termtastic leaf, by its dynamic
  * descriptor (the same shape `LayoutBuilder` consumes from the server's
@@ -45,6 +49,7 @@ fun termtasticPaneIcon(leaf: dynamic): String? {
     return when ((leaf.content?.kind as? String) ?: "terminal") {
         "fileBrowser" -> PANE_ICON_FILE_BROWSER
         "git" -> PANE_ICON_GIT
+        "agent" -> PANE_ICON_AGENT
         else -> PANE_ICON_TERMINAL
     }
 }

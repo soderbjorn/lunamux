@@ -201,6 +201,13 @@ internal fun Route.windowRoutes(
             }
         }
 
+        // Agent notifications (MCP `notify` tool) fan out to every client.
+        val agentNoticePushJob = launch {
+            se.soderbjorn.termtastic.mcp.McpNotices.flow.collect { env ->
+                send(Frame.Text(windowJson.encodeToString<WindowEnvelope>(env)))
+            }
+        }
+
         val uiSettingsPushJob = launch {
             settingsRepo.uiSettings.collect { s ->
                 // Publish the v2 settings MERGED with the synthesized legacy
@@ -228,6 +235,7 @@ internal fun Route.windowRoutes(
             pushJob.cancel()
             statePushJob.cancel()
             usagePushJob.cancel()
+            agentNoticePushJob.cancel()
             uiSettingsPushJob.cancel()
         }
     }

@@ -233,10 +233,14 @@ object WindowState {
                 ?.let { if (it > maxNodeId) maxNodeId = it }
         }
 
-        fun rebuildLeaf(leaf: LeafNode): LeafNode {
+        fun rebuildLeaf(leaf: LeafNode): LeafNode? {
             trackNodeId(leaf.id)
             return when (leaf.content) {
                 is FileBrowserContent, is GitContent -> leaf.copy(sessionId = "")
+                // Agent consoles are ephemeral: a PTY-less virtual session
+                // cannot be reattached after a restart (the driving MCP
+                // client is gone), so a persisted agent pane is dropped.
+                is AgentContent -> null
                 is TerminalContent, null -> {
                     val priorScrollback = runCatching { repo.loadScrollback(leaf.id) }.getOrNull()
                     val freshSession = TerminalSessions.create(leaf.cwd, priorScrollback)
@@ -250,10 +254,11 @@ object WindowState {
             tab.id.removePrefix("t").substringBefore('-').toLongOrNull()
                 ?.let { if (it > maxTabId) maxTabId = it }
 
-            val rebuiltPanes = tab.panes.map { p ->
+            val rebuiltPanes = tab.panes.mapNotNull { p ->
+                val rebuilt = rebuildLeaf(p.leaf) ?: return@mapNotNull null
                 val box = PaneGeometry.normalize(p.x, p.y, p.width, p.height)
                 p.copy(
-                    leaf = rebuildLeaf(p.leaf),
+                    leaf = rebuilt,
                     x = box.x, y = box.y, width = box.width, height = box.height,
                 )
             }
@@ -313,8 +318,12 @@ object WindowState {
     // ── Tab dispatch ─────────────────────────────────────────────────
 
     /** Create a new tab with a single terminal pane, switch to it, and
-     *  default it to auto-tiling. */
-    fun addTab() = synchronized(this) {
+     *  default it to auto-tiling.
+     *
+     *  @return the newly minted tab id (used by the MCP `create_tab` tool
+     *    to report the created tab; the `/window` command path ignores it).
+     */
+    fun addTab(): String = synchronized(this) {
         val cfg = _config.value
         val sessionId = TerminalSessions.create()
         val tabId = newTabId()
@@ -338,6 +347,7 @@ object WindowState {
         // small default rectangle instead of full screen (issue #86).
         recordPaneCreated(tabId, nodeId, parentPaneId = null)
         maybeReapplyLayout(tabId)
+        tabId
     }
 
     /** Close [tabId], destroying any PTY sessions no longer referenced. */
@@ -658,6 +668,36 @@ object WindowState {
     }
 
     /**
+     * Idempotently set [paneId]'s maximized flag to [maximized]. Used by
+     * the MCP `maximize_window` tool, which must be race-free against a
+     * user's concurrent toggle (see [PaneManager.setMaximized]).
+     *
+     * @param paneId the pane to (un)maximize
+     * @param maximized the desired end state
+     */
+    fun setMaximized(paneId: String, maximized: Boolean) = synchronized(this) {
+        val cfg = _config.value
+        val newCfg = PaneManager.setMaximized(cfg, paneId, maximized) ?: return@synchronized
+        _config.value = newCfg
+    }
+
+    /**
+     * Set or clear the agent-activity note on [paneId]. Called by the MCP
+     * `annotate_window` tool and by the automatic agent-touch marker in
+     * `McpWriteTools` — the note renders as a badge on the pane in every
+     * connected client, making agent activity visible across devices.
+     *
+     * @param paneId the pane to annotate
+     * @param note badge text, or `null`/blank to clear
+     * @see PaneManager.setAgentNote
+     */
+    fun setAgentNote(paneId: String, note: String?) = synchronized(this) {
+        val cfg = _config.value
+        val newCfg = PaneManager.setAgentNote(cfg, paneId, note) ?: return@synchronized
+        _config.value = newCfg
+    }
+
+    /**
      * Apply a layout algorithm to [tabId]. Records the chosen layout in
      * [activeLayoutByTab] so subsequent pane add/remove/focus events can
      * re-tile via [maybeReapplyLayout]. For `"auto"`, the
@@ -811,6 +851,57 @@ object WindowState {
             cwd = effectiveCwd,
             title = computeLeafTitle(null, null, effectiveCwd, "Git"),
             content = GitContent(),
+        )
+        val (ox, oy) = PaneManager.randomSnappedOrigin()
+        val newPane = Pane(
+            leaf = leaf,
+            x = ox, y = oy,
+            width = PaneGeometry.DEFAULT_SIZE,
+            height = PaneGeometry.DEFAULT_SIZE,
+            z = PaneManager.nextZ(tab),
+        )
+        _config.value = PaneManager.appendPane(cfg, idx, newPane)
+        TabManager.setFocusedPane(_config.value, tabId, leaf.id)?.let { _config.value = it }
+        recordPaneCreated(tabId, leaf.id, parentPaneId)
+        maybeReapplyLayout(tabId)
+        leaf
+    }
+
+    /**
+     * Add an agent-console pane to [tabId], backed by the already
+     * registered PTY-less agent session [sessionId]. Called by the MCP
+     * `open_console` tool (see `McpConsoleTools`), never from the client
+     * command surface — agent panes exist only while their driving MCP
+     * client is connected.
+     *
+     * @param tabId the tab to add the console to
+     * @param sessionId the agent session id from [TerminalSessions.registerAgent]
+     * @param title display title for the pane
+     * @param renderMode `"transcript"` or `"screen"` (see [AgentContent])
+     * @param cols requested grid width for screen mode, or null
+     * @param rows requested grid height for screen mode, or null
+     * @return the created leaf, or null when [tabId] doesn't exist
+     */
+    fun addAgentToTab(
+        tabId: String,
+        sessionId: String,
+        title: String,
+        renderMode: String,
+        cols: Int? = null,
+        rows: Int? = null,
+    ): LeafNode? = synchronized(this) {
+        val cfg = _config.value
+        val idx = cfg.tabs.indexOfFirst { it.id == tabId }
+        if (idx < 0) return@synchronized null
+        val tab = cfg.tabs[idx]
+        val parentPaneId = tab.focusedPaneId
+        val leaf = LeafNode(
+            id = newNodeId(),
+            sessionId = sessionId,
+            title = title,
+            customName = title,
+            content = AgentContent(renderMode = renderMode, cols = cols, rows = rows),
+            agentNote = "agent",
         )
         val (ox, oy) = PaneManager.randomSnappedOrigin()
         val newPane = Pane(

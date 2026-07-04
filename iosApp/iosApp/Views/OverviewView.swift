@@ -876,9 +876,15 @@ private struct MiniPane: View {
 /// The pane's content type, dispatched on the leaf's content (terminal is the
 /// default for `TerminalContent` and legacy null-content leaves). Shared by the
 /// canvas panes, the dock chips, and the mini-pane title bar.
+///
+/// Agent consoles (`Client.AgentContent`) deliberately map to `.terminal`:
+/// their byte stream is served over the same `/pty/{sessionId}` socket a
+/// shell pane uses, so SwiftTerm renders both agent modes — the transcript
+/// mirror (read + cooked typed input) and the painted screen grid.
 private func leafKind(_ leaf: Client.LeafNode) -> LeafKind {
     if leaf.content is Client.GitContent { return .git }
     if leaf.content is Client.FileBrowserContent { return .fileBrowser }
+    if leaf.content is Client.AgentContent { return .terminal }
     return .terminal
 }
 

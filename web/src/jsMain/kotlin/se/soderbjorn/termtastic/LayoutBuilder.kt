@@ -526,6 +526,25 @@ fun mountPaneContent(paneId: String): HTMLElement {
             cell.appendChild(localStrip)
             cell.appendChild(buildGitView(paneId, leaf, localStrip))
         }
+        "agent" -> {
+            val sessionId = leaf.sessionId as String
+            val renderMode = (leaf.content?.renderMode as? String) ?: "transcript"
+            if (renderMode == "screen") {
+                // Screen mode reuses the full xterm.js terminal path — the
+                // agent session's byte stream arrives over the same
+                // /pty/{sessionId} socket a shell pane uses, and keystrokes
+                // typed here flow back into the agent's input channel.
+                val entry = ensureTerminal(paneId, sessionId)
+                entry.term.options.fontSize = (appVm.stateFlow.value.paneFontSize ?: 14)
+                entry.term.options.fontFamily = resolveFontFamilyCss(appVm.stateFlow.value.paneFontFamily)
+                try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+                cell.appendChild(entry.container)
+            } else {
+                // Transcript mode: plain-DOM conversation list + input box
+                // over the structured /agent/{sessionId} socket.
+                cell.appendChild(ensureAgentTranscript(paneId, sessionId))
+            }
+        }
         else -> {
             val sessionId = (leaf.content?.sessionId as? String) ?: (leaf.sessionId as String)
             val entry = ensureTerminal(paneId, sessionId)

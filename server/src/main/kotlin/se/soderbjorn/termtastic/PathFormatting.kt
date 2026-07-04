@@ -121,7 +121,9 @@ private val HTML_UNSAFE = Regex("""[<>&"'`\\]""")
 internal fun WindowConfig.withBlankSessionIds(): WindowConfig {
     fun blankContent(c: LeafContent?): LeafContent? = when (c) {
         is TerminalContent -> if (c.sessionId.isEmpty()) c else c.copy(sessionId = "")
-        is FileBrowserContent, is GitContent, null -> c
+        // Agent panes are ephemeral and dropped on rehydrate anyway; their
+        // content carries no session id to blank.
+        is FileBrowserContent, is GitContent, is AgentContent, null -> c
     }
     fun stripLeaf(leaf: LeafNode): LeafNode {
         val newContent = blankContent(leaf.content)

@@ -186,6 +186,16 @@ data class LeafNode(
      * close all linked views of the same session.
      */
     val isLink: Boolean = false,
+    /**
+     * Agent-activity note shown as a small badge on the pane. Set by the
+     * MCP `annotate_window` tool, and auto-set (to a generic marker) when
+     * an MCP agent mutates the window or writes to its session — so an
+     * agent acting across devices is never invisible. `null` (the default,
+     * so legacy blobs round-trip) means no badge.
+     *
+     * @see WindowEnvelope.AgentNotify for transient agent notifications
+     */
+    val agentNote: String? = null,
 )
 
 /**
@@ -281,6 +291,40 @@ data class GitContent(
     val diffFontSize: Int? = null,
     /** If true, the server pushes a fresh file list on working tree changes. */
     val autoRefresh: Boolean = false,
+) : LeafContent()
+
+/**
+ * Agent console pane: a PTY-less virtual session driven by an MCP client
+ * (an AI agent) through the server's `open_console` / `console_*` /
+ * `screen_*` tools rather than by a shell.
+ *
+ * Two render modes:
+ *  - `"transcript"` — a scrolling conversation log plus a line-input box.
+ *    The web client renders it as plain DOM over the `/agent/{id}` socket;
+ *    mobile clients render the mirrored terminal stream through their
+ *    existing terminal views (the server echoes transcript text and runs a
+ *    cooked line discipline for typed input).
+ *  - `"screen"` — an addressable VT grid painted via `screen_draw` /
+ *    `screen_present` / `console_write_raw`. Every client reuses its
+ *    terminal renderer, attached to the same `/pty/{sessionId}` socket a
+ *    shell pane uses (the backing `AgentSession` implements the same
+ *    session interface).
+ *
+ * Agent consoles are **ephemeral**: a PTY-less session cannot be
+ * reattached, so the server tears the pane down when the owning MCP
+ * client disconnects and drops persisted agent panes on restart.
+ *
+ * @see LeafContent
+ */
+@Serializable
+@SerialName("agent")
+data class AgentContent(
+    /** `"transcript"` or `"screen"` — see the class doc. */
+    val renderMode: String = "transcript",
+    /** Requested grid width for screen mode; null = client-driven. */
+    val cols: Int? = null,
+    /** Requested grid height for screen mode; null = client-driven. */
+    val rows: Int? = null,
 ) : LeafContent()
 
 /**

@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import se.soderbjorn.termtastic.AgentContent
 import se.soderbjorn.termtastic.GitContent
 import se.soderbjorn.termtastic.LeafNode
 import se.soderbjorn.termtastic.FileBrowserContent
@@ -330,6 +331,12 @@ private fun addLeaf(
         is TerminalContent, null -> LeafKind.TERMINAL
         is FileBrowserContent -> LeafKind.FILE_BROWSER
         is GitContent -> LeafKind.GIT
+        // Agent consoles carry a real sessionId whose byte stream is served
+        // like a PTY's (the server mirrors both render modes into it), so on
+        // Android they route through the terminal screen: transcript mode
+        // shows the mirrored conversation with cooked typed input, screen
+        // mode is the full grid — see AgentSession on the server.
+        is AgentContent -> LeafKind.TERMINAL
     }
     out.add(
         CollectedLeaf(

@@ -213,7 +213,46 @@ sealed class WindowEnvelope {
         val paneId: String,
         val message: String,
     ) : WindowEnvelope()
+
+    /**
+     * Transient notification from an MCP agent, broadcast to every
+     * connected client. Sent by the MCP `notify` tool so an agent can
+     * surface a message ("build done", "need input in window 3") on all
+     * devices; clients render it as a toast/banner and do not persist it.
+     *
+     * @param message the human-readable notification text
+     * @param level severity hint: `"info"`, `"warn"`, or `"error"`
+     */
+    @Serializable
+    @SerialName("agentNotify")
+    data class AgentNotify(
+        val message: String,
+        val level: String = "info",
+    ) : WindowEnvelope()
 }
+
+/**
+ * One model-specific weekly usage row from the `/usage` screen, e.g.
+ * "Current week (Fable)" or "Current week (Sonnet)". The set of rows shown
+ * varies with the user's plan and Anthropic's current model lineup, so the
+ * label is carried verbatim rather than hardcoded per model.
+ *
+ * Produced by [ClaudeUsageMonitor.parseUsageScreen] and rendered by the web
+ * usage bar (`ClaudeUsageBar.kt`) as one compact row per entry.
+ *
+ * @param label the model name inside the section header's parentheses,
+ *   e.g. "Fable", "Sonnet", "Opus"
+ * @param percent usage percentage (0-100) for this model's weekly window
+ * @param resetTime raw "Resets ..." text for this row, or empty when the row
+ *   shares the all-models weekly reset and prints none of its own
+ * @see ClaudeUsageData.modelUsages
+ */
+@Serializable
+data class ClaudeModelUsage(
+    val label: String,
+    val percent: Int,
+    val resetTime: String = "",
+)
 
 /**
  * Snapshot of Claude API usage data retrieved from the Claude CLI.
@@ -225,11 +264,25 @@ data class ClaudeUsageData(
     val sessionResetTime: String,
     val weeklyAllPercent: Int,
     val weeklyAllResetTime: String,
-    val weeklySonnetPercent: Int,
+    /**
+     * Weekly usage for the specific model tracked separately from the
+     * all-models pool. Historically this was always Sonnet; newer CLI
+     * versions label the section per model (e.g. "Current week (Fable)").
+     * Kept — and still populated when a Sonnet row is present — so clients
+     * built before [modelUsages] keep working. Prefer [modelUsages].
+     */
+    val weeklySonnetPercent: Int = 0,
     val extraUsageEnabled: Boolean,
     val extraUsageInfo: String?,
     /** ISO-8601 instant when the data was fetched from the Claude CLI. */
     val fetchedAt: String = "",
+    /**
+     * All model-specific weekly rows in screen order, one per
+     * "Current week (<model>)" section that is not the all-models pool.
+     * Empty when the server predates this field or the screen shows no
+     * per-model rows.
+     */
+    val modelUsages: List<ClaudeModelUsage> = emptyList(),
 )
 
 /**

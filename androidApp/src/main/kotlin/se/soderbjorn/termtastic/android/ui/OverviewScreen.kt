@@ -101,6 +101,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import se.soderbjorn.termtastic.FileBrowserContent
+import se.soderbjorn.termtastic.AgentContent
 import se.soderbjorn.termtastic.GitContent
 import se.soderbjorn.termtastic.LeafNode
 import se.soderbjorn.termtastic.android.net.ConnectionHolder
@@ -313,6 +314,11 @@ private fun openPane(
     when (leaf.content) {
         is FileBrowserContent -> onOpenFileBrowser(leaf.id)
         is GitContent -> onOpenGit(leaf.id)
+        // Agent consoles open the terminal screen bound to their session id:
+        // the server mirrors both agent render modes into the /pty byte
+        // stream (transcript mode with a cooked input line, screen mode as
+        // the full grid), so the existing terminal screen is the renderer.
+        is AgentContent -> onOpenTerminal(leaf.sessionId)
         else -> onOpenTerminal(leaf.sessionId)
     }
 }
@@ -696,6 +702,8 @@ private fun DockStrip(
 private fun leafKindOf(leaf: LeafNode): LeafKind = when (leaf.content) {
     is FileBrowserContent -> LeafKind.FILE_BROWSER
     is GitContent -> LeafKind.GIT
+    // Agent consoles render through the terminal surface (see openPane).
+    is AgentContent -> LeafKind.TERMINAL
     else -> LeafKind.TERMINAL
 }
 
@@ -760,6 +768,9 @@ private fun MiniPane(
                 when (pane.leaf.content) {
                     is FileBrowserContent -> MiniFileBrowserPane(pane.leaf.id, Modifier.fillMaxSize())
                     is GitContent -> MiniGitPane(pane.leaf.id, Modifier.fillMaxSize())
+                    // Agent consoles preview through the terminal miniature —
+                    // their byte stream is served like a PTY's.
+                    is AgentContent -> MiniTerminalPane(pane.leaf.sessionId, Modifier.fillMaxSize())
                     else -> MiniTerminalPane(pane.leaf.sessionId, Modifier.fillMaxSize())
                 }
             }

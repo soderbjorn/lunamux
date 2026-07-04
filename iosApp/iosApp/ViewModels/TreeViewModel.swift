@@ -307,6 +307,12 @@ final class TreeViewModel {
             kind = .git
         } else if leaf.content is Client.FileBrowserContent {
             kind = .fileBrowser
+        } else if leaf.content is Client.AgentContent {
+            // Agent consoles route through the terminal screen bound to
+            // their session id: the server mirrors both agent render modes
+            // into the /pty byte stream (transcript mode with a cooked
+            // input line, screen mode as the full grid via SwiftTerm).
+            kind = .terminal
         } else if leaf.content is Client.TerminalContent || leaf.content == nil {
             kind = .terminal
         } else {

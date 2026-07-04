@@ -250,6 +250,50 @@ internal object PaneManager {
         return if (changed) cfg.copy(tabs = newTabs) else null
     }
 
+    /**
+     * Set or clear the agent-activity note on [paneId]'s leaf. Used by the
+     * MCP `annotate_window` tool and the automatic agent-touch marker (see
+     * `McpWriteTools`). Returns `null` when the pane is missing or the
+     * note is unchanged.
+     *
+     * @param cfg the current config
+     * @param paneId the pane to annotate
+     * @param note the badge text, or `null` to clear the badge
+     * @return the updated config, or `null` if nothing changed
+     * @see LeafNode.agentNote
+     */
+    fun setAgentNote(cfg: WindowConfig, paneId: String, note: String?): WindowConfig? {
+        val sanitized = note?.trim()?.take(60)?.ifEmpty { null }
+        var changed = false
+        val newTabs = cfg.tabs.map { tab ->
+            tab.copy(panes = tab.panes.map { p ->
+                if (p.leaf.id != paneId || p.leaf.agentNote == sanitized) p
+                else {
+                    changed = true
+                    p.copy(leaf = p.leaf.copy(agentNote = sanitized))
+                }
+            })
+        }
+        return if (changed) cfg.copy(tabs = newTabs) else null
+    }
+
+    /**
+     * Idempotently set the maximized flag on [paneId] to [maximized] —
+     * unlike [toggleMaximized] this cannot race another client's toggle
+     * into the opposite state, which is why the MCP `maximize_window`
+     * tool uses it. Maximizing also raises the pane and unmaximizes any
+     * sibling, mirroring [toggleMaximized]'s invariants.
+     *
+     * @return the updated config, or `null` if the pane is missing or
+     *   already in the requested state.
+     */
+    fun setMaximized(cfg: WindowConfig, paneId: String, maximized: Boolean): WindowConfig? {
+        val tab = cfg.tabs.firstOrNull { t -> t.panes.any { it.leaf.id == paneId } } ?: return null
+        val current = tab.panes.first { it.leaf.id == paneId }
+        if (current.maximized == maximized) return null
+        return toggleMaximized(cfg, paneId)
+    }
+
     /** Toggle the maximized flag on [paneId]. */
     fun toggleMaximized(cfg: WindowConfig, paneId: String): WindowConfig? {
         var changed = false

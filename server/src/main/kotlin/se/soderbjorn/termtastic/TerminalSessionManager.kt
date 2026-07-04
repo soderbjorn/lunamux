@@ -51,7 +51,76 @@ import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * Registry of process-wide PTYs. Each created session also gets a watcher
+ * The session surface shared by PTY-backed [TerminalSession]s and PTY-less
+ * agent-console sessions (`AgentSession` in `mcp/AgentSession.kt`). It is
+ * exactly the contract the rest of the server programs against:
+ *
+ *  - `/pty/{id}` bridges [output] / [snapshot] / [write] /
+ *    [setClientSize] / [forceClientSize] / [removeClient] /
+ *    [resetTerminalModes] / [sizeEvents],
+ *  - the scrollback saver uses [bytesWritten] + [snapshot],
+ *  - the state poller uses [detectState],
+ *  - the MCP read tools use [screenText] / [isProcessAlive] / [cwd] /
+ *    [programTitle],
+ *  - [TerminalSessions.destroy] uses [shutdown].
+ *
+ * For an agent session, [write] carries the *user's* keystrokes from
+ * attached clients (routed into the agent's input channel) — symmetric
+ * with a PTY where write() is also "input from the user".
+ *
+ * @see TerminalSession
+ * @see TerminalSessions
+ */
+interface TermSession {
+    /** Broadcast stream of output bytes for attached clients. */
+    val output: kotlinx.coroutines.flow.SharedFlow<ByteArray>
+
+    /** Last observed working directory (null for PTY-less sessions). */
+    val cwd: StateFlow<String?>
+
+    /** Last program-set title (null for PTY-less sessions). */
+    val programTitle: StateFlow<String?>
+
+    /** Effective (cols, rows) grid, updated as clients (dis)connect/resize. */
+    val sizeEvents: StateFlow<Pair<Int, Int>>
+
+    /** Total output bytes produced (drives incremental scrollback saves). */
+    fun bytesWritten(): Long
+
+    /** Deliver user input bytes into the session. */
+    fun write(bytes: ByteArray)
+
+    /** Broadcast mode-reset sequences to attached clients (see issue #91). */
+    fun resetTerminalModes()
+
+    /** Tear the session down and release all resources. */
+    fun shutdown()
+
+    /** Register [clientId]'s viewport size (min() across clients wins). */
+    fun setClientSize(clientId: String, cols: Int, rows: Int)
+
+    /** Force the grid to [clientId]'s size, evicting other clients' votes. */
+    fun forceClientSize(clientId: String, cols: Int, rows: Int)
+
+    /** Drop [clientId]'s size vote when its socket disconnects. */
+    fun removeClient(clientId: String)
+
+    /** Detect an AI-assistant state from the rendered screen, if any. */
+    fun detectState(): SessionState?
+
+    /** Recent output for reconnect replay. */
+    fun snapshot(): ByteArray
+
+    /** The currently rendered viewport as plain text. */
+    fun screenText(): String
+
+    /** Whether the backing process (or virtual session) is still live. */
+    fun isProcessAlive(): Boolean
+}
+
+/**
+ * Registry of process-wide sessions ([TermSession]s — PTY-backed and
+ * agent). Each PTY session created via [create] also gets a watcher
  * coroutine that listens for cwd changes coming out of [TerminalSession.cwd]
  * and forwards them (debounced) into [WindowState.updatePaneCwd], and — while
  * the opt-in [programTitlesEnabled] flag is on — does the same for program-set
@@ -62,7 +131,7 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 object TerminalSessions {
-    private val sessions = ConcurrentHashMap<String, TerminalSession>()
+    private val sessions = ConcurrentHashMap<String, TermSession>()
     private val watchJobs = ConcurrentHashMap<String, Job>()
     private val idCounter = AtomicLong(0)
     private val watchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -148,7 +217,38 @@ object TerminalSessions {
     }
 
     /** Look up a live session by its id. */
-    fun get(id: String): TerminalSession? = sessions[id]
+    fun get(id: String): TermSession? = sessions[id]
+
+    /**
+     * Register a PTY-less agent-console session (see `AgentSession`) under
+     * a freshly minted session id, so it is addressable everywhere a PTY
+     * session is — `/pty/{id}`, the MCP tools, scrollback, state polling.
+     * No cwd/title watcher is installed (agent sessions have neither).
+     *
+     * @param session the agent session to register.
+     * @return the newly minted session id.
+     */
+    fun registerAgent(session: TermSession): String {
+        val n = idCounter.incrementAndGet()
+        val id = if (idNonce.isEmpty()) "s$n" else "s$n-$idNonce"
+        sessions[id] = session
+        return id
+    }
+
+    /**
+     * Snapshot of every live session as `(id, session)` pairs, ordered by
+     * the numeric portion of the id so listings are stable. The backing map
+     * is private; this is the read accessor the MCP `list_sessions` /
+     * `get_session` tools use to enumerate sessions (cross-referencing
+     * window/tab ids by walking [WindowState.config] separately).
+     *
+     * @return live sessions at the time of the call; sessions created or
+     *   destroyed afterwards are not reflected.
+     */
+    fun list(): List<Pair<String, TermSession>> =
+        sessions.entries
+            .sortedBy { it.key.removePrefix("s").substringBefore('-').toLongOrNull() ?: Long.MAX_VALUE }
+            .map { it.key to it.value }
 
     /**
      * Override the detected state for a session.
@@ -221,7 +321,7 @@ object TerminalSessions {
 class TerminalSession private constructor(
     private val pty: PtyProcess,
     initialScrollback: ByteArray? = null,
-) {
+) : TermSession {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -229,13 +329,13 @@ class TerminalSession private constructor(
         replay = 0,
         extraBufferCapacity = 64
     )
-    val output = _output.asSharedFlow()
+    override val output = _output.asSharedFlow()
 
     // Most recent shell working directory we've observed for this pane. Fed by
     // both the inline OSC 7 scanner (instant) and the proc-cwd poller
     // (fallback). Subscribers are expected to apply their own debouncing.
     private val _cwd = MutableStateFlow<String?>(null)
-    val cwd: StateFlow<String?> = _cwd.asStateFlow()
+    override val cwd: StateFlow<String?> = _cwd.asStateFlow()
 
     private val _programTitle = MutableStateFlow<String?>(null)
 
@@ -248,7 +348,7 @@ class TerminalSession private constructor(
      * [TerminalSessions.create], which forwards it to
      * [WindowState.applyProgramTitle].
      */
-    val programTitle: StateFlow<String?> = _programTitle.asStateFlow()
+    override val programTitle: StateFlow<String?> = _programTitle.asStateFlow()
 
     private val osc = OscScanner(
         onCwd = { path -> _cwd.value = path },
@@ -267,7 +367,7 @@ class TerminalSession private constructor(
     @Volatile
     private var bytesWritten: Long = 0
 
-    fun bytesWritten(): Long = bytesWritten
+    override fun bytesWritten(): Long = bytesWritten
 
     init {
         if (initialScrollback != null && initialScrollback.isNotEmpty()) {
@@ -320,7 +420,7 @@ class TerminalSession private constructor(
     }
 
     /** Write raw bytes to the PTY's stdin. */
-    fun write(bytes: ByteArray) {
+    override fun write(bytes: ByteArray) {
         try {
             pty.outputStream.write(bytes)
             pty.outputStream.flush()
@@ -340,14 +440,14 @@ class TerminalSession private constructor(
      * (issue #91). Touches only the client-side emulator state; the PTY
      * process itself is not signalled.
      */
-    fun resetTerminalModes() {
+    override fun resetTerminalModes() {
         val bytes = RESTORE_MODE_RESET + SHOW_CURSOR_SUFFIX
         appendToRing(bytes)
         scope.launch { _output.emit(bytes) }
     }
 
     /** Destroy the underlying PTY process and cancel all coroutines. */
-    fun shutdown() {
+    override fun shutdown() {
         try {
             pty.destroy()
         } catch (_: Throwable) {
@@ -358,10 +458,10 @@ class TerminalSession private constructor(
 
     private val clientSizes = ConcurrentHashMap<String, Pair<Int, Int>>()
     private val _sizeEvents = MutableStateFlow(Pair(120, 32))
-    val sizeEvents: StateFlow<Pair<Int, Int>> = _sizeEvents.asStateFlow()
+    override val sizeEvents: StateFlow<Pair<Int, Int>> = _sizeEvents.asStateFlow()
 
     /** Register the declared terminal size for [clientId]. */
-    fun setClientSize(clientId: String, cols: Int, rows: Int) {
+    override fun setClientSize(clientId: String, cols: Int, rows: Int) {
         clientSizes[clientId] = Pair(max(1, cols), max(1, rows))
         applyEffectiveSize()
     }
@@ -370,7 +470,7 @@ class TerminalSession private constructor(
      * "Reformat" handler: evict every other client's entry, pin this
      * client's cols/rows, and apply immediately.
      */
-    fun forceClientSize(clientId: String, cols: Int, rows: Int) {
+    override fun forceClientSize(clientId: String, cols: Int, rows: Int) {
         val only = Pair(max(1, cols), max(1, rows))
         clientSizes.clear()
         clientSizes[clientId] = only
@@ -378,7 +478,7 @@ class TerminalSession private constructor(
     }
 
     /** Unregister a client's size entry when its WebSocket disconnects. */
-    fun removeClient(clientId: String) {
+    override fun removeClient(clientId: String) {
         if (clientSizes.remove(clientId) != null) applyEffectiveSize()
     }
 
@@ -397,14 +497,38 @@ class TerminalSession private constructor(
     }
 
     /** Check the currently-rendered screen for AI assistant state markers. */
-    fun detectState(): SessionState? {
+    override fun detectState(): SessionState? {
         val text = screen.snapshotVisibleText()
         if (text.isEmpty()) return null
         return StateDetector.detectState(text)
     }
 
+    /**
+     * The current rendered viewport as plain text, one row per line — what an
+     * attached client's terminal is showing right now. Used by the MCP
+     * `read_scrollback` tool's `screen` source so an agent can read the live
+     * grid (e.g. a TUI's frame) instead of the raw byte history.
+     *
+     * @return the visible screen text from the headless [ScreenEmulator].
+     */
+    override fun screenText(): String = screen.snapshotVisibleText()
+
+    /**
+     * Whether the underlying PTY process is still running. Used by the MCP
+     * `wait_for_exit` tool (polled) and echoed in `get_session` results. A
+     * dead PTY can coexist with a live session object until the referencing
+     * pane closes, so this is the authoritative "shell exited" signal.
+     *
+     * @return true while the PTY's process is alive.
+     */
+    override fun isProcessAlive(): Boolean = try {
+        pty.isAlive
+    } catch (_: Throwable) {
+        false
+    }
+
     /** Return a copy of the ring buffer contents for reconnect replay. */
-    fun snapshot(): ByteArray {
+    override fun snapshot(): ByteArray {
         val ringBytes = synchronized(ringLock) {
             if (ringSize == 0) return@synchronized ByteArray(0)
             val out = ByteArray(ringSize)

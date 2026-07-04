@@ -77,3 +77,5 @@ include(":electron-main")
 include(":terminal-emulator")
 include(":terminal-view")
 include(":androidApp")
+include(":examples:snake-mcp")
+

@@ -36,6 +36,23 @@ class ClaudeUsageMonitor {
     private val _usageData = MutableSharedFlow<ClaudeUsageData?>(replay = 1)
     val usageData = _usageData.asSharedFlow()
 
+    /**
+     * Most recent successfully parsed usage snapshot, or `null` when the
+     * monitor is stopped or hasn't parsed one yet. Mirrors the shared flow's
+     * replay cache without requiring a collector — the accessor the MCP
+     * `get_claude_usage` tool reads synchronously.
+     */
+    @Volatile
+    private var latest: ClaudeUsageData? = null
+
+    /**
+     * The latest parsed usage snapshot without subscribing to [usageData].
+     *
+     * @return the last [ClaudeUsageData] emitted, or `null` if none is
+     *   available (monitor disabled, not yet parsed, or recently stopped).
+     */
+    fun current(): ClaudeUsageData? = latest
+
     private var scope: CoroutineScope? = null
     @Volatile private var ptyProcess: Process? = null
     private val refreshRequested = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
@@ -71,6 +88,7 @@ class ClaudeUsageMonitor {
             runCatching { proc.destroyForcibly() }
             ptyProcess = null
         }
+        latest = null
         _usageData.tryEmit(null)
     }
 
@@ -121,15 +139,19 @@ class ClaudeUsageMonitor {
             put("PATH", (extra + current.split(":")).distinct().joinToString(":"))
         }
 
+        // 60 rows: the /usage screen grew tall (per-model weekly bars plus the
+        // "What's contributing" / Skills / Subagents sections) and scrolls in
+        // a short terminal, which would push the Extra-usage section below the
+        // fold and out of the snapshot.
         val pty = PtyProcessBuilder(arrayOf(claudePath))
             .setDirectory(workDir.absolutePath)
             .setEnvironment(env)
             .setInitialColumns(100)
-            .setInitialRows(40)
+            .setInitialRows(60)
             .start()
         ptyProcess = pty
 
-        val screen = ScreenEmulator(initialCols = 100, initialRows = 40)
+        val screen = ScreenEmulator(initialCols = 100, initialRows = 60)
         val readJob = CoroutineScope(coroutineContext).launch {
             val input = pty.inputStream
             val buf = ByteArray(4096)
@@ -165,9 +187,11 @@ class ClaudeUsageMonitor {
                 val text = screen.snapshotVisibleText()
                 val parsed = parseUsageScreen(text)
                 if (parsed != null) {
-                    _usageData.emit(parsed.copy(
+                    val stamped = parsed.copy(
                         fetchedAt = java.time.Instant.now().toString()
-                    ))
+                    )
+                    latest = stamped
+                    _usageData.emit(stamped)
                     log.debug("ClaudeUsageMonitor: parsed usage — session={}%, weekly={}%",
                         parsed.sessionPercent, parsed.weeklyAllPercent)
                 } else {
@@ -231,12 +255,20 @@ class ClaudeUsageMonitor {
     companion object {
         private val PERCENT_REGEX = Regex("""(\d+)%\s*used""")
         private val RESETS_REGEX = Regex("""[Rr]esets\s+(.+)""")
+        /**
+         * Matches a weekly section header and captures the parenthesized
+         * qualifier, e.g. "Current week (all models)" → "all models",
+         * "Current week (Fable)" → "Fable". The qualifier set varies with the
+         * CLI version and the user's plan, so model names are not hardcoded.
+         */
+        private val WEEK_HEADER_REGEX = Regex("""Current week\s*\(([^)]+)\)""", RegexOption.IGNORE_CASE)
 
         /**
          * Parse the rendered `/usage` screen text into a [ClaudeUsageData].
          *
-         * Extracts session percentage, weekly (all models) percentage, weekly
-         * Sonnet percentage, reset times, and extra-usage status from the
+         * Extracts session percentage, weekly (all models) percentage, one
+         * entry per model-specific weekly section (e.g. Fable, Sonnet — see
+         * [ClaudeModelUsage]), reset times, and extra-usage status from the
          * screen output.
          *
          * @param text the full visible text from the [ScreenEmulator] after
@@ -249,28 +281,52 @@ class ClaudeUsageMonitor {
 
             // Find section indices
             val sessionIdx = lines.indexOfFirst { it.contains("Current session", ignoreCase = true) }
-            val weeklyAllIdx = lines.indexOfFirst {
-                it.contains("Current week", ignoreCase = true) &&
-                    it.contains("all models", ignoreCase = true)
-            }
-            val weeklySonnetIdx = lines.indexOfFirst {
-                it.contains("Current week", ignoreCase = true) &&
-                    it.contains("Sonnet", ignoreCase = true)
-            }
             val extraIdx = lines.indexOfFirst { it.contains("Extra usage", ignoreCase = true) }
 
             if (sessionIdx < 0) return null
 
+            // All weekly section headers in screen order, with their captured
+            // qualifier ("all models" or a model name).
+            val weekSections = lines.withIndex().mapNotNull { (idx, line) ->
+                WEEK_HEADER_REGEX.find(line)?.let { idx to it.groupValues[1].trim() }
+            }
+            val weeklyAllIdx = weekSections.firstOrNull {
+                it.second.equals("all models", ignoreCase = true)
+            }?.first ?: -1
+
+            /** Line index of the section header following [idx], bounding its reset search. */
+            fun nextSectionAfter(idx: Int): Int? =
+                weekSections.map { it.first }.firstOrNull { it > idx }
+
             // Parse each section
             val sessionPercent = findPercent(lines, sessionIdx) ?: return null
-            val sessionReset = findReset(lines, sessionIdx, weeklyAllIdx.takeIf { it > sessionIdx })
+            val sessionReset = findReset(lines, sessionIdx, nextSectionAfter(sessionIdx))
 
             val weeklyAllPercent = if (weeklyAllIdx >= 0) findPercent(lines, weeklyAllIdx) ?: 0 else 0
             val weeklyAllReset = if (weeklyAllIdx >= 0)
-                findReset(lines, weeklyAllIdx, weeklySonnetIdx.takeIf { it > weeklyAllIdx })
+                findReset(lines, weeklyAllIdx, nextSectionAfter(weeklyAllIdx))
             else ""
 
-            val weeklySonnetPercent = if (weeklySonnetIdx >= 0) findPercent(lines, weeklySonnetIdx) ?: 0 else 0
+            // Every weekly section that isn't the all-models pool is a
+            // model-specific row ("Fable", "Sonnet", "Opus", ...). A trailing
+            // " only" (older CLIs printed "Sonnet only") is stripped.
+            val modelUsages = weekSections
+                .filter { it.first != weeklyAllIdx }
+                .mapNotNull { (idx, qualifier) ->
+                    val label = qualifier.removeSuffix(" only").trim()
+                    val percent = findPercent(lines, idx) ?: return@mapNotNull null
+                    ClaudeModelUsage(
+                        label = label,
+                        percent = percent,
+                        resetTime = findReset(lines, idx, nextSectionAfter(idx)),
+                    )
+                }
+
+            // Legacy field for clients that predate modelUsages: mirror the
+            // Sonnet row when one exists.
+            val weeklySonnetPercent = modelUsages
+                .firstOrNull { it.label.equals("Sonnet", ignoreCase = true) }
+                ?.percent ?: 0
 
             val extraEnabled = if (extraIdx >= 0) {
                 val extraSection = lines.drop(extraIdx).take(3).joinToString(" ")
@@ -291,6 +347,7 @@ class ClaudeUsageMonitor {
                 weeklySonnetPercent = weeklySonnetPercent,
                 extraUsageEnabled = extraEnabled,
                 extraUsageInfo = extraInfo,
+                modelUsages = modelUsages,
             )
         }
 

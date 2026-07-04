@@ -324,6 +324,10 @@ fun renderConfig(config: dynamic) {
         val panes = tab.panes as? Array<dynamic> ?: emptyArray()
         for (p in panes) livePanes.add(p.leaf.id as String)
     }
+    // Agent badges can change without any structural change (an MCP agent
+    // annotating a window), so sync them before the fast-path bail below.
+    updateAgentBadges(config)
+
     val toRemove = terminals.keys.filter { it !in livePanes }
     for (pid in toRemove) {
         val entry = terminals.remove(pid) ?: continue
@@ -346,6 +350,8 @@ fun renderConfig(config: dynamic) {
         // that's already gone.
         if (lastFocusedTerminalId == pid) lastFocusedTerminalId = null
     }
+    // Agent transcript panes are pruned the same way terminal entries are.
+    pruneAgentTranscripts(livePanes)
     updateAggregateStatus()
     // Label-only fast path. When nothing structural changed (only pane titles
     // did — e.g. a program-set OSC title tick while a terminal task runs), the
@@ -412,6 +418,9 @@ fun connectWindow() {
                 }
                 is WindowEnvelope.PendingApproval -> {
                     showPendingApprovalOverlay()
+                }
+                is WindowEnvelope.AgentNotify -> {
+                    showAgentToast(envelope.message, envelope.level)
                 }
                 is WindowEnvelope.UiSettings -> {
                     // Handled reactively: the AppBackingViewModel updates its

@@ -106,6 +106,25 @@ object DeviceAuth {
     private const val DENIED_DEVICES_KEY = "auth.denied_devices.v1"
 
     /**
+     * Trust-class label stamped on tokens minted for MCP clients. Tokens
+     * carrying this label are a distinct trust class from interactive
+     * device tokens: they are *excluded* from the regular [authorize] /
+     * [checkFastPath] device lookup (an MCP token must never grant full
+     * `/window` UI access) and are the *only* tokens [authorizeMcp]
+     * accepts on the `/mcp` endpoint.
+     *
+     * @see authorizeMcp
+     * @see addTrustedToken
+     */
+    const val MCP_LABEL = "MCP"
+
+    /** Token scope granting read-only MCP tool access. */
+    const val MCP_SCOPE_READ = "read"
+
+    /** Token scope granting both read and write MCP tool access. */
+    const val MCP_SCOPE_READ_WRITE = "read+write"
+
+    /**
      * The SHA-256 fingerprint (lowercase hex) of the server's current TLS
      * leaf certificate, surfaced in [ApprovalDialog] as informational text.
      * Set once at server boot by `Application.main` from the [CertStore]
@@ -182,6 +201,11 @@ object DeviceAuth {
         val lastSeenEpochMs: Long,
         val lastIp: String,
         val connections: List<ClientConnectionInfo>,
+        /**
+         * MCP token scope ([MCP_SCOPE_READ] or [MCP_SCOPE_READ_WRITE]).
+         * `null` for regular interactive device tokens, which carry no scope.
+         */
+        val scope: String? = null,
     )
 
     data class ClientConnectionInfo(
@@ -208,25 +232,136 @@ object DeviceAuth {
 
     /** Snapshot of all trusted devices, for the settings dialog. */
     fun listTrustedDevices(repo: SettingsRepository): List<TrustedDeviceInfo> =
-        loadDevices(repo).devices.map {
-            TrustedDeviceInfo(
-                tokenHash = it.tokenHash,
-                label = it.label,
-                firstSeenEpochMs = it.firstSeenEpochMs,
-                lastSeenEpochMs = it.lastSeenEpochMs,
-                lastIp = it.lastIp,
-                connections = it.connections.map { c ->
-                    ClientConnectionInfo(
-                        type = c.type,
-                        hostname = c.hostname,
-                        selfReportedIp = c.selfReportedIp,
-                        remoteAddress = c.remoteAddress,
-                        firstSeenEpochMs = c.firstSeenEpochMs,
-                        lastSeenEpochMs = c.lastSeenEpochMs,
-                    )
-                },
-            )
+        loadDevices(repo).devices.map { it.toInfo() }
+
+    /** Projection helper shared by [listTrustedDevices] and [listMcpTokens]. */
+    private fun TrustedDevice.toInfo(): TrustedDeviceInfo =
+        TrustedDeviceInfo(
+            tokenHash = tokenHash,
+            label = label,
+            firstSeenEpochMs = firstSeenEpochMs,
+            lastSeenEpochMs = lastSeenEpochMs,
+            lastIp = lastIp,
+            connections = connections.map { c ->
+                ClientConnectionInfo(
+                    type = c.type,
+                    hostname = c.hostname,
+                    selfReportedIp = c.selfReportedIp,
+                    remoteAddress = c.remoteAddress,
+                    firstSeenEpochMs = c.firstSeenEpochMs,
+                    lastSeenEpochMs = c.lastSeenEpochMs,
+                )
+            },
+            scope = scope,
+        )
+
+    /**
+     * Snapshot of all MCP tokens (trusted devices carrying the [MCP_LABEL]
+     * trust class), for the settings dialog's MCP section.
+     *
+     * @param repo the settings repository holding the trusted-device list.
+     * @return the MCP-labelled subset of the trusted devices.
+     * @see addTrustedToken
+     */
+    fun listMcpTokens(repo: SettingsRepository): List<TrustedDeviceInfo> =
+        loadDevices(repo).devices.filter { it.label == MCP_LABEL }.map { it.toInfo() }
+
+    /**
+     * Persist a pre-minted token as trusted, without any interactive
+     * approval. Used by the settings dialog's "Generate MCP token" button
+     * (and by tests) — the raw token is shown to the user exactly once;
+     * only its SHA-256 hash is stored.
+     *
+     * @param repo  the settings repository to persist into.
+     * @param token the raw token string (the hash is what's persisted).
+     * @param label trust-class label; [MCP_LABEL] for MCP tokens.
+     * @param scope MCP scope, [MCP_SCOPE_READ] or [MCP_SCOPE_READ_WRITE].
+     * @return the SHA-256 hash of [token] (the settings-dialog list key).
+     * @see listMcpTokens
+     * @see authorizeMcp
+     */
+    fun addTrustedToken(
+        repo: SettingsRepository,
+        token: String,
+        label: String,
+        scope: String? = null,
+    ): String {
+        val hash = sha256Hex(token)
+        val now = System.currentTimeMillis()
+        val current = loadDevices(repo)
+        val added = TrustedDevice(
+            tokenHash = hash,
+            label = label,
+            firstSeenEpochMs = now,
+            lastSeenEpochMs = now,
+            lastIp = "-",
+            connections = emptyList(),
+            scope = scope,
+        )
+        saveDevices(repo, TrustedDevices(current.devices.filterNot { it.tokenHash == hash } + added))
+        log.info("DeviceAuth: minted trusted token label={} scope={} hashPrefix={}", label, scope, hash.take(10))
+        return hash
+    }
+
+    /**
+     * Change the scope of an existing MCP token.
+     *
+     * @param repo      the settings repository holding the trusted-device list.
+     * @param tokenHash the stored SHA-256 hash identifying the token.
+     * @param scope     the new scope ([MCP_SCOPE_READ] or [MCP_SCOPE_READ_WRITE]).
+     * @return true if a matching MCP token was found and updated.
+     */
+    fun setMcpTokenScope(repo: SettingsRepository, tokenHash: String, scope: String): Boolean {
+        val current = loadDevices(repo)
+        if (current.devices.none { it.tokenHash == tokenHash && it.label == MCP_LABEL }) return false
+        val updated = current.devices.map {
+            if (it.tokenHash == tokenHash && it.label == MCP_LABEL) it.copy(scope = scope) else it
         }
+        saveDevices(repo, TrustedDevices(updated))
+        return true
+    }
+
+    /**
+     * Authorization gate for the `/mcp` endpoint. Non-interactive by design:
+     * unknown tokens are rejected outright (never prompted), and only tokens
+     * carrying the [MCP_LABEL] trust class and a non-null scope are accepted.
+     * Loopback-only enforcement is the caller's job (the route rejects
+     * non-loopback peers *regardless* of the allow-remote UI toggle).
+     *
+     * Called by `McpRoutes` on every `/mcp` request.
+     *
+     * @param token  the raw token from the `X-Termtastic-Auth` header (or
+     *   cookie / query param — see `readAuthToken`).
+     * @param client the connecting client's metadata, recorded into the
+     *   token's connection history.
+     * @param repo   the settings repository holding the trusted-device list.
+     * @return the token's scope ([MCP_SCOPE_READ] or [MCP_SCOPE_READ_WRITE]),
+     *   or `null` when the token is missing, unknown, revoked, or not an MCP
+     *   token.
+     * @see addTrustedToken
+     */
+    fun authorizeMcp(token: String?, client: ClientInfo, repo: SettingsRepository): String? {
+        if (token.isNullOrBlank()) return null
+        val hash = sha256Hex(token)
+        val known = loadDevices(repo)
+        val existing = known.devices.firstOrNull {
+            it.label == MCP_LABEL &&
+                MessageDigest.isEqual(it.tokenHash.toByteArray(), hash.toByteArray())
+        } ?: return null
+        val scope = existing.scope ?: return null
+        val now = System.currentTimeMillis()
+        val updated = known.devices.map {
+            if (it.tokenHash == existing.tokenHash) {
+                it.copy(
+                    lastSeenEpochMs = now,
+                    lastIp = client.remoteAddress,
+                    connections = mergeConnections(it.connections, client, now),
+                )
+            } else it
+        }
+        saveDevices(repo, TrustedDevices(updated))
+        return scope
+    }
 
     /**
      * Remove a trusted device so the next connection from it triggers a fresh
@@ -295,6 +430,12 @@ object DeviceAuth {
         var lastSeenEpochMs: Long,
         var lastIp: String,
         val connections: List<ClientConnection> = emptyList(),
+        /**
+         * MCP token scope ([MCP_SCOPE_READ] / [MCP_SCOPE_READ_WRITE]).
+         * `null` on regular interactive device tokens; defaulted so
+         * pre-existing persisted blobs deserialize unchanged.
+         */
+        val scope: String? = null,
     )
 
     @Serializable
@@ -317,9 +458,10 @@ object DeviceAuth {
      * `origin.remoteAddress` hands us? We can't fully trust this for policy in
      * general, but we bind to `0.0.0.0` only so the network-setting gate
      * works, and the filter below is an additional defence layered on top of
-     * the per-device token check.
+     * the per-device token check. Public so `McpRoutes` can enforce its
+     * unconditional localhost-only policy with the same address forms.
      */
-    private fun isLoopback(remoteAddress: String): Boolean {
+    fun isLoopback(remoteAddress: String): Boolean {
         val a = remoteAddress.trim()
         return a == "localhost" ||
             a == "127.0.0.1" ||
@@ -352,8 +494,11 @@ object DeviceAuth {
         if (token.isNullOrBlank()) return null
         val hash = sha256Hex(token)
         val known = loadDevices(repo)
+        // MCP tokens are a distinct trust class: they never authorize the
+        // interactive `/window`/`/pty` surface, only `/mcp` (authorizeMcp).
         val existing = known.devices.firstOrNull {
-            MessageDigest.isEqual(it.tokenHash.toByteArray(), hash.toByteArray())
+            it.label != MCP_LABEL &&
+                MessageDigest.isEqual(it.tokenHash.toByteArray(), hash.toByteArray())
         }
         if (existing != null) {
             val now = System.currentTimeMillis()
@@ -427,8 +572,11 @@ object DeviceAuth {
             known.devices.size,
             known.devices.joinToString(",") { it.tokenHash.take(10) },
         )
+        // MCP tokens are a distinct trust class: they never authorize the
+        // interactive `/window`/`/pty` surface, only `/mcp` (authorizeMcp).
         val existing = known.devices.firstOrNull {
-            MessageDigest.isEqual(it.tokenHash.toByteArray(), hash.toByteArray())
+            it.label != MCP_LABEL &&
+                MessageDigest.isEqual(it.tokenHash.toByteArray(), hash.toByteArray())
         }
         if (existing != null) {
             // Touch lastSeen / lastIp and merge the current client into the
@@ -554,8 +702,14 @@ object DeviceAuth {
     ): Decision? {
         if (token.isNullOrBlank()) return null
         if (!isLoopback(client.remoteAddress)) return null
-        if (known.devices.isNotEmpty() || denied.devices.isNotEmpty()) return null
+        // MCP tokens don't count against the clean slate — minting an MCP
+        // token in Settings before the first browser connect must not break
+        // the first-localhost-device onboarding shortcut.
+        if (known.devices.any { it.label != MCP_LABEL } || denied.devices.isNotEmpty()) return null
         val hash = sha256Hex(token)
+        // …but an MCP token itself must never ride the shortcut into the
+        // interactive trust class: a known hash (of any label) is excluded.
+        if (known.devices.any { it.tokenHash == hash }) return null
         val now = System.currentTimeMillis()
         val initialConnection = ClientConnection(
             type = client.type,
@@ -601,7 +755,7 @@ object DeviceAuth {
         // before bothering the user again.
         if (hash != null) {
             val known = loadDevices(repo)
-            if (known.devices.any { it.tokenHash == hash }) {
+            if (known.devices.any { it.tokenHash == hash && it.label != MCP_LABEL }) {
                 return@withLock Decision.APPROVED
             }
             // Same token, recent decision still valid — reuse it. This is
