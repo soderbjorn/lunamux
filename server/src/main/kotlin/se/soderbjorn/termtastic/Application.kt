@@ -62,20 +62,25 @@ private const val PING_PERIOD_MS = 20_000L
 private const val PING_TIMEOUT_MS = 40_000L
 
 /**
- * Read the "use program-set terminal titles" opt-in flag
+ * Read the "use program-set terminal titles" flag
  * ([TERMINAL_PROGRAM_TITLE_KEY]) out of a UI-settings snapshot, tolerating
  * both JSON-boolean and stringified-"true" shapes (writes can land either
  * way — see `snapshotBoolean` in the web client). Called by [main] when
  * mapping [SettingsRepository.uiSettings] into the live
  * [TerminalSessions.programTitlesEnabled] flag flow.
  *
+ * Ships **on by default**: when the key is absent this returns `true`, so a
+ * fresh install honours program-set titles without the user opting in. A user
+ * who turns the toggle off persists an explicit `false`, which overrides the
+ * default. Mirrors the web client's `isTerminalProgramTitleEnabled` default.
+ *
  * @receiver a UI-settings snapshot from [SettingsRepository.uiSettings].
- * @return `true` when the user has enabled program-set titles.
+ * @return `true` unless the user has explicitly turned program-set titles off.
  */
 internal fun JsonObject.terminalProgramTitleEnabled(): Boolean {
-    val el = this[TERMINAL_PROGRAM_TITLE_KEY] as? JsonPrimitive ?: return false
+    val el = this[TERMINAL_PROGRAM_TITLE_KEY] as? JsonPrimitive ?: return true
     el.booleanOrNull?.let { return it }
-    return el.isString && el.content == "true"
+    return !el.isString || el.content == "true"
 }
 
 /**

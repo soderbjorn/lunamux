@@ -2,12 +2,18 @@
  * Server-side settings UI rendered via Compose Desktop.
  *
  * This file contains [SettingsDialog], a process-wide singleton Compose
- * Desktop window that provides the Termtastic settings interface. It exposes
- * controls for:
- *  - Network settings (allow remote connections, display listening port/IPs).
- *  - Claude Code usage polling toggle.
- *  - Trusted device management (list, revoke).
- *  - Denied device management (list, unban).
+ * Desktop window that provides the Termtastic settings interface. The
+ * controls are split across two tabs so the MCP configuration doesn't
+ * clutter the everyday network/device controls:
+ *  - **General** tab:
+ *    - Network settings (allow remote connections, display listening port/IPs).
+ *    - Claude Code usage polling toggle.
+ *    - Trusted device management (list, revoke).
+ *    - Denied device management (list, unban).
+ *  - **MCP** tab:
+ *    - MCP server kill switch, token minting/scoping/revoking, the
+ *      ready-to-paste `.mcp.json` snippet, recent agent-activity log, and
+ *      the TLS-trust line for Node clients.
  *
  * The dialog is opened by the `OpenSettings` command from the `/window`
  * WebSocket (triggered by the client's settings button). Settings take
@@ -49,6 +55,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.darkColorScheme
@@ -206,24 +214,38 @@ object SettingsDialog {
      * unkeyed `remember { }` would otherwise cache the lists for the
      * lifetime of the process.
      *
+     * The sections are split across two tabs so the MCP configuration
+     * (token minting, scopes, the `.mcp.json` snippet, agent-activity log,
+     * TLS-trust line) doesn't clutter the everyday network/device controls:
+     *  - **General** — Network, Claude Code, Trusted / Denied devices.
+     *  - **MCP** — [McpSection] on its own.
+     *
+     * The header and the tab bar stay pinned at the top; only the selected
+     * tab's section stack scrolls (with the scrollbar scoped to that area).
+     *
      * @param repo settings repository backing the dialog
      * @param isShowing current visibility of the dialog window; flipping
      *   to true triggers a fresh read of trusted/denied device lists
      * @see DeniedDevicesSection
      * @see TrustedDevicesSection
+     * @see McpSection
      */
     @Composable
     private fun SettingsContent(repo: SettingsRepository, isShowing: Boolean) {
         val scrollState = rememberScrollState()
-        Box(modifier = Modifier.fillMaxSize()) {
+        var selectedTab by remember { mutableStateOf(0) }
+        val tabs = listOf("General", "MCP")
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 28.dp)
-                .verticalScroll(scrollState),
+                .padding(top = 16.dp),
         ) {
-            // Header
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Header (pinned above the tabs — does not scroll).
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            ) {
                 brandImage?.toComposeImageBitmap()?.let { bmp ->
                     Image(
                         bitmap = bmp,
@@ -247,32 +269,59 @@ object SettingsDialog {
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
-            NetworkSection(repo)
             Spacer(Modifier.height(16.dp))
-            ClaudeUsageSection(repo)
-            Spacer(Modifier.height(16.dp))
-            McpSection(repo, isShowing)
-            Spacer(Modifier.height(16.dp))
-            TrustedDevicesSection(repo, isShowing)
-            Spacer(Modifier.height(16.dp))
-            DeniedDevicesSection(repo, isShowing)
-        }
-        VerticalScrollbar(
-            adapter = rememberScrollbarAdapter(scrollState),
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .fillMaxHeight()
-                .padding(vertical = 4.dp),
-            style = ScrollbarStyle(
-                minimalHeight = 32.dp,
-                thickness = 8.dp,
-                shape = RoundedCornerShape(4.dp),
-                hoverDurationMillis = 300,
-                unhoverColor = Color.White.copy(alpha = 0.25f),
-                hoverColor = tronGreen.copy(alpha = 0.6f),
-            ),
-        )
+
+            // Tab bar (pinned) — selecting a tab swaps the scrollable body below.
+            TabRow(selectedTabIndex = selectedTab) {
+                tabs.forEachIndexed { index, tabTitle ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(tabTitle) },
+                    )
+                }
+            }
+
+            // Scrollable body for the selected tab. The scrollbar is scoped to
+            // this Box so it tracks the section stack rather than the header/tabs.
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 28.dp)
+                        .verticalScroll(scrollState),
+                ) {
+                    when (selectedTab) {
+                        1 -> {
+                            McpSection(repo, isShowing)
+                        }
+                        else -> {
+                            NetworkSection(repo)
+                            Spacer(Modifier.height(16.dp))
+                            ClaudeUsageSection(repo)
+                            Spacer(Modifier.height(16.dp))
+                            TrustedDevicesSection(repo, isShowing)
+                            Spacer(Modifier.height(16.dp))
+                            DeniedDevicesSection(repo, isShowing)
+                        }
+                    }
+                }
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(scrollState),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .padding(vertical = 4.dp),
+                    style = ScrollbarStyle(
+                        minimalHeight = 32.dp,
+                        thickness = 8.dp,
+                        shape = RoundedCornerShape(4.dp),
+                        hoverDurationMillis = 300,
+                        unhoverColor = Color.White.copy(alpha = 0.25f),
+                        hoverColor = tronGreen.copy(alpha = 0.6f),
+                    ),
+                )
+            }
         }
     }
 

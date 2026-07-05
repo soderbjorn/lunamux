@@ -25,23 +25,27 @@
  *         when running inside the bundled Electron app ([isElectronClient])
  *         — the dialog opens on the server's desktop, which a remote
  *         browser can't see.
- *  2. An **Experimental features** section with persisted boolean toggles:
- *       - **Enable file browser** — when off, hides the File Browser
- *         entry from the topbar "New pane" hover dropdown.
- *       - **Enable Git change view** — same for the Git entry.
- *       - **Use program-set terminal titles** — opt-in: panes take the
+ *  2. A **General** section with persisted toggles for stable,
+ *     enabled-by-default features that have graduated out of Experimental:
+ *       - **Enable 3D app switcher** (ships on) plus its dependent **style**
+ *         picker, shown only while the switcher is on.
+ *       - **Use program-set terminal titles** (ships on): panes take the
  *         title the running program sets via OSC 0/2 (consumed
  *         server-side); its explanation lives behind a "?" help popover
  *         next to the label rather than an inline paragraph.
+ *  3. An **Experimental features** section with persisted boolean toggles:
+ *       - **Enable file browser** — when off, hides the File Browser
+ *         entry from the topbar "New pane" hover dropdown.
+ *       - **Enable Git change view** — same for the Git entry.
  *
  * The flags persist server-side under top-level keys in
  * `/api/ui-settings`:
  *   - `experimentalFileBrowser` (Boolean, default false)
  *   - `experimentalGitView` (Boolean, default false)
- *   - `experimental3dSwitcher` (Boolean, default false)
- *   - `experimental3dSwitcherStyle` (String, default "carousel") — which 3D
+ *   - `experimental3dSwitcher` (Boolean, default true)
+ *   - `experimental3dSwitcherStyle` (String, default "rotunda") — which 3D
  *     switcher style the picker selects; only shown while the switcher is on.
- *   - `terminalProgramTitle` (Boolean, default false)
+ *   - `terminalProgramTitle` (Boolean, default true)
  *
  * Reads consult [toolkitSettingsSnapshot] (already mirrored from the
  * server's payload via [updateToolkitSettingsSnapshot]); writes
@@ -85,10 +89,10 @@ private const val KEY_EXPERIMENTAL_OVERVIEW_3D = "experimental3dSwitcher"
  */
 private const val KEY_EXPERIMENTAL_OVERVIEW_3D_STYLE = "experimental3dSwitcherStyle"
 
-/** Persisted value for the original carousel-ring style (the default). */
+/** Persisted value for the original carousel-ring style. */
 internal const val OVERVIEW_3D_STYLE_CAROUSEL = "carousel"
 
-/** Persisted value for the rotunda (inside-a-cylinder) style. */
+/** Persisted value for the rotunda (inside-a-cylinder) style — the default. */
 internal const val OVERVIEW_3D_STYLE_ROTUNDA = "rotunda"
 
 /** Persisted value for the exposé-zoom (real-layout → grid) style. */
@@ -157,11 +161,13 @@ private const val ICON_HELP =
  * as on.
  *
  * @param key the top-level key in [toolkitSettingsSnapshot].
- * @return the stored Boolean, or `false` when the key is missing or
- *   neither a Boolean nor the literal string "true".
+ * @param default returned when the key is missing entirely (used by flags
+ *   that ship enabled-by-default, e.g. the 3D switcher).
+ * @return the stored Boolean, [default] when the key is missing, or `false`
+ *   when the stored value is neither a Boolean nor the literal string "true".
  */
-private fun snapshotBoolean(key: String): Boolean {
-    val element = toolkitSettingsSnapshot[key] ?: return false
+private fun snapshotBoolean(key: String, default: Boolean = false): Boolean {
+    val element = toolkitSettingsSnapshot[key] ?: return default
     val primitive = (element as? JsonPrimitive) ?: return false
     primitive.booleanOrNull?.let { return it }
     if (primitive.isString) return primitive.content == "true"
@@ -193,21 +199,23 @@ fun isExperimentalGitViewEnabled(): Boolean =
     snapshotBoolean(KEY_EXPERIMENTAL_GIT_VIEW)
 
 /**
- * Whether the experimental 3D tab/pane switcher (the carousel-ring overview)
- * is enabled. When off (the default), the topbar globe button is hidden and
- * the ⌥⌘→ hotkey is inert — both gate through this flag: the button via
+ * Whether the 3D tab/pane switcher (the carousel-ring overview) is enabled.
+ * Ships **on by default** (including in the Electron demo): when the key is
+ * unset this returns `true`, so the topbar globe button shows and the ⌥⌘→
+ * hotkey is live. Both gate through this flag: the button via
  * [applyOverview3dChromeVisibility] and the hotkey/menu via the
- * [toggleOverview3d] chokepoint.
+ * [toggleOverview3d] chokepoint. A user who unchecks the App Settings toggle
+ * persists an explicit `false`, which overrides the default.
  *
  * Read live from [toolkitSettingsSnapshot] so flipping the toggle takes
  * effect without a reload.
  *
- * @return `true` when the user has opted into the experimental switcher.
+ * @return `true` unless the user has explicitly opted out.
  * @see KEY_EXPERIMENTAL_OVERVIEW_3D
  * @see toggleOverview3d
  */
 fun isExperimental3dSwitcherEnabled(): Boolean =
-    snapshotBoolean(KEY_EXPERIMENTAL_OVERVIEW_3D)
+    snapshotBoolean(KEY_EXPERIMENTAL_OVERVIEW_3D, default = true)
 
 /**
  * Read a String value from the in-memory server-settings snapshot, falling
@@ -225,29 +233,33 @@ private fun snapshotString(key: String, default: String): String {
 }
 
 /**
- * The user's chosen 3D-switcher style, one of [OVERVIEW_3D_STYLE_CAROUSEL]
- * (the default), [OVERVIEW_3D_STYLE_ROTUNDA], or [OVERVIEW_3D_STYLE_EXPOSE].
+ * The user's chosen 3D-switcher style, one of [OVERVIEW_3D_STYLE_ROTUNDA]
+ * (the default), [OVERVIEW_3D_STYLE_CAROUSEL], or [OVERVIEW_3D_STYLE_EXPOSE].
  * Consulted by [openOverview3d] each time the overview opens, so changing the
  * dropdown takes effect on the next open without a reload. Only meaningful
  * while [isExperimental3dSwitcherEnabled] is true.
  *
- * @return the persisted style id, defaulting to the carousel ring.
+ * @return the persisted style id, defaulting to the rotunda.
  * @see KEY_EXPERIMENTAL_OVERVIEW_3D_STYLE
  */
 fun experimental3dSwitcherStyle(): String =
-    snapshotString(KEY_EXPERIMENTAL_OVERVIEW_3D_STYLE, OVERVIEW_3D_STYLE_CAROUSEL)
+    snapshotString(KEY_EXPERIMENTAL_OVERVIEW_3D_STYLE, OVERVIEW_3D_STYLE_ROTUNDA)
 
 /**
  * Whether panes should take the title the running program sets (OSC 0/2).
- * Read only to seed the toggle's initial state in
- * [buildExperimentalSection]; the actual feature logic lives server-side
- * (the title watcher reads the same persisted key).
+ * Read only to seed the toggle's initial state in [buildGeneralSection]; the
+ * actual feature logic lives server-side (the title watcher reads the same
+ * persisted key).
  *
- * @return `true` when the user has opted in.
+ * Ships **on by default**: when the key is unset this returns `true`, matching
+ * the server's `terminalProgramTitleEnabled` default. A user who turns the
+ * toggle off persists an explicit `false`, which overrides the default.
+ *
+ * @return `true` unless the user has explicitly turned it off.
  * @see TERMINAL_PROGRAM_TITLE_KEY
  */
 fun isTerminalProgramTitleEnabled(): Boolean =
-    snapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY)
+    snapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY, default = true)
 
 /**
  * Mirror a single boolean key into [toolkitSettingsSnapshot] without
@@ -331,6 +343,7 @@ fun buildAppSettingsContent(): HTMLElement {
     container.className = "termtastic-app-settings-body"
 
     container.appendChild(buildNavigationSection())
+    container.appendChild(buildGeneralSection())
     container.appendChild(buildExperimentalSection())
 
     return container
@@ -467,50 +480,36 @@ fun openAppSettingsSidebar() {
 }
 
 /**
- * The "Experimental features" section: a labelled header followed by two
- * On/Off button rows styled like the appearance-modal pill rows (the
- * selected option gets a coloured rectangle around it via the toolkit's
- * `dt-settings-choice-btn.dt-selected` rule). Each click writes to the
- * server (and to the in-memory snapshot) immediately; the
- * `paneAddMenuItems` callback re-evaluates the flag on its next
- * invocation, so the topbar "New pane" hover dropdown picks up the new
- * gating on the next hover without any shell rerender.
+ * The "General" section: stable, enabled-by-default features that used to live
+ * under "Experimental features" but have since graduated. Built exactly like
+ * [buildExperimentalSection] (labelled header + On/Off pill rows), and appended
+ * before it in [buildAppSettingsContent].
+ *
+ * Contains:
+ *  - **Enable 3D app switcher** (ships on) plus its dependent **style** picker,
+ *    shown/hidden in lock-step with the toggle.
+ *  - **Use program-set terminal titles** (ships on) with its "?" help popover.
  *
  * @return the freshly-built section element.
+ * @see buildExperimentalSection
  */
-private fun buildExperimentalSection(): HTMLElement {
+private fun buildGeneralSection(): HTMLElement {
     val section = document.createElement("section") as HTMLElement
     section.className = "termtastic-app-settings-section"
 
     val title = document.createElement("h3") as HTMLElement
     title.className = "termtastic-app-settings-section-title"
-    title.textContent = "Experimental features"
+    title.textContent = "General"
     section.appendChild(title)
 
-    section.appendChild(buildToggleRow(
-        labelText = "Enable file browser",
-        initialValue = isExperimentalFileBrowserEnabled(),
-        onChange = { v ->
-            updateSnapshotBoolean(KEY_EXPERIMENTAL_FILE_BROWSER, v)
-            putJsonBoolean(KEY_EXPERIMENTAL_FILE_BROWSER, v)
-        },
-    ))
-    section.appendChild(buildToggleRow(
-        labelText = "Enable Git change view",
-        initialValue = isExperimentalGitViewEnabled(),
-        onChange = { v ->
-            updateSnapshotBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
-            putJsonBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
-        },
-    ))
     // The style dropdown only makes sense while the switcher is on, so it is
     // built up-front (to capture its onChange) but shown/hidden in lock-step
     // with the enable toggle below.
     val styleRow = buildChoiceRow(
         labelText = "3D app switcher style",
         options = listOf(
-            "Carousel ring" to OVERVIEW_3D_STYLE_CAROUSEL,
             "Rotunda" to OVERVIEW_3D_STYLE_ROTUNDA,
+            "Carousel ring" to OVERVIEW_3D_STYLE_CAROUSEL,
             "Exposé zoom" to OVERVIEW_3D_STYLE_EXPOSE,
         ),
         initialValue = experimental3dSwitcherStyle(),
@@ -549,6 +548,47 @@ private fun buildExperimentalSection(): HTMLElement {
             "asked it to do instead of the folder name. Terminals you've renamed " +
             "yourself are never changed, and turning this off returns tabs to " +
             "their folder names.",
+    ))
+
+    return section
+}
+
+/**
+ * The "Experimental features" section: a labelled header followed by On/Off
+ * button rows styled like the appearance-modal pill rows (the selected option
+ * gets a coloured rectangle around it via the toolkit's
+ * `dt-settings-choice-btn.dt-selected` rule). Each click writes to the
+ * server (and to the in-memory snapshot) immediately; the
+ * `paneAddMenuItems` callback re-evaluates the flag on its next
+ * invocation, so the topbar "New pane" hover dropdown picks up the new
+ * gating on the next hover without any shell rerender.
+ *
+ * @return the freshly-built section element.
+ */
+private fun buildExperimentalSection(): HTMLElement {
+    val section = document.createElement("section") as HTMLElement
+    section.className = "termtastic-app-settings-section"
+
+    val title = document.createElement("h3") as HTMLElement
+    title.className = "termtastic-app-settings-section-title"
+    title.textContent = "Experimental features"
+    section.appendChild(title)
+
+    section.appendChild(buildToggleRow(
+        labelText = "Enable file browser",
+        initialValue = isExperimentalFileBrowserEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_EXPERIMENTAL_FILE_BROWSER, v)
+            putJsonBoolean(KEY_EXPERIMENTAL_FILE_BROWSER, v)
+        },
+    ))
+    section.appendChild(buildToggleRow(
+        labelText = "Enable Git change view",
+        initialValue = isExperimentalGitViewEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
+            putJsonBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
+        },
     ))
 
     return section
