@@ -3,6 +3,7 @@ package se.soderbjorn.termtastic.android.net
 import android.util.Log
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withTimeout
+import se.soderbjorn.termtastic.android.BuildConfig
 import se.soderbjorn.termtastic.client.ClientIdentity
 import se.soderbjorn.termtastic.client.ServerUrl
 import se.soderbjorn.termtastic.client.TermtasticClient
@@ -77,14 +78,17 @@ object ConnectionHolder {
         val fresh = TermtasticClient(
             serverUrl = serverUrl,
             authToken = authToken,
-            // Android devices present as "Computer" in the settings UI so the
-            // user can distinguish a native client from a browser tab. We do
-            // a best-effort hostname + first non-loopback IPv4 lookup here;
-            // both fields are advisory so a failure just means blanks.
+            // Android devices report type "Android" so the settings UI can tell
+            // them apart from iOS and browser tabs, and the running app version
+            // so the server can gate newer pane kinds (agent consoles, 1.5+) to
+            // clients that can render them. We do a best-effort hostname + first
+            // non-loopback IPv4 lookup here; both are advisory so a failure just
+            // means blanks.
             identity = ClientIdentity(
-                type = "Computer",
+                type = "Android",
                 hostname = runCatching { InetAddress.getLocalHost().hostName }.getOrNull(),
                 selfReportedIp = runCatching { firstNonLoopbackIpv4() }.getOrNull(),
+                version = BuildConfig.VERSION_NAME,
             ),
             pinnedFingerprintHex = pinnedFingerprintHex,
         )

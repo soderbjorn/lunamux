@@ -76,13 +76,71 @@ internal fun ApplicationCall.readClientInfo(): DeviceAuth.ClientInfo {
     val type = first("X-Termtastic-Client-Type", "clientType")?.takeIf { it.isNotBlank() } ?: "Unknown"
     val hostname = first("X-Termtastic-Client-Host", "clientHost")
     val selfIp = first("X-Termtastic-Client-Ip", "clientIp")
+    val version = first("X-Termtastic-Client-Version", "clientVersion")
     return DeviceAuth.ClientInfo(
         type = type,
         hostname = hostname,
         selfReportedIp = selfIp,
         remoteAddress = request.origin.remoteAddress,
+        version = version,
     )
 }
+
+/**
+ * Lowest client app version whose deserializer knows the `agent` [LeafContent]
+ * kind. Older clients have no such subtype registered, so decoding a config
+ * that contains one throws and (via the client's whole-frame `runCatching`)
+ * silently drops the entire update — freezing the client on its last layout.
+ * We therefore strip agent panes from configs sent to clients below this.
+ */
+private val MIN_AGENT_PANE_VERSION = intArrayOf(1, 5, 0)
+
+/**
+ * Whether a client reporting [version] (a `"major.minor.patch"` string) is new
+ * enough to render agent-console panes.
+ *
+ * Called once per `/window` connection to decide whether that socket receives
+ * agent panes and agent notifications. Released clients before 1.5 never send a
+ * version, so a `null`/blank/unparseable value is treated as *incapable* — the
+ * absence of a version is itself the "old client" signal.
+ *
+ * @param version the self-reported client version, or `null`.
+ * @return `true` if [version] parses to at least [MIN_AGENT_PANE_VERSION].
+ * @see DeviceAuth.ClientInfo.version
+ */
+internal fun clientSupportsAgentPanes(version: String?): Boolean {
+    if (version.isNullOrBlank()) return false
+    // Split on '.', '-', '+' so suffixes like "1.5.0-beta" compare by numbers.
+    val parts = version.trim().split('.', '-', '+')
+    fun component(i: Int): Int =
+        parts.getOrNull(i)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
+    for (i in 0 until MIN_AGENT_PANE_VERSION.size) {
+        val c = component(i)
+        if (c != MIN_AGENT_PANE_VERSION[i]) return c > MIN_AGENT_PANE_VERSION[i]
+    }
+    return true // exactly equal → supported
+}
+
+/**
+ * Return a copy of this config with every agent-console pane removed, for
+ * clients too old to deserialize the `agent` [LeafContent] kind.
+ *
+ * Panes live in a flat per-tab list (there is no split tree), so removal is a
+ * clean filter — no geometry surgery. Removing the pane outright (rather than
+ * substituting a placeholder) is deliberate: it keeps the old client's whole
+ * config sync working, where a single unknown `"kind"` would otherwise fail the
+ * entire envelope decode. Agent panes are ephemeral anyway, so an old client
+ * simply never sees them.
+ *
+ * @return the config unchanged when it holds no agent panes; otherwise a copy
+ *   with them filtered out of every tab.
+ * @see clientSupportsAgentPanes
+ */
+private fun WindowConfig.withoutAgentPanes(): WindowConfig =
+    copy(tabs = tabs.map { tab ->
+        val kept = tab.panes.filterNot { it.leaf.content is AgentContent }
+        if (kept.size == tab.panes.size) tab else tab.copy(panes = kept)
+    })
 
 /**
  * Per-`/window`-connection state passed into [handleWindowCommand]. Holds
@@ -180,9 +238,15 @@ internal fun Route.windowRoutes(
                 return@webSocket
             }
         }
+        // Older clients can't deserialize the `agent` pane kind (added in 1.5)
+        // and would drop the whole config frame on encountering one. Gate agent
+        // panes and agent notifications on the self-reported client version.
+        val supportsAgentPanes = clientSupportsAgentPanes(info.version)
+
         val pushJob = launch {
             WindowState.config.collect { cfg ->
-                val payload = windowJson.encodeToString<WindowEnvelope>(WindowEnvelope.Config(cfg))
+                val outbound = if (supportsAgentPanes) cfg else cfg.withoutAgentPanes()
+                val payload = windowJson.encodeToString<WindowEnvelope>(WindowEnvelope.Config(outbound))
                 send(Frame.Text(payload))
             }
         }
@@ -201,12 +265,15 @@ internal fun Route.windowRoutes(
             }
         }
 
-        // Agent notifications (MCP `notify` tool) fan out to every client.
-        val agentNoticePushJob = launch {
+        // Agent notifications (MCP `notify` tool) fan out to every capable
+        // client. The AgentNotify envelope kind also postdates 1.5, so skip the
+        // subscription entirely for older clients rather than stream frames they
+        // can't decode.
+        val agentNoticePushJob = if (supportsAgentPanes) launch {
             se.soderbjorn.termtastic.mcp.McpNotices.flow.collect { env ->
                 send(Frame.Text(windowJson.encodeToString<WindowEnvelope>(env)))
             }
-        }
+        } else null
 
         val uiSettingsPushJob = launch {
             settingsRepo.uiSettings.collect { s ->
@@ -235,7 +302,7 @@ internal fun Route.windowRoutes(
             pushJob.cancel()
             statePushJob.cancel()
             usagePushJob.cancel()
-            agentNoticePushJob.cancel()
+            agentNoticePushJob?.cancel()
             uiSettingsPushJob.cancel()
         }
     }

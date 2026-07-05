@@ -162,7 +162,13 @@ private fun start() {
     termtasticClient = TermtasticClient(
         serverUrl = serverUrl,
         authToken = authTokenForSending(),
-        identity = ClientIdentity(type = clientTypeAtStart),
+        // Report the version baked into this bundle at build time
+        // ([TERMTASTIC_VERSION]). The bundle is served by the same server it
+        // connects to (browser) or a locally-bundled one (Electron), so this is
+        // the true version of the running renderer — and a stale cached bundle
+        // honestly reports its own older version, exactly what the server's
+        // agent-pane capability gate needs.
+        identity = ClientIdentity(type = clientTypeAtStart, version = TERMTASTIC_VERSION),
     )
     windowSocket = termtasticClient.openWindowSocket()
 

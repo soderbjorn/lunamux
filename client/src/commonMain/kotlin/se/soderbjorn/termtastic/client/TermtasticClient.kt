@@ -57,6 +57,15 @@ data class ClientIdentity(
     val type: String,
     val hostname: String? = null,
     val selfReportedIp: String? = null,
+    /**
+     * The client app's marketing version (e.g. `"1.5.0"`), used by the
+     * server for capability gating — notably to decide whether this client
+     * is new enough to be sent agent-console panes (added in 1.5). Released
+     * clients before 1.5 never set this, so a `null`/absent value is the
+     * server's signal that the client is too old for newer pane kinds.
+     * Advisory and spoofable like the other identity fields.
+     */
+    val version: String? = null,
 )
 
 /**
@@ -240,6 +249,9 @@ class TermtasticClient(
         identity.selfReportedIp?.takeIf { it.isNotBlank() }?.let {
             sb.append("&clientIp=").append(urlEncode(it))
         }
+        identity.version?.takeIf { it.isNotBlank() }?.let {
+            sb.append("&clientVersion=").append(urlEncode(it))
+        }
         return sb.toString()
     }
 
@@ -257,6 +269,9 @@ class TermtasticClient(
         }
         identity.selfReportedIp?.takeIf { it.isNotBlank() }?.let {
             out += "X-Termtastic-Client-Ip" to it
+        }
+        identity.version?.takeIf { it.isNotBlank() }?.let {
+            out += "X-Termtastic-Client-Version" to it
         }
         return out
     }

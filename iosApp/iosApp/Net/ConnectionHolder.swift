@@ -48,10 +48,16 @@ final class ConnectionHolder {
         disconnect()
         pendingApproval = false
         lastPinMismatch = false
+        // Report type "iOS" so the settings UI can tell this apart from Android
+        // and browser tabs, and the running app version (CFBundleShortVersionString)
+        // so the server can gate newer pane kinds (agent consoles, 1.5+) to
+        // clients able to render them. Both host/IP fields are advisory.
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let identity = Client.ClientIdentity(
-            type: "Computer",
+            type: "iOS",
             hostname: ProcessInfo.processInfo.hostName,
-            selfReportedIp: Self.firstNonLoopbackIPv4()
+            selfReportedIp: Self.firstNonLoopbackIPv4(),
+            version: appVersion
         )
         let fresh = Client.TermtasticClientKt.createTermtasticClient(
             serverUrl: serverUrl,

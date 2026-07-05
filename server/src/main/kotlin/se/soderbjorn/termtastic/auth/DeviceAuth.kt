@@ -167,7 +167,7 @@ object DeviceAuth {
      * must treat them as untrusted (purely informational) strings for display.
      */
     data class ClientInfo(
-        /** What the client called itself, e.g. "Web" or "Computer". Never empty. */
+        /** What the client called itself, e.g. "Web", "iOS", or "Android". Never empty. */
         val type: String,
         /** Best-effort self-reported hostname. */
         val hostname: String?,
@@ -175,6 +175,13 @@ object DeviceAuth {
         val selfReportedIp: String?,
         /** The TCP peer address Ktor observed for this request. */
         val remoteAddress: String,
+        /**
+         * Self-reported client app version (e.g. `"1.5.0"`), or `null` for
+         * clients that don't send one. Used for capability gating — see
+         * [clientSupportsAgentPanes]. Released clients before 1.5 never send
+         * a version, so `null` means "too old for 1.5+ pane kinds".
+         */
+        val version: String? = null,
     ) {
         fun displayLine(): String {
             val host = hostname?.takeIf { it.isNotBlank() }
