@@ -1821,17 +1821,22 @@ internal fun updateTitleReadout() {
  * the dive completes.
  *
  * @param paneId specific pane to focus and raise (a clicked pane tile), or
- *   `null` to activate the tab with its focus unchanged.
+ *   `null` to fall back to the card's own focused pane so the tab is not left
+ *   merely active-but-unfocused.
  */
 internal fun beginDive(paneId: String?) {
     val card = ovCards.getOrNull(ovSelected) ?: return
     if (!ovDiveStart.isNaN()) return
     launchCmd(WindowCommand.SetActiveTab(card.tabId))
-    if (paneId != null) {
+    // Whole-tab selections (Enter with no tile highlighted, or a click on empty
+    // card space) arrive with paneId == null; fall back to the card's focused
+    // pane so the selection lands focused rather than just active.
+    val focusPaneId = paneId ?: card.focusedPaneId
+    if (focusPaneId != null) {
         // Same pair the sidebar pane click sends (see termtasticTabSource's
         // onPaneSelect): focus alone would leave the pane buried.
-        launchCmd(WindowCommand.SetFocusedPane(tabId = card.tabId, paneId = paneId))
-        launchCmd(WindowCommand.RaisePane(paneId = paneId))
+        launchCmd(WindowCommand.SetFocusedPane(tabId = card.tabId, paneId = focusPaneId))
+        launchCmd(WindowCommand.RaisePane(paneId = focusPaneId))
     }
     ovDiveStart = window.performance.now()
     ovOverlay?.classList?.add("overview3d-closing")
