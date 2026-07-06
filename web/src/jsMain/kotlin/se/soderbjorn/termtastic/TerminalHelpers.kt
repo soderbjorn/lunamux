@@ -160,7 +160,11 @@ fun safeFit(term: Terminal, fit: FitAddon) {
  * terminal space when the PTY grid does not fill the container.
  *
  * Overlays appear on the right and/or bottom edges and include a tooltip
- * suggesting the "Reformat" action to reclaim the space.
+ * suggesting the "Reformat" action to reclaim the space. They show only when a
+ * reformat would actually grow the grid by at least one column/row (judged via
+ * the fit addon's `proposeDimensions()`), so structural insets around the xterm
+ * element — padding, scrollbar gutter, sub-cell remainder — never read as
+ * reclaimable space.
  *
  * @param entry the [TerminalEntry] to update overlays for
  * @see forceReassert
@@ -220,14 +224,19 @@ fun updateOobOverlay(entry: TerminalEntry) {
 
     val gapRight = containerWidth - (screenLeft + screenWidth)
     val gapBottom = containerHeight - (screenTop + screenHeight)
-    // Only flag gaps of at least one full cell: a perfectly fitted terminal always
-    // leaves a sub-cell remainder (you can't fill a box with a fraction of a cell),
-    // and that sliver must not read as "unused space". Falls back to generous
-    // estimates when the renderer hasn't produced cell dimensions yet.
-    val minGapX = maxOf(4.0, cellW ?: 10.0)
-    val minGapY = maxOf(4.0, cellH ?: 20.0)
+    // Gate on what a reformat could actually *reclaim*: propose a fresh fit for
+    // the current container and show a strip only when it would add at least one
+    // column/row. Judging by the raw pixel gap against the container rect
+    // over-counts the structural insets around the xterm element (its padding and
+    // the scrollbar gutter) as "unused space", which kept the overlay permanently
+    // lit on perfectly fitted panes — and made Reformat look broken, since no
+    // reformat can ever reclaim padding. When no proposal is available (terminal
+    // not measurable yet), show nothing rather than guess.
+    val proposed = runCatching { entry.fit.asDynamic().proposeDimensions() }.getOrNull()
+    val reclaimCols = ((proposed?.cols as? Number)?.toInt() ?: 0) - entry.term.cols
+    val reclaimRows = ((proposed?.rows as? Number)?.toInt() ?: 0) - entry.term.rows
 
-    if (gapRight > minGapX && screenHeight > 0) {
+    if (reclaimCols >= 1 && gapRight > 0 && screenHeight > 0) {
         val right = ensure("right")
         right.style.display = "block"
         right.style.left = "${screenLeft + screenWidth}px"
@@ -238,7 +247,7 @@ fun updateOobOverlay(entry: TerminalEntry) {
         entry.oobOverlayRight?.style?.display = "none"
     }
 
-    if (gapBottom > minGapY && containerWidth > 0) {
+    if (reclaimRows >= 1 && gapBottom > 0 && containerWidth > 0) {
         val bottom = ensure("bottom")
         bottom.style.display = "block"
         bottom.style.left = "${screenLeft}px"
