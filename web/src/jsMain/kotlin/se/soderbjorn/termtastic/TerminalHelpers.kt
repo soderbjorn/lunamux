@@ -121,21 +121,27 @@ fun fitPreservingScroll(term: Terminal, fit: FitAddon) {
 }
 
 /**
- * Safely fits the terminal to its container, with extra validation to prevent
- * over-sizing that causes rendering artifacts.
+ * Computes the grid a [safeFit] would apply: the fit addon's `proposeDimensions()`
+ * proposal with the row count cross-checked against the actual viewport height,
+ * so xterm's occasional one-row overshoot never survives.
  *
- * Uses the fit addon's `proposeDimensions()` to calculate target cols/rows,
- * then cross-checks with the actual viewport height to avoid allocating more
- * rows than physically fit. Skips the resize if dimensions haven't changed.
+ * Shared by [safeFit] (which applies the result) and [updateOobOverlay] (which
+ * must judge reclaimable space by the *same math* the Reformat action uses —
+ * gating the overlay on the raw proposal left a permanent one-row "unused space"
+ * strip at the bottom that no reformat could ever clear, because the reformat
+ * clamps that row away).
  *
  * @param term the xterm.js [Terminal] instance
  * @param fit the [FitAddon] to use for dimension calculation
+ * @return the clamped `(cols, rows)` target, or `null` when no usable proposal
+ *   is available (terminal not attached/measurable yet).
+ * @see safeFit @see updateOobOverlay
  */
-fun safeFit(term: Terminal, fit: FitAddon) {
-    val proposed = fit.asDynamic().proposeDimensions() ?: return
-    var targetCols = (proposed.cols as? Number)?.toInt() ?: return
-    var targetRows = (proposed.rows as? Number)?.toInt() ?: return
-    if (targetCols < 1 || targetRows < 1) return
+fun proposeSafeDimensions(term: Terminal, fit: FitAddon): Pair<Int, Int>? {
+    val proposed = fit.asDynamic().proposeDimensions() ?: return null
+    val targetCols = (proposed.cols as? Number)?.toInt() ?: return null
+    var targetRows = (proposed.rows as? Number)?.toInt() ?: return null
+    if (targetCols < 1 || targetRows < 1) return null
 
     val el = term.asDynamic().element as? HTMLElement
     if (el != null && targetRows > 1) {
@@ -150,7 +156,22 @@ fun safeFit(term: Terminal, fit: FitAddon) {
             }
         }
     }
+    return targetCols to targetRows
+}
 
+/**
+ * Safely fits the terminal to its container, with extra validation to prevent
+ * over-sizing that causes rendering artifacts.
+ *
+ * Applies the clamped target from [proposeSafeDimensions]. Skips the resize if
+ * dimensions haven't changed.
+ *
+ * @param term the xterm.js [Terminal] instance
+ * @param fit the [FitAddon] to use for dimension calculation
+ * @see proposeSafeDimensions
+ */
+fun safeFit(term: Terminal, fit: FitAddon) {
+    val (targetCols, targetRows) = proposeSafeDimensions(term, fit) ?: return
     if (targetCols == term.cols && targetRows == term.rows) return
     term.asDynamic().resize(targetCols, targetRows)
 }
@@ -224,17 +245,19 @@ fun updateOobOverlay(entry: TerminalEntry) {
 
     val gapRight = containerWidth - (screenLeft + screenWidth)
     val gapBottom = containerHeight - (screenTop + screenHeight)
-    // Gate on what a reformat could actually *reclaim*: propose a fresh fit for
-    // the current container and show a strip only when it would add at least one
-    // column/row. Judging by the raw pixel gap against the container rect
-    // over-counts the structural insets around the xterm element (its padding and
-    // the scrollbar gutter) as "unused space", which kept the overlay permanently
-    // lit on perfectly fitted panes — and made Reformat look broken, since no
-    // reformat can ever reclaim padding. When no proposal is available (terminal
-    // not measurable yet), show nothing rather than guess.
-    val proposed = runCatching { entry.fit.asDynamic().proposeDimensions() }.getOrNull()
-    val reclaimCols = ((proposed?.cols as? Number)?.toInt() ?: 0) - entry.term.cols
-    val reclaimRows = ((proposed?.rows as? Number)?.toInt() ?: 0) - entry.term.rows
+    // Gate on what a reformat could actually *reclaim*: compute the grid a
+    // reformat would apply ([proposeSafeDimensions] — the SAME math [safeFit]
+    // uses, including its viewport row clamp) and show a strip only when it
+    // would add at least one column/row. Judging by the raw pixel gap against
+    // the container rect over-counts the structural insets around the xterm
+    // element (its padding and the scrollbar gutter) as "unused space", and
+    // judging by the fit addon's raw proposal over-counts the one clamped row —
+    // both kept a strip permanently lit that no reformat could ever clear. When
+    // no proposal is available (terminal not measurable yet), show nothing
+    // rather than guess.
+    val safeTarget = runCatching { proposeSafeDimensions(entry.term, entry.fit) }.getOrNull()
+    val reclaimCols = (safeTarget?.first ?: 0) - entry.term.cols
+    val reclaimRows = (safeTarget?.second ?: 0) - entry.term.rows
 
     if (reclaimCols >= 1 && gapRight > 0 && screenHeight > 0) {
         val right = ensure("right")
