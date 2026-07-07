@@ -176,6 +176,39 @@ class DemoTerminalSession internal constructor(
     }
 
     /**
+     * Reset the session to its fixture starting point **in place** — same
+     * object, so transports that are already attached keep streaming: any
+     * running script is cancelled, the scrollback is rewound to the spec's
+     * canned starting transcript, the line discipline is cleared, and a
+     * live-feed session restarts its looping script from the top.
+     *
+     * Attached clients receive one "clear everything + starting transcript"
+     * frame, so their terminals visually rewind; clients attaching later get
+     * the fresh scrollback as their snapshot, as always.
+     *
+     * Called by [DemoServer.resetToFixtures] before the demo tour plays.
+     */
+    suspend fun restart() {
+        scriptJob?.cancel()
+        scriptJob = null
+        lineBuffer.clear()
+        escState = 0
+        inputRunCount = 0
+        atPrompt = spec.startsAtPrompt
+        lock.withLock {
+            scrollback.clear()
+            scrollback.append(spec.transcript)
+        }
+        // 3J erases the emulator's scrollback, 2J the screen, H homes the
+        // cursor — so the attached terminal rewinds to a blank slate before
+        // the canned transcript replays on top of it. The sequence is NOT
+        // appended to [scrollback]: a later subscriber starts from the clean
+        // transcript and has nothing to erase.
+        live.emit(("\u001b[3J\u001b[2J\u001b[H" + spec.transcript).encodeToByteArray())
+        spec.liveScript?.let { startScript(it, loop = true) }
+    }
+
+    /**
      * The session's output as a cold-start flow: the current scrollback as
      * one snapshot frame first, then live frames. The snapshot is taken
      * under the same lock every append holds, so a subscriber never misses

@@ -87,6 +87,47 @@ class DemoServerTest {
     }
 
     /**
+     * [DemoServer.resetToFixtures] rolls every mutation back to the boot
+     * state: layout changes, visitor-created panes (and their sessions), and
+     * typed-into terminals all return to the fixtures, and attached clients
+     * see the rewind as a live clear-screen + transcript frame.
+     */
+    @Test
+    fun resetToFixturesRestoresBootState() = runBlocking {
+        // Mutate everything resettable: layout, a new pane, terminal input.
+        server.handle(WindowCommand.ApplyLayout(tabId = "demo-t1", layout = "columns", primaryPaneId = "demo-p2"))
+        server.handle(WindowCommand.AddPaneToTab(tabId = "demo-t3", cwd = null))
+        val newSessionId = repo.config.value!!.tabs.first { it.id == "demo-t3" }
+            .let { tab -> tab.panes.first { it.leaf.id == tab.focusedPaneId }.leaf.sessionId }
+        val shell = server.session("demo-s2") // fixture shell session, sits at a prompt
+        // Echoes come back one character per frame — accumulate until the
+        // whole typed line has round-tripped through the input coroutine.
+        val typed = StringBuilder()
+        val typedFrame = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            shell.output().first { typed.append(it.decodeToString()); typed.contains("garbage") }
+        }
+        shell.inputText("garbage")
+        withTimeout(5_000) { typedFrame.await() }
+
+        // An attached client sees the rewind frame (clear + fixture transcript).
+        val rewindFrame = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            shell.output().first { it.decodeToString().startsWith("\u001b[3J\u001b[2J\u001b[H") }
+        }
+        server.resetToFixtures()
+
+        assertEquals(DemoFixtures.initialConfig(), repo.config.value)
+        assertEquals(DemoFixtures.initialStates, repo.states.value)
+        withTimeout(5_000) { rewindFrame.await() }
+        // The runtime pane's session was reaped; the fixture session survived
+        // as the same object (attached transports keep streaming).
+        assertTrue(server.session("demo-s2") === shell)
+        // A fresh subscriber's snapshot is the clean fixture transcript again.
+        val snapshot = withTimeout(5_000) { shell.output().first() }.decodeToString()
+        assertTrue(!snapshot.contains("garbage"))
+        assertTrue(newSessionId.isNotEmpty())
+    }
+
+    /**
      * Subscribe to the envelope stream *before* dispatching [send], then
      * return the first envelope matching [predicate]. The subscription is
      * started UNDISPATCHED so it is registered before the command runs —
@@ -120,20 +161,20 @@ class DemoServerTest {
     @Test
     fun gitDiffRepliesAndSelects() = runBlocking {
         val reply = awaitEnvelope({ it is WindowEnvelope.GitDiffResult }) {
-            server.handle(WindowCommand.GitDiff(paneId = "demo-p3", filePath = "src/api/sessions.ts"))
+            server.handle(WindowCommand.GitDiff(paneId = "demo-p3", filePath = "src/main.s"))
         } as WindowEnvelope.GitDiffResult
         assertTrue(reply.hunks.isNotEmpty())
-        assertEquals("typescript", reply.language)
+        assertEquals(null, reply.language) // 68k assembly: no tokeniser, plain text
         val gitPane = repo.config.value!!.tabs.flatMap { it.panes }.first { it.leaf.id == "demo-p3" }
-        assertEquals("src/api/sessions.ts", (gitPane.leaf.content as GitContent).selectedFilePath)
+        assertEquals("src/main.s", (gitPane.leaf.content as GitContent).selectedFilePath)
     }
 
     /** Expanding a directory persists into the pane's content state. */
     @Test
     fun fileBrowserExpandPersists() = runBlocking {
-        server.handle(WindowCommand.FileBrowserSetExpanded(paneId = "demo-p8", dirRelPath = "src/lib", expanded = true))
+        server.handle(WindowCommand.FileBrowserSetExpanded(paneId = "demo-p8", dirRelPath = "gfx", expanded = true))
         val pane = repo.config.value!!.tabs.flatMap { it.panes }.first { it.leaf.id == "demo-p8" }
-        assertTrue("src/lib" in (pane.leaf.content as FileBrowserContent).expandedDirs)
+        assertTrue("gfx" in (pane.leaf.content as FileBrowserContent).expandedDirs)
     }
 
     /** Typing into a shell echoes, and Enter produces the canned response + prompt. */
@@ -148,23 +189,27 @@ class DemoServerTest {
             // Wait for the snapshot replay first.
             while (!collected.contains("git pull")) kotlinx.coroutines.delay(10)
             session.inputText("pwd\r")
-            while (!collected.contains("/Users/demo/code/orbit")) kotlinx.coroutines.delay(10)
+            while (!collected.contains("/Users/demo/code/lastlight")) kotlinx.coroutines.delay(10)
         }
         // The typed characters were echoed back before the response.
         assertTrue(collected.contains("pwd\r\n"))
         collector.cancel()
     }
 
-    /** Foreground-program sessions swallow input until Ctrl-C stops them. */
+    /**
+     * Foreground-program sessions swallow input until Ctrl-C stops them.
+     * Uses the watcher session (`demo-s5`): unlike the tracker, it has no
+     * live feed, so the output length is stable while input is swallowed.
+     */
     @Test
     fun foregroundProgramStopsOnCtrlC() = runBlocking {
-        val session = server.session("demo-s3")
+        val session = server.session("demo-s5")
         val collected = StringBuilder()
         val collector = scope.launch {
             session.output().collect { collected.append(it.decodeToString()) }
         }
         withTimeout(5_000) {
-            while (!collected.contains("tsx watch")) kotlinx.coroutines.delay(10)
+            while (!collected.contains("watchexec")) kotlinx.coroutines.delay(10)
             val lenBefore = collected.length
             session.inputText("ls\r")
             kotlinx.coroutines.delay(100)
@@ -172,7 +217,7 @@ class DemoServerTest {
             session.inputText("\u0003")
             while (!collected.contains("^C")) kotlinx.coroutines.delay(10)
             session.inputText("whoami\r")
-            while (!collected.contains("demo@orbit")) kotlinx.coroutines.delay(10)
+            while (!collected.contains("demo@a500")) kotlinx.coroutines.delay(10)
         }
         collector.cancel()
     }
@@ -189,9 +234,9 @@ class DemoServerTest {
         val socket = se.soderbjorn.termtastic.client.demo.DemoWindowSocket(server, repo)
         withTimeout(2_000) {
             val entries = socket.fileBrowserListDir(paneId = "demo-p8", dirRelPath = "src")
-            assertTrue(entries!!.any { it.name == "server.ts" })
+            assertTrue(entries!!.any { it.name == "main.s" })
             val git = socket.gitList(paneId = "demo-p3")
-            assertTrue(git!!.any { it.filePath == "src/api/ratelimit.ts" })
+            assertTrue(git!!.any { it.filePath == "src/fx/scroller.s" })
             val diff = socket.gitDiff(paneId = "demo-p3", filePath = "README.md")
             assertTrue(diff is WindowEnvelope.GitDiffResult)
         }
@@ -254,10 +299,10 @@ class DemoServerTest {
         }
         withTimeout(5_000) {
             // The completed-task transcript replays, and the session is idle.
-            while (!collected.contains("/metrics")) kotlinx.coroutines.delay(10)
+            while (!collected.contains("greetings part")) kotlinx.coroutines.delay(10)
             assertEquals(null, repo.states.value["demo-s6"])
 
-            session.inputText("add histograms too\r")
+            session.inputText("swap the greets order\r")
             while (repo.states.value["demo-s6"] != "working") kotlinx.coroutines.delay(10)
 
             // Ctrl-C interrupts the burst and clears the state again.
@@ -272,7 +317,7 @@ class DemoServerTest {
     @Test
     fun unknownCommandFallsBack() {
         assertTrue(demoShellRespond("frobnicate --now").contains("command not found: frobnicate"))
-        assertTrue(demoShellRespond("git status").contains("feature/rate-limit"))
+        assertTrue(demoShellRespond("git status").contains("feature/sine-scroller"))
         assertTrue(demoShellRespond("echo hello there").startsWith("hello there"))
     }
 }

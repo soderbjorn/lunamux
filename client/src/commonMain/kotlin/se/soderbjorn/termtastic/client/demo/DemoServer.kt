@@ -206,6 +206,46 @@ class DemoServer internal constructor(
         }
     }
 
+    /**
+     * Reset the whole simulation to its fixture starting point — the state a
+     * fresh page load boots into: the fixture [WindowConfig] and session
+     * state map are restored and re-published, sessions created at runtime
+     * are reaped, every fixture session restarts its canned content **in
+     * place** ([DemoTerminalSession.restart], so already-attached terminals
+     * rewind live), and the simulated persisted `ui-settings` blob is
+     * emptied back to its boot state.
+     *
+     * Called by the web client's demo tour right before the choreography
+     * plays: the tour is written against the fixture workspace, so whatever
+     * the visitor moved, closed, typed, or created must be rolled back
+     * first. The id counter is deliberately NOT reset — a recycled pane id
+     * could collide with a same-id pane still animating out in a client.
+     */
+    suspend fun resetToFixtures() {
+        mutex.withLock {
+            states.clear()
+            states.putAll(DemoFixtures.initialStates)
+            publish(DemoFixtures.initialConfig())
+            publishStates()
+            // Runtime-created panes are gone from the fixture config now;
+            // drop their sessions the same way a pane close would.
+            reapOrphanSessions()
+            // Fixture sessions: restart survivors in place, re-create any the
+            // visitor closed along the way (their session was reaped then).
+            for (spec in demoSessionSpecs()) {
+                val existing = sessions[spec.sessionId]
+                if (existing == null) sessions[spec.sessionId] = createSession(spec)
+                else existing.restart()
+            }
+            if (uiSettings.isNotEmpty()) {
+                uiSettings.clear()
+                val empty = JsonObject(emptyMap())
+                windowState.updateUiSettings(empty)
+                emit(WindowEnvelope.UiSettings(empty))
+            }
+        }
+    }
+
     // -- internal plumbing ---------------------------------------------------
 
     /** Emit [envelope] to every subscribed demo socket. */
