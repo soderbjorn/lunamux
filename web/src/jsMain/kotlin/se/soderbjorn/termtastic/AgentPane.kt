@@ -89,7 +89,7 @@ private fun setAwaiting(entry: AgentTranscriptEntry, awaiting: Boolean) {
 /** Connect (or reconnect) the `/agent/{id}` socket for [entry]. */
 private fun connectAgentSocket(entry: AgentTranscriptEntry) {
     if (entry.closed) return
-    val url = "$proto://${window.location.host}/agent/${entry.sessionId}?$authQueryParam"
+    val url = "$proto://$backendHost/agent/${entry.sessionId}?$authQueryParam"
     val socket = WebSocket(url)
     entry.socket = socket
     socket.onmessage = { event ->

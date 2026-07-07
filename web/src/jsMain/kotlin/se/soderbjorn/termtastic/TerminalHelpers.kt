@@ -187,10 +187,22 @@ fun safeFit(term: Terminal, fit: FitAddon) {
  * element — padding, scrollbar gutter, sub-cell remainder — never read as
  * reclaimable space.
  *
+ * Hidden and skipped entirely while the pane rides a 3D-world plane
+ * ([isRidingSpikePlane]): there the pane box is grid-derived so there *is* no
+ * unused space, and this function's `getBoundingClientRect` math is measured
+ * through the CSS3D transform — it painted a bogus hatch strip over live pane
+ * content whenever a resize event fired after [presentPaneToGrid] had hidden
+ * the overlays.
+ *
  * @param entry the [TerminalEntry] to update overlays for
  * @see forceReassert
  */
 fun updateOobOverlay(entry: TerminalEntry) {
+    if (isRidingSpikePlane(entry)) {
+        entry.oobOverlayRight?.style?.display = "none"
+        entry.oobOverlayBottom?.style?.display = "none"
+        return
+    }
     fun ensure(slot: String): HTMLElement {
         val existing = when (slot) {
             "right" -> entry.oobOverlayRight
@@ -286,13 +298,27 @@ fun updateOobOverlay(entry: TerminalEntry) {
  * Applies a PTY size received from the server to the local xterm.js terminal.
  *
  * Sets the [applyingServerSize] flag to prevent the resize from being echoed
- * back to the server in a feedback loop, then updates the OOB overlay.
+ * back to the server in a feedback loop, then updates the OOB overlay. If the
+ * 3D world is open and this terminal rides a ring plane, the plane is
+ * re-presented at the new grid too ([spikeOnServerSize]) so the pane stays a
+ * truthful window onto the PTY.
  *
  * @param entry the [TerminalEntry] to resize
  * @param cols the server-mandated column count
  * @param rows the server-mandated row count
+ * @see spikeOnServerSize
  */
 fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
+    // While the world is open, every server-mandated size is logged: a grid key
+    // sends ForceResize(new) and, if some other client (or this client's own 2D
+    // machinery) counter-votes, the very next broadcast arrives with the old
+    // size — the console then shows the send and the revert back to back.
+    if (spikeOpen && (cols != entry.term.cols || rows != entry.term.rows)) {
+        console.log(
+            "[world3d-spike] server Size ${cols}x$rows for pane ${entry.paneId} " +
+                "(local grid was ${entry.term.cols}x${entry.term.rows}) — following"
+        )
+    }
     entry.ptyCols = cols
     entry.ptyRows = rows
     if (cols != entry.term.cols || rows != entry.term.rows) {
@@ -304,6 +330,7 @@ fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
         }
     }
     updateOobOverlay(entry)
+    runCatching { spikeOnServerSize(entry) }
 }
 
 /**
@@ -324,6 +351,9 @@ fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
  * and an absolute restore would land mid-scrollback when content
  * height changed.
  *
+ * A no-op while the pane rides a 3D-world plane ([isRidingSpikePlane]) — see the
+ * body comment for why fitting there is circular.
+ *
  * @param entry the [TerminalEntry] to refit and reassert
  * @see fitPreservingScroll
  */
@@ -335,11 +365,55 @@ fun forceReassert(entry: TerminalEntry) {
     // would lock the PTY at the size it just told us it has, defeating
     // the purpose of the reassert (forcing the PTY to match our grid).
     if (entry.applyingServerSize) return
+    // Stand down while the pane rides a 3D-world plane: there the container is
+    // *derived from* the grid, so fitting the grid back to it is circular — the
+    // fit proposes container-minus-padding, i.e. slightly smaller, and every
+    // automatic reassert (window resize via onGeometryChanged, fonts-loaded,
+    // tab-activation visibility edge, the ⌃⌥R hotkey) ratchets the shared PTY
+    // down one step per event. The world has its own resize/reformat commands
+    // (setPaneGrid sends ForceResize directly); the world-close 2D restore
+    // still works because `spikeOpen` is cleared before its deferred reassert.
+    if (isRidingSpikePlane(entry)) return
+    // Fight detector: reaching this point with the 3D world open means the
+    // stand-down above did NOT recognize this entry (isRidingSpikePlane matches
+    // by object identity, so a 2D layout rebuild that minted a fresh
+    // TerminalEntry for a pane the ring still holds slips past it). The refit
+    // below then squeezes the grid back to the 2D box and reasserts the PTY —
+    // which visually reverts any 3D grid resize. Log loudly so the console
+    // shows exactly which side undid the user's grid key.
+    if (spikeOpen) {
+        console.warn(
+            "[world3d-spike] 2D forceReassert firing WHILE WORLD OPEN for pane ${entry.paneId} " +
+                "(session ${entry.sessionId}, grid ${entry.term.cols}x${entry.term.rows}): entry not " +
+                "recognized by the ring (stale entry after a 2D layout rebuild?) — refitting to the " +
+                "2D box and reasserting the PTY; this reverts 3D grid resizes"
+        )
+    }
     try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+    sendForceResize(socket, entry.term)
+}
+
+/**
+ * Sends a [PtyControl.ForceResize] for [term]'s current grid over [socket] (a no-op
+ * if the socket is not open) — the socket-level core of [forceReassert], factored out
+ * so a caller that holds a live PTY socket but no [TerminalEntry] can reassert the
+ * session size the same way.
+ *
+ * This is what lets a 3D world **preview** pane reformat: a preview is a second live
+ * client attached to the same `/pty/<session>` socket (exactly like a phone viewing a
+ * pane the desktop also has open), so it can drive the shared PTY's size itself instead
+ * of waiting to be promoted to the mounted terminal.
+ *
+ * @param socket the PTY WebSocket to send the resize over.
+ * @param term the terminal whose current `cols`/`rows` become the reasserted size.
+ * @see forceReassert @see se.soderbjorn.termtastic.reformatPane
+ */
+fun sendForceResize(socket: WebSocket, term: Terminal) {
+    if (socket.readyState.toInt() != WebSocket.OPEN.toInt()) return
     runCatching {
         socket.send(
             windowJson.encodeToString<PtyControl>(
-                PtyControl.ForceResize(cols = entry.term.cols, rows = entry.term.rows)
+                PtyControl.ForceResize(cols = term.cols, rows = term.rows)
             )
         )
     }

@@ -130,6 +130,16 @@ data class Pane(
      * server enforces the mutual exclusion in `toggleMaximized`.
      */
     val maximized: Boolean = false,
+    /**
+     * The pane's **visual zoom** multiplier in the 3D world (1.0 = unzoomed).
+     * A pure GPU magnification applied by the 3D world's render loop — it does
+     * not reflow the PTY or affect the 2D layout, which is why it lives here
+     * beside the other presentation flags rather than in [LeafContent].
+     * Written by [WindowCommand.SetPaneZoom] (the 3D world's `+`/`−`/`0` keys)
+     * and read back by the 3D world when it seeds a pane's remembered zoom.
+     * Defaulted so configs persisted before this field existed round-trip.
+     */
+    val zoom: Double = 1.0,
 )
 
 /**

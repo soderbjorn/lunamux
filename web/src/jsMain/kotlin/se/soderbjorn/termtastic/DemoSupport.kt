@@ -8,6 +8,10 @@
  * only adapts it to the web client's xterm.js plumbing, which talks raw
  * browser WebSockets instead of [se.soderbjorn.termtastic.client.PtySocket].
  *
+ * Also hosts the secret Electron-only hotkey ([installDemoSwitchHotkey])
+ * that reboots the running renderer into (or out of) demo mode by toggling
+ * the `#demo` URL marker and reloading.
+ *
  * @see detectDemoUrl
  * @see connectDemoPane
  * @see connectPane
@@ -52,6 +56,56 @@ internal fun detectDemoUrl(): Boolean {
     if (loc.hash == "#demo") return true
     val query = loc.search.removePrefix("?")
     return query.split('&').any { it == "demo" || it.startsWith("demo=") }
+}
+
+/**
+ * Install the secret demo-switch hotkey: Cmd/Ctrl+Alt+Shift+D.
+ *
+ * Pressing it in the Electron app reboots the renderer into demo mode by
+ * appending the `#demo` marker (one of the spellings [detectDemoUrl]
+ * accepts) and reloading the page. The reload tears down every live
+ * server connection — the window WebSocket and all per-pane PTY sockets —
+ * and the rebooted client runs entirely against the in-process
+ * [se.soderbjorn.termtastic.client.demo.DemoServer], never touching the
+ * network again. Server-side sessions are unaffected; they merely see a
+ * client disconnect, exactly as if the window had been closed.
+ *
+ * The same combo pressed while already in demo mode strips the marker and
+ * reloads back against the real server, so an accidental press is
+ * recoverable without restarting the app. Restarting Electron always
+ * returns to the real server anyway, because the main process loads its
+ * `TARGET_URL` fresh (no hash).
+ *
+ * Called once from `start()` in `main.kt`, and only when
+ * [isElectronClient] is true — a plain browser tab already has the
+ * `/demo` URL for this, and a secret combo that silently disconnects a
+ * remote web session would be a trap, not a feature.
+ *
+ * Registered on `window` in the capture phase so it wins over xterm.js's
+ * own keydown handling regardless of which pane has focus. Matches on
+ * `KeyboardEvent.code` (physical `KeyD`) rather than `key`, because
+ * Alt-modified `key` values are layout-mangled on macOS (Alt+D → "∂").
+ *
+ * @see detectDemoUrl for how the rebooted page re-enters demo mode.
+ */
+internal fun installDemoSwitchHotkey() {
+    window.addEventListener("keydown", { ev ->
+        val e = ev.unsafeCast<org.w3c.dom.events.KeyboardEvent>()
+        val comboDown = (e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && e.code == "KeyD"
+        if (!comboDown) return@addEventListener
+        e.preventDefault()
+        e.stopPropagation()
+        val loc = window.location
+        if (isDemoClient) {
+            // Toggle back: drop the marker and reboot against the real server.
+            // Assigning an empty hash leaves a trailing "#", which
+            // detectDemoUrl ignores, so a plain reload suffices.
+            loc.hash = ""
+        } else {
+            loc.hash = "demo"
+        }
+        loc.reload()
+    }, true)
 }
 
 /**

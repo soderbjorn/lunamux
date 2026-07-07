@@ -571,12 +571,14 @@ internal suspend fun handleWindowCommand(text: String, ctx: WindowConnectionCont
         is WindowCommand.AddLinkToTab -> WindowState.addLinkToTab(cmd.tabId, cmd.targetSessionId)
         is WindowCommand.SetPaneGeom ->
             WindowState.setPaneGeometry(cmd.paneId, cmd.x, cmd.y, cmd.width, cmd.height)
+        is WindowCommand.SetPaneZoom -> WindowState.setPaneZoom(cmd.paneId, cmd.zoom)
         is WindowCommand.RaisePane -> WindowState.raisePane(cmd.paneId)
         is WindowCommand.ToggleMaximized -> WindowState.toggleMaximized(cmd.paneId)
         is WindowCommand.ApplyLayout ->
             WindowState.applyLayout(cmd.tabId, cmd.layout, cmd.primaryPaneId)
         is WindowCommand.MovePaneToTab -> WindowState.movePaneToTab(cmd.paneId, cmd.targetTabId)
         is WindowCommand.SwapPanes -> WindowState.swapPanes(cmd.paneAId, cmd.paneBId)
+        is WindowCommand.MovePaneWithinTab -> WindowState.movePaneWithinTab(cmd.paneId, cmd.targetPaneId, cmd.before, cmd.retile)
         is WindowCommand.SetActiveTab -> WindowState.setActiveTab(cmd.tabId)
         is WindowCommand.SetFocusedPane -> WindowState.setFocusedPane(cmd.tabId, cmd.paneId)
         is WindowCommand.SetStateOverride -> TerminalSessions.setStateOverride(cmd.sessionId, cmd.mode)

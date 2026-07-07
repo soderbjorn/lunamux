@@ -660,6 +660,26 @@ object WindowState {
         _config.value = newCfg
     }
 
+    /**
+     * Set the persisted 3D-world visual zoom multiplier on [paneId].
+     *
+     * Called from the [WindowCommand.SetPaneZoom] dispatch in `WindowRoutes`
+     * when the 3D world zooms or resets a pane, so the magnification rides
+     * the normal config broadcast + debounced persistence path into the
+     * database. Unlike [setPaneGeometry] this does **not** clear the tab's
+     * layout preset — zoom is a 3D presentation value, not 2D tab geometry.
+     *
+     * @param paneId the pane whose zoom to set.
+     * @param zoom the new zoom multiplier (1.0 = unzoomed); clamped, and
+     *   ignored when non-finite (see [PaneManager.setPaneZoom]).
+     * @see Pane.zoom
+     */
+    fun setPaneZoom(paneId: String, zoom: Double) = synchronized(this) {
+        val cfg = _config.value
+        val newCfg = PaneManager.setPaneZoom(cfg, paneId, zoom) ?: return@synchronized
+        _config.value = newCfg
+    }
+
     /** Toggle the maximized flag on [paneId]. */
     fun toggleMaximized(paneId: String) = synchronized(this) {
         val cfg = _config.value
@@ -995,6 +1015,28 @@ object WindowState {
         val cfg = _config.value
         val newCfg = PaneManager.swapPanes(cfg, aId, bId) ?: return@synchronized
         _config.value = newCfg
+    }
+
+    /**
+     * Reorder [aId] before or after [bId] within their shared tab, then re-tile
+     * that tab if a layout preset (e.g. Auto) is driving it — the list order is
+     * what auto-tiling reads.
+     *
+     * @param retile `false` skips the preset re-tile: the 3D world reorders ring
+     *   slots without wanting the tab's 2D geometry rewritten underneath it (see
+     *   [WindowCommand.MovePaneWithinTab.retile]). The list order still changes,
+     *   so the next preset-driven re-tile (a 2D add/remove/focus, or re-picking
+     *   the preset) lays out in the new order.
+     * @see PaneManager.movePaneWithinTab
+     */
+    fun movePaneWithinTab(aId: String, bId: String, before: Boolean, retile: Boolean = true) = synchronized(this) {
+        val cfg = _config.value
+        val newCfg = PaneManager.movePaneWithinTab(cfg, aId, bId, before) ?: return@synchronized
+        _config.value = newCfg
+        if (retile) {
+            val tabId = newCfg.tabs.firstOrNull { tab -> tab.panes.any { it.leaf.id == aId } }?.id
+            if (tabId != null) maybeReapplyLayout(tabId)
+        }
     }
 
     // ── Session lifecycle helpers ────────────────────────────────────

@@ -33,7 +33,21 @@ java {
     targetCompatibility = JavaVersion.VERSION_11
 }
 
-val webDistDir = project(":web").layout.buildDirectory.dir("dist/js/productionExecutable")
+// The server embeds and serves the DEVELOPMENT web bundle, not the production
+// one. The production pipeline (Kotlin/JS DCE + member-name mangling) has a
+// layout-sensitive miscompilation bug on this codebase: mangled member calls
+// can bind to the wrong symbol, throwing `<mangled> is not a function` — loudly
+// at module init on some builds, or silently inside runCatching-wrapped
+// feature paths on others (e.g. the 3D world grid-resize keys no-oping while
+// everything around them works). Any source edit reshuffles the symbol layout,
+// so a passing prod bundle passes by luck. The unminified dev bundle skips the
+// optimizer entirely and is immune. See KOTLIN_JS_PROD_CRASH.html for the full
+// investigation, and scripts/run-electron-to-prod-server.sh for the same
+// mitigation on the side-instance script. Trade-off: ~25 MB vs ~4.5 MB, served
+// over loopback — negligible for a desktop app. Revert to productionExecutable
+// (and jsBrowserDistribution below) once the upstream optimizer bug is fixed.
+val webDistDir = project(":web").layout.buildDirectory.dir("dist/js/developmentExecutable")
+val webDistTask = ":web:jsBrowserDevelopmentExecutableDistribution"
 val embeddedWebResourcesDir = layout.buildDirectory.dir("generated/web-resources")
 
 application {
@@ -50,7 +64,7 @@ application {
 // inside the shadow jar at /web on the classpath. The packaged server reads it
 // via staticResources when no on-disk webDist is provided.
 val copyWebDistToResources by tasks.registering(Copy::class) {
-    dependsOn(":web:jsBrowserDistribution")
+    dependsOn(webDistTask)
     from(webDistDir)
     into(embeddedWebResourcesDir.map { it.dir("web") })
 }
@@ -107,7 +121,7 @@ sqldelight {
 // recognise on its next save, e.g. losing freshly-introduced LeafContent
 // variants like the markdown overview pane.
 tasks.named<JavaExec>("run") {
-    dependsOn(":web:jsBrowserDistribution")
+    dependsOn(webDistTask)
     systemProperty("termtastic.port", "8444")
     val devDb = File(
         System.getProperty("user.home"),

@@ -108,7 +108,7 @@ class DemoServer internal constructor(
 
     init {
         for (spec in demoSessionSpecs()) {
-            sessions[spec.sessionId] = DemoTerminalSession(spec, scope)
+            sessions[spec.sessionId] = createSession(spec)
         }
         windowState.updateConfig(config)
         windowState.updateStates(states.toMap())
@@ -130,7 +130,43 @@ class DemoServer internal constructor(
      * @return the simulated session.
      */
     fun session(sessionId: String): DemoTerminalSession =
-        sessions.getOrPut(sessionId) { DemoTerminalSession(newShellSessionSpec(sessionId), scope) }
+        sessions.getOrPut(sessionId) { createSession(newShellSessionSpec(sessionId)) }
+
+    /**
+     * Construct a [DemoTerminalSession] with its agent-activity callback
+     * wired to this server's state map: a script run starting flips the
+     * session to `working`, a run finishing (or being Ctrl-C'd) clears the
+     * state — publishing a [WindowEnvelope.State] each time, exactly like
+     * the real server's Claude state detector. This is what makes the
+     * finished demo Claude pane light up as "working" when the user types
+     * into it, and stop pulsing when the burst completes.
+     *
+     * @param spec the session's canned content and scripts.
+     * @return the wired session.
+     */
+    private fun createSession(spec: DemoSessionSpec): DemoTerminalSession {
+        val session = DemoTerminalSession(spec, scope)
+        session.onAgentActivity = { active ->
+            scope.launch { setAgentState(spec.sessionId, if (active) "working" else null) }
+        }
+        return session
+    }
+
+    /**
+     * Set (or clear, with `null`) one session's AI state and broadcast the
+     * new state map — no-op when the value is already current, so repeated
+     * activity callbacks don't spam every status consumer.
+     *
+     * @param sessionId the session whose state changed.
+     * @param state the new state label (`"working"`), or `null` for idle.
+     */
+    private suspend fun setAgentState(sessionId: String, state: String?) {
+        mutex.withLock {
+            if (states[sessionId] == state) return
+            if (state == null) states.remove(sessionId) else states[sessionId] = state
+            publishStates()
+        }
+    }
 
     /**
      * Apply one [WindowCommand] the way the real server would, updating the
@@ -435,6 +471,13 @@ class DemoServer internal constructor(
                     it.copy(x = box.x, y = box.y, width = box.width, height = box.height)
                 }
             }
+            is WindowCommand.SetPaneZoom -> {
+                // Mirror `PaneManager.setPaneZoom`: drop non-finite values and
+                // clamp to the same range before storing the 3D-world zoom.
+                if (command.zoom.isFinite()) {
+                    updatePane(command.paneId) { it.copy(zoom = command.zoom.coerceIn(0.01, 100.0)) }
+                }
+            }
             is WindowCommand.RaisePane -> {
                 val tab = findTabOf(command.paneId) ?: return
                 val pane = tab.panes.firstOrNull { it.leaf.id == command.paneId } ?: return
@@ -497,6 +540,18 @@ class DemoServer internal constructor(
                         },
                     )
                 }
+            }
+            is WindowCommand.MovePaneWithinTab -> {
+                val tab = findTabOf(command.paneId) ?: return
+                val srcIdx = tab.panes.indexOfFirst { it.leaf.id == command.paneId }
+                val moving = tab.panes.getOrNull(srcIdx) ?: return
+                if (tab.panes.none { it.leaf.id == command.targetPaneId }) return
+                val without = tab.panes.filter { it.leaf.id != command.paneId }
+                val tgtIdx = without.indexOfFirst { it.leaf.id == command.targetPaneId }
+                val insertAt = if (command.before) tgtIdx else tgtIdx + 1
+                if (insertAt == srcIdx) return
+                val reordered = without.take(insertAt) + moving + without.drop(insertAt)
+                updateTab(tab.id) { retileIfAuto(it.copy(panes = reordered)) }
             }
 
             // --- per-pane content settings ---

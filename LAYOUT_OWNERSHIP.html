@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termtastic — Who Owns Layout? (Server WindowConfig vs Toolkit LAYOUT_STATE)</title>
+<style>
+  :root {
+    --bg: #0c1017; --panel: #131a24; --panel2: #0f151d; --ink: #d7e2f4; --muted: #8ea3c2;
+    --accent: #4f8cf7; --good: #4bd08b; --warn: #f0b649; --bad: #ff6b5a; --line: #26374e;
+    --code-bg: #0a0e14; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 0 6rem;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+  header {
+    background: radial-gradient(circle at 30% 0%, #16324f, #0c1017 70%);
+    border-bottom: 1px solid var(--line); padding: 3rem 0 2rem; margin-bottom: 2rem;
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 1.05rem; }
+  .tag { display: inline-block; font: 600 12px/1 var(--mono); padding: 5px 9px; border-radius: 6px;
+    border: 1px solid var(--line); color: var(--muted); margin: .6rem .4rem 0 0; background: var(--panel2); }
+  .tag.good { color: var(--good); border-color: #1f5f42; }
+  .tag.warn { color: var(--warn); border-color: #5f4a1f; }
+  h2 { font-size: 1.35rem; margin: 2.6rem 0 .8rem; padding-bottom: .4rem; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.08rem; margin: 1.8rem 0 .5rem; color: #eaf1ff; }
+  p, li { color: #cdd9ec; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: .87em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; border: 1px solid #1b2430; }
+  pre { background: var(--code-bg); border: 1px solid #1b2430; border-radius: 8px; padding: 14px 16px; overflow-x: auto; }
+  pre code { background: none; border: none; padding: 0; font-size: 13px; line-height: 1.5; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .lesson { border-left: 3px solid var(--accent); }
+  .lesson dt { font: 600 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; margin-top: .7rem; }
+  .lesson .p { color: var(--bad); } .lesson .i { color: var(--warn); } .lesson .s { color: var(--good); }
+  .lesson dd { margin: .15rem 0 0; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .05em; }
+  td code { white-space: nowrap; }
+  .yes { color: var(--good); font-weight: 600; } .no { color: var(--bad); font-weight: 600; }
+  .callout { background: #14202e; border: 1px solid #24405e; border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0; }
+  .callout.warn { background: #241d10; border-color: #5f4a1f; }
+  .callout.bad { background: #241315; border-color: #5f2222; }
+  .muted { color: var(--muted); }
+  ul.tight { margin: .4rem 0; } ul.tight li { margin: .25rem 0; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 3rem; }
+  .flow { font: 600 13px/1.5 var(--mono); color: var(--muted); }
+  .flow b { color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Who owns layout in Termtastic?</h1>
+    <div class="sub">Server <code>WindowConfig</code> vs. the toolkit's <code>LAYOUT_STATE</code> blob — the two parallel layout representations, which one is authoritative on web, and the trap that caused the 3D pane-order bug.</div>
+    <div>
+      <span class="tag warn">reference note</span>
+      <span class="tag">discovered: 2026-07-06</span>
+      <span class="tag">branch: <b>world3d-spike</b></span>
+      <span class="tag good">bug fixed</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>1. TL;DR</h2>
+<div class="callout">
+Layout has <b>two representations</b>. The server's typed <code>WindowConfig</code> is authoritative for <b>mobile/native</b>. On <b>web</b>, the <b>darkness-toolkit</b>'s <code>LAYOUT_STATE</code> blob is what actually renders — pane <b>order</b>, geometry, minimize and preset all flow through the toolkit, not through <code>WindowConfig</code>. The server still <i>persists and rebroadcasts</i> that blob, but only as an <b>opaque flat-KV entry</b> inside <code>/api/ui-settings</code>; it does not model it. Two fields exist <b>only</b> in the toolkit blob with no typed server mirror at all: <b>pane order / "primary"</b> and <b>isMinimized</b>.
+</div>
+
+<h2>2. The two stores</h2>
+<div class="tablewrap">
+<table>
+  <tr>
+    <th>Concern</th>
+    <th>Server <code>WindowConfig</code> (typed)</th>
+    <th>Toolkit <code>LAYOUT_STATE</code> (opaque blob)</th>
+    <th>Authoritative for web?</th>
+  </tr>
+  <tr>
+    <td>Tab structure, pane existence, sessions</td>
+    <td class="yes">✅ modelled</td>
+    <td class="no">—</td>
+    <td>Server</td>
+  </tr>
+  <tr>
+    <td>Pane geometry (x / y / w / h / z, maximized)</td>
+    <td class="yes">✅ fields on <code>Pane</code></td>
+    <td class="yes">✅ <code>geometryByTab</code></td>
+    <td><b>Toolkit</b> (server copy driven only by mobile)</td>
+  </tr>
+  <tr>
+    <td><b>Pane order within a tab / "primary"</b></td>
+    <td class="no">❌ none — <code>panes</code> is <i>creation-ordered</i>, plus one <code>focusedPaneId</code></td>
+    <td class="yes">✅ <code>paneOrderByTab</code> (head = primary)</td>
+    <td><b>Toolkit only</b></td>
+  </tr>
+  <tr>
+    <td><b>isMinimized</b></td>
+    <td class="no">❌ no field</td>
+    <td class="yes">✅ <code>geometryByTab[..].isMinimized</code></td>
+    <td><b>Toolkit only</b></td>
+  </tr>
+  <tr>
+    <td>Layout preset per tab</td>
+    <td class="yes">✅ <code>TabConfig.layoutPreset</code></td>
+    <td class="yes">✅ <code>presetByTab</code></td>
+    <td><b>Toolkit</b> (server copy is mobile/demo mirror)</td>
+  </tr>
+  <tr>
+    <td>Active tab, focused pane, hidden flags</td>
+    <td class="yes">✅ modelled</td>
+    <td class="no">—</td>
+    <td>Server</td>
+  </tr>
+</table>
+</div>
+<p class="muted">Beyond layout, the same flat-KV persister also carries genuine client UI prefs — theme selection, collapsed sidebar sections, sidebar font/size, hotkeys. Those are expected to be client-side and are not part of this story.</p>
+
+<h2>3. What "the server owns layout" actually means</h2>
+<p>
+The toolkit persists its blob through the host <b>Persister</b>. In termtastic that adapter round-trips to the server's flat-KV: the blob is merged into <code>termtastic.json</code> and rebroadcast over the <code>/window</code> socket (cross-client sync, issue&nbsp;#58). So the server gives the blob <b>durability and rebroadcast</b> — but it never parses it into <code>WindowConfig</code>. "Server-owned" = <i>that KV round-trip</i>, not a structured field the server reasons about.
+</p>
+<p class="flow">
+web toolkit &nbsp;→&nbsp; <b>persistLayoutState()</b> &nbsp;→&nbsp; Persister &nbsp;→&nbsp; <b>/api/ui-settings</b> (flat-KV) &nbsp;→&nbsp; server merge + broadcast &nbsp;→&nbsp; <b>rawLayoutState</b> &nbsp;→&nbsp; every client
+</p>
+
+<h2>4. Proof: who sends the structured commands</h2>
+<p>
+The server <i>does</i> have structured layout commands — <code>SetPaneGeom</code>, <code>MovePaneWithinTab</code>, <code>ToggleMaximized</code>, <code>ApplyLayout</code>. Grepping their senders is the tell:
+</p>
+<ul class="tight">
+  <li><code>SetPaneGeom</code> / <code>MovePaneWithinTab</code> are sent by the <b>native/mobile</b> <code>LayoutViewModel</code> (<code>client/commonMain</code>) and the demo server — <b>never by any web code</b>.</li>
+  <li>On web, geometry / order / minimize / re-tile all go through the toolkit's <code>LayoutController</code> + <code>persistLayoutState()</code>.</li>
+</ul>
+<p>
+So the <code>WindowConfig.Pane</code> geometry fields and those commands are <b>vestigial for web, live for mobile</b>. (Mobile has no toolkit, so it reads the same broadcast <code>LAYOUT_STATE</code> blob by parsing it directly in <code>WindowStateRepository</code> — see the minimize-to-mobile pattern.)
+</p>
+
+<h2>5. The bug this caused (world3d-spike)</h2>
+<div class="card lesson">
+  <dl>
+    <dt class="p">Symptom</dt>
+    <dd>User manually rearranged panes in a tab. The left sidebar showed the new order; the 3D "world" ring showed the <i>original</i> order — with a terminal wedged between the git and folder panes.</dd>
+    <dt class="i">Cause</dt>
+    <dd>The ring built its order from the server's <code>tab.panes</code> (<b>creation order</b>). The sidebar renders panes sorted by the toolkit's <code>paneOrderByTab</code> (the user's drag-reorder). A sidebar drag mutates only <code>ctl.paneOrder</code> + persists — it never reorders <code>WindowConfig.panes</code>. So the two diverged, and the ring read the wrong store.</dd>
+    <dt class="s">Fix</dt>
+    <dd><code>World3DSpike.collectPaneSpecs</code> now sorts each tab's panes by a new <code>toolkitPaneOrder(tabId)</code> helper, which reads <code>LAYOUT_STATE.paneOrderByTab</code> off <code>termtasticClient.windowState.rawLayoutState</code> — the <i>same source</i> and the <i>same stable-sort-with-untracked-at-tail</i> rule the sidebar uses (<code>AppShellMount.buildLeftSidebarContent</code>). The ring now matches the sidebar.</dd>
+  </dl>
+</div>
+
+<h2>6. The rule of thumb</h2>
+<div class="callout warn">
+On web, anything that wants the user's <b>pane order</b> must read <code>paneOrderByTab</code> (via <code>rawLayoutState</code>), <b>not</b> <code>tab.panes</code>. Reading <code>tab.panes</code> gives you stale creation order. The same goes for pane <b>minimize</b> state (<code>geometryByTab[..].isMinimized</code>) and, for what actually renders, geometry and preset.
+</div>
+
+<h3>How to read it (Kotlin/JS)</h3>
+<pre><code>// LAYOUT_STATE.paneOrderByTab : { tabId -> [paneId, paneId, ...] }  (head = primary)
+private fun toolkitPaneOrder(tabId: String): List&lt;String&gt; {
+    val raw = termtasticClient.windowState.rawLayoutState.value ?: return emptyList()
+    val obj = when {
+        raw is JsonObject -> raw
+        raw is JsonPrimitive &amp;&amp; raw.isString -> Json.parseToJsonElement(raw.content).jsonObject
+        else -> return emptyList()
+    }
+    val orderByTab = obj["paneOrderByTab"] as? JsonObject ?: return emptyList()
+    val arr = orderByTab[tabId] as? JsonArray ?: return emptyList()
+    return arr.mapNotNull { it.jsonPrimitive.content }
+}
+// Then, mirroring the sidebar (stable sort, untracked panes to the tail):
+val rank = toolkitPaneOrder(tabId).withIndex().associate { (i, id) -> id to i }
+val ordered = tab.panes.sortedBy { rank[it.leaf.id] ?: Int.MAX_VALUE }</code></pre>
+<p class="muted">The blob arrives either as a <code>JsonObject</code> or as a JSON-string <code>JsonPrimitive</code> depending on the persistence round-trip — handle both.</p>
+
+<h2>7. Open decision (spike ⇧-reorder)</h2>
+<div class="callout bad">
+The spike's in-ring reorder (<code>⇧←/⇧→</code> → <code>movePaneSlot</code>) still sends <code>MovePaneWithinTab</code>, i.e. it writes the <b>server</b> <code>tab.panes</code> — the store web ignores. After the read-fix above, that gesture is now <b>visually inert on web</b>. To make it work + stay consistent it should write the <b>toolkit</b> order (read-modify-write <code>LAYOUT_STATE.paneOrderByTab</code> via <code>webSettingsPersister</code>), exactly like the sidebar's own drag-reorder does. Left unwired pending a call on whether pane order should eventually become server-authoritative instead.
+</div>
+
+<h2>8. Where to look in code</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Thing</th><th>Location</th></tr>
+  <tr><td>Toolkit blob shape</td><td><code>toolkit-web … AppShellMount.PersistedLayoutState</code> (<code>presetByTab</code> / <code>paneOrderByTab</code> / <code>geometryByTab</code>)</td></tr>
+  <tr><td>Sidebar sorts by <code>paneOrder</code></td><td><code>AppShellMount.buildLeftSidebarContent</code> → <code>ctl.paneOrder</code></td></tr>
+  <tr><td>Persist / dedup / broadcast</td><td><code>AppShellMount.persistLayoutState</code>; <code>ServerInitializer</code> UI-settings merge</td></tr>
+  <tr><td>Live blob on the client</td><td><code>WindowStateRepository.rawLayoutState : StateFlow&lt;JsonElement?&gt;</code></td></tr>
+  <tr><td>Server typed model</td><td><code>clientserver … WindowConfig.kt</code> (<code>TabConfig.panes</code>, <code>Pane</code>, <code>layoutPreset</code>)</td></tr>
+  <tr><td>Mobile geometry commands</td><td><code>client/commonMain … LayoutViewModel</code> → <code>SetPaneGeom</code> / <code>MovePaneWithinTab</code></td></tr>
+  <tr><td>The fix</td><td><code>web … World3DSpike.kt</code> — <code>toolkitPaneOrder()</code> + <code>collectPaneSpecs()</code></td></tr>
+</table>
+</div>
+
+<footer>
+  Termtastic layout-ownership reference. Companion to <code>WORLD3D_SPIKE.html</code>. Written after the 3D pane-order bug on branch <code>world3d-spike</code>, 2026-07-06. If pane order later becomes a typed <code>WindowConfig</code> field, revisit sections 4 and 7.
+</footer>
+
+</div>
+</body>
+</html>

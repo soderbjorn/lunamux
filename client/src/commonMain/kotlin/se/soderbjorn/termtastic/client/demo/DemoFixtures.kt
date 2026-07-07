@@ -94,8 +94,9 @@ internal object DemoFixtures {
      * The workspace every demo client starts with: four tabs showing
      * different layouts and pane types.
      *
-     *  - **Orbit** (active, hero-left): a large Claude Code session on the
-     *    left and a build shell on the right.
+     *  - **Orbit** (active, hero-left): a large, live "working" Claude Code
+     *    session on the left; on the right a build shell above a *finished*
+     *    Claude session that resumes working when typed into.
      *  - **Services** (grid): dev-server logs, a test run, a build watcher,
      *    and a plain shell.
      *  - **Files** (single): a full-screen file browser.
@@ -129,7 +130,18 @@ internal object DemoFixtures {
                             cwd = CWD,
                             content = TerminalContent(sessionId = "demo-s2"),
                         ),
-                        x = 0.6, y = 0.0, width = 0.4, height = 1.0, z = 2,
+                        x = 0.6, y = 0.0, width = 0.4, height = 0.5, z = 2,
+                    ),
+                    Pane(
+                        leaf = LeafNode(
+                            id = "demo-p9",
+                            sessionId = "demo-s6",
+                            title = "claude: metrics",
+                            customName = "claude: metrics",
+                            cwd = CWD,
+                            content = TerminalContent(sessionId = "demo-s6"),
+                        ),
+                        x = 0.6, y = 0.5, width = 0.4, height = 0.5, z = 3,
                     ),
                 ),
                 focusedPaneId = "demo-p1",
@@ -240,9 +252,12 @@ internal object DemoFixtures {
     /**
      * Initial per-session AI-state map, showing every agent state the UI
      * can render: the main Claude session and the docs session pulse blue
-     * ("working"), while the tests session shows the fading red attention
-     * indicator ("waiting" — it sits at a tool-permission prompt). The
-     * plain shells stay stateless.
+     * ("working" — both also stream a scripted live feed, see
+     * `DemoSessionSpec.liveScript`), while the tests session shows the
+     * fading red attention indicator ("waiting" — it sits at a
+     * tool-permission prompt). The finished Claude session (`demo-s6`)
+     * starts stateless and flips to "working" at runtime when the user
+     * types into it, and the plain shells stay stateless.
      */
     val initialStates: Map<String, String?> = mapOf(
         "demo-s1" to "working",

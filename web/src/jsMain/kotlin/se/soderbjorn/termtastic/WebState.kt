@@ -68,6 +68,20 @@ internal var proto = "ws"
 internal var authQueryParam = ""
 internal var clientTypeAtStart = "Web"
 
+/**
+ * `host:port` authority every API/WebSocket request is sent to. Normally the
+ * origin the bundle was served from (`window.location.host`).
+ *
+ * A `?backend=host:port` URL parameter overrides this, so a UI bundle served
+ * from a throwaway static server can drive a *different* live server — e.g.
+ * your production instance on `127.0.0.1:8443` — giving you this branch's
+ * renderer on top of your real, live sessions (see
+ * `scripts/run-electron-to-prod-server.sh`). When the param is absent this stays
+ * `window.location.host` and every code path behaves exactly as before.
+ * Set once in `main.kt`'s `start()`; read by the raw pty/agent socket URLs.
+ */
+internal var backendHost = ""
+
 // ── Default chrome / monospaced fonts ───────────────────────────────
 // When the user hasn't picked a font/size we default the sidebar, tab bar and
 // monospaced (terminal) fonts to JetBrains Mono, and the chrome size to 12px.

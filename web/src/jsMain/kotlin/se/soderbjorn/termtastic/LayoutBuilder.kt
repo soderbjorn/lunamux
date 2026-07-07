@@ -79,7 +79,7 @@ fun connectPane(entry: TerminalEntry) {
         connectDemoPane(entry)
         return
     }
-    val url = "$proto://${window.location.host}/pty/${entry.sessionId}?$authQueryParam"
+    val url = "$proto://$backendHost/pty/${entry.sessionId}?$authQueryParam"
     connectionState[entry.sessionId] = "connecting"
     updateAggregateStatus()
 
@@ -156,7 +156,13 @@ fun connectPane(entry: TerminalEntry) {
         // (`sendResize` would self-gate too, but bail early for clarity.)
         if (entry.autoReflow) {
             if (entry.container.offsetParent != null) {
-                try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+                // No local fit while the pane rides a 3D-world plane: there the
+                // container is grid-derived, so a fit would propose a slightly
+                // smaller grid (padding allowance) — the current grid IS the
+                // truth to vote. See [isRidingSpikePlane].
+                if (!isRidingSpikePlane(entry)) {
+                    try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+                }
                 sendResize()
             } else {
                 window.setTimeout({ sendResize() }, 0)
@@ -411,7 +417,14 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
                 // out-of-bounds overlay below then surfaces the unused space
                 // with its "press Reformat" tooltip as the user grows the
                 // pane, exactly the affordance the manual path expects.
-                if (entry.autoReflow) {
+                //
+                // Also frozen while the pane rides a 3D-world plane: there the
+                // container is *derived from* the grid, so fitting the grid to
+                // it is circular — the fit's padding allowance shrinks the
+                // grid one step per pass and the Size broadcast re-presents a
+                // smaller container, ratcheting the pane (on every client)
+                // down to the minimum. See [isRidingSpikePlane].
+                if (entry.autoReflow && !isRidingSpikePlane(entry)) {
                     fitPreservingScroll(entry.term, entry.fit)
                     // Hidden→visible transition: the toolkit's pane-chrome
                     // cache reattaches inactive-tab content on first tab

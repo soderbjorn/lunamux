@@ -1,11 +1,14 @@
 /**
  * Canned terminal content for demo mode: the initial scrollback transcript of
- * every demo PTY session, the shell prompt, and the command→response tables
- * used when the user types into a demo terminal.
+ * every demo PTY session, the shell prompt, the command→response tables used
+ * when the user types into a demo terminal, and the timed output scripts
+ * ([DemoScriptStep]) that make the Claude sessions look *live* — the two
+ * "working" sessions loop a feed of tool calls and status-line ticks, and the
+ * finished session plays a one-shot work burst whenever the user talks to it.
  *
  * Everything in this file is static — nothing is randomised at runtime, so
  * the demo looks identical on every load and on every client. All timestamps,
- * fake command output, and the simulated Claude Code session are authored
+ * fake command output, and the simulated Claude Code sessions are authored
  * here; tweak this file to change what the demo shows.
  *
  * @see DemoTerminalSession for the line-discipline simulation that replays
@@ -55,8 +58,68 @@ private const val CLAUDE = "$E[38;5;215m"
 internal val DEMO_PROMPT: String =
     "$GREEN demo@orbit $R$BLUE~/code/orbit$R % "
 
-/** Prompt shown by the simulated Claude Code session for typed input. */
-internal val DEMO_CLAUDE_PROMPT: String = "$B>$R "
+/**
+ * Prompt block shown by the simulated Claude Code session for typed input,
+ * styled after the current Claude Code chrome: a dim rule, the
+ * `⏵⏵ auto mode on` status line, then the `›` input caret. The caret is the
+ * last thing printed so typed characters echo in the right place; the status
+ * line rides above it (in the real TUI it sits below the input box, but a
+ * scrollback simulation must keep the cursor line last).
+ */
+internal val DEMO_CLAUDE_PROMPT: String =
+    "${DIM}─────────────────────────────────────────────────────────$R\r\n" +
+    "$CYAN⏵⏵$R ${B}auto mode on$R ${DIM}(shift+tab to cycle) · ← for agents · esc to interrupt$R\r\n" +
+    "$B›$R "
+
+/**
+ * Return-to-column-0 + erase-line — prefixed to script steps that rewrite
+ * the Claude status line in place, mimicking how the real Claude Code
+ * spinner ticks without scrolling.
+ */
+internal const val CLEAR_LINE: String = "\r$E[2K"
+
+/**
+ * One Claude Code status line in the current spinner style
+ * (`✻ Frosting… (3m 16s · almost done thinking with high effort)`), written
+ * without a trailing newline so the next [CLEAR_LINE]-prefixed step can
+ * rewrite it in place.
+ *
+ * @param verb the whimsical present-participle activity label (`"Frosting"`).
+ * @param secs elapsed seconds, rendered `Xs` or `Xm Ys` past the minute.
+ * @param note the trailing note in the parenthetical (`"thinking with high
+ *   effort"`), highlighted the way the live client renders it.
+ * @return the ANSI-coloured status line.
+ */
+private fun claudeStatus(verb: String, secs: Int, note: String): String {
+    val t = if (secs >= 60) "${secs / 60}m ${secs % 60}s" else "${secs}s"
+    return "$CLAUDE✻$R ${B}$verb…$R ${DIM}($t · $R$YELLOW$note$R${DIM})$R"
+}
+
+/**
+ * One completed Claude Code tool-call block (`● Edit(file)` plus its `⎿`
+ * result line and a trailing blank line), CRLF-terminated so a status line
+ * can follow on the next row.
+ *
+ * @param tool the tool name (`"Edit"`, `"Bash"`, …).
+ * @param arg the tool argument rendered in parentheses.
+ * @param result the one-line result shown after `⎿`.
+ * @return the ANSI-coloured block.
+ */
+private fun toolStep(tool: String, arg: String, result: String): String =
+    "$B●$R ${B}$tool$R($arg)\r\n  ${DIM}⎿  $result$R\r\n\r\n"
+
+/**
+ * One aggregated tool-activity line in the current Claude Code style
+ * (`● Searching for 5 patterns, reading 7 files, running 1 shell command…`
+ * with a dim `⎿` detail row underneath), CRLF-terminated so a status line
+ * can follow. The counts in [summary] should be pre-bolded by the caller.
+ *
+ * @param summary the one-line activity summary (may contain ANSI bolding).
+ * @param detail the dim detail row (typically the file being read).
+ * @return the ANSI-coloured block.
+ */
+private fun toolSummary(summary: String, detail: String): String =
+    "$DIM●$R $summary\r\n  ${DIM}⎿  $detail$R\r\n\r\n"
 
 /**
  * Joins transcript lines with the CRLF line endings a real PTY produces
@@ -66,6 +129,24 @@ internal val DEMO_CLAUDE_PROMPT: String = "$B>$R "
  * @return the lines joined and terminated with `\r\n`.
  */
 private fun lines(vararg l: String): String = l.joinToString("\r\n", postfix = "\r\n")
+
+/**
+ * One timed step of a scripted live-output feed: after [delayMs], [text] is
+ * written to the session verbatim (ANSI escapes included, no newline is
+ * appended). Steps typically start with [CLEAR_LINE] so a status line can be
+ * rewritten in place the way Claude Code's spinner is.
+ *
+ * Played by [DemoTerminalSession]'s script player, either forever
+ * ([DemoSessionSpec.liveScript]) or once per typed input line
+ * ([DemoSessionSpec.inputScript]).
+ *
+ * @property delayMs how long to wait before writing this step.
+ * @property text the raw bytes to write (as a string; may contain ANSI).
+ */
+internal class DemoScriptStep(
+    val delayMs: Long,
+    val text: String,
+)
 
 /**
  * Everything needed to seed one demo PTY session.
@@ -81,6 +162,17 @@ private fun lines(vararg l: String): String = l.joinToString("\r\n", postfix = "
  *   drops to the shell prompt.
  * @property respond maps a typed command line to its canned output (ANSI,
  *   CRLF line endings, may be empty for no output).
+ * @property liveScript when non-null, a looping feed of [DemoScriptStep]s
+ *   played from the moment the session is created — the session looks like
+ *   an agent that is *currently* working (tool calls appearing, the status
+ *   line ticking). The transcript must end mid-status-line (no trailing
+ *   newline) so the first [CLEAR_LINE] rewrite lands on it. Keystrokes are
+ *   swallowed while the feed runs; Ctrl-C stops it and drops to [prompt].
+ * @property inputScript when non-null, Enter at the prompt hands the typed
+ *   line (plus a 0-based run counter for variant rotation) to this function
+ *   and plays the returned steps once — the "Claude resumes working when
+ *   you talk to it" behaviour. The last step should end with the prompt.
+ *   While a run is playing, keystrokes are swallowed and Ctrl-C interrupts.
  */
 internal class DemoSessionSpec(
     val sessionId: String,
@@ -88,6 +180,8 @@ internal class DemoSessionSpec(
     val prompt: String,
     val startsAtPrompt: Boolean,
     val respond: (String) -> String,
+    val liveScript: List<DemoScriptStep>? = null,
+    val inputScript: ((line: String, runIndex: Int) -> List<DemoScriptStep>)? = null,
 )
 
 /**
@@ -119,22 +213,143 @@ internal fun demoShellRespond(line: String): String {
 }
 
 /**
- * Canned reply used when the user types into the simulated Claude Code
- * session. Keeps the Claude look-and-feel without pretending to be live.
+ * The looping live feed for the main rate-limiter Claude session
+ * (`demo-s1`): status-line ticks rewritten in place, interleaved with tool
+ * calls and short assistant remarks, so the pane genuinely looks like an
+ * agent mid-task rather than a frozen screenshot. Played forever by
+ * [DemoTerminalSession]; each loop iteration reads as "Claude doing the
+ * next round of polish", so the repeat is unobtrusive.
  *
- * @param line the trimmed input line.
- * @return a Claude-style canned response block.
+ * @return the steps of one loop iteration.
  */
-internal fun demoClaudeRespond(line: String): String {
-    if (line.isBlank()) return ""
-    return lines(
-        "",
-        "$CLAUDE✻$R ${DIM}Thinking…$R",
-        "",
-        "$B●$R This is the canned demo session — I can't take new requests here,",
-        "  but everything above is what a real Claude Code run looks like in",
-        "  termtastic. Connect to a real server to go interactive.",
-        "",
+private fun claudeMainLiveScript(): List<DemoScriptStep> = listOf(
+    DemoScriptStep(1_700, CLEAR_LINE + claudeStatus("Frosting", 161, "thinking with high effort")),
+    DemoScriptStep(1_900, CLEAR_LINE + claudeStatus("Frosting", 166, "thinking with high effort")),
+    DemoScriptStep(
+        1_600,
+        CLEAR_LINE + toolStep("Edit", "README.md", "Updated README.md with 12 additions and 1 removal") +
+            claudeStatus("Frosting", 168, "thinking with high effort"),
+    ),
+    DemoScriptStep(2_100, CLEAR_LINE + claudeStatus("Frosting", 172, "almost done thinking with high effort")),
+    DemoScriptStep(
+        1_500,
+        CLEAR_LINE +
+            "$B●$R README now documents the burst and refill settings. Adding the\r\n" +
+            "  429 integration test next.\r\n\r\n" +
+            claudeStatus("Simmering", 174, "writing the integration test"),
+    ),
+    DemoScriptStep(
+        1_800,
+        CLEAR_LINE + toolStep("Write", "src/api/ratelimit.integration.test.ts", "Wrote 34 lines") +
+            claudeStatus("Simmering", 178, "running the suite"),
+    ),
+    DemoScriptStep(
+        2_200,
+        CLEAR_LINE + toolStep("Bash", "npx vitest run src/api", "17 passed (17)") +
+            claudeStatus("Percolating", 183, "verifying the refill window"),
+    ),
+    DemoScriptStep(
+        1_900,
+        CLEAR_LINE +
+            "$B●$R Integration test passes — a burst of 21 requests gets a 429 and\r\n" +
+            "  recovers after the refill window.\r\n\r\n" +
+            claudeStatus("Frosting", 186, "thinking with high effort"),
+    ),
+    DemoScriptStep(2_400, CLEAR_LINE + claudeStatus("Frosting", 191, "almost done thinking with high effort")),
+)
+
+/**
+ * The looping live feed for the docs Claude session (`demo-s7`), same
+ * mechanics as [claudeMainLiveScript] but slower-paced and centred on
+ * documentation edits, so the two working panes never look synchronised.
+ *
+ * @return the steps of one loop iteration.
+ */
+private fun claudeDocsLiveScript(): List<DemoScriptStep> = listOf(
+    DemoScriptStep(2_000, CLEAR_LINE + claudeStatus("Noodling", 75, "reading the deploy docs")),
+    DemoScriptStep(
+        1_700,
+        CLEAR_LINE + toolSummary(
+            "Searching for ${B}2$R patterns, reading ${B}3$R files…",
+            "docs/deploy.md",
+        ) + claudeStatus("Noodling", 78, "reading the deploy docs"),
+    ),
+    DemoScriptStep(2_300, CLEAR_LINE + claudeStatus("Noodling", 82, "thinking with high effort")),
+    DemoScriptStep(
+        1_600,
+        CLEAR_LINE + toolStep("Edit", "README.md", "Added a Rate limiting section with the default limits") +
+            claudeStatus("Marinating", 85, "updating the README"),
+    ),
+    DemoScriptStep(
+        2_000,
+        CLEAR_LINE +
+            "$B●$R Cross-linking the new section from the architecture notes.\r\n\r\n" +
+            claudeStatus("Marinating", 89, "cross-linking the docs"),
+    ),
+    DemoScriptStep(
+        1_800,
+        CLEAR_LINE + toolStep("Edit", "docs/architecture.md", "Updated the module table") +
+            claudeStatus("Polishing", 93, "almost done thinking with high effort"),
+    ),
+    DemoScriptStep(2_500, CLEAR_LINE + claudeStatus("Polishing", 98, "almost done thinking with high effort")),
+)
+
+/**
+ * The one-shot work burst played when the user types into the *finished*
+ * Claude session (`demo-s6`): whatever was typed, Claude acknowledges it,
+ * "works" for around nine seconds (tool calls + a ticking status line —
+ * long enough for the working indicator to be clearly seen), then prints a
+ * completion line and returns to the input prompt. Three canned variants
+ * rotate on [runIndex] so repeated messages don't replay identical output.
+ *
+ * The typed line itself is deliberately ignored beyond having triggered the
+ * run — the demo can't actually do the work, and any canned text that
+ * pretended to parse the request would read as wrong more often than right.
+ *
+ * @param line the input line the user submitted (unused, see above).
+ * @param runIndex 0-based count of bursts already played in this session.
+ * @return the steps of one burst, ending with [DEMO_CLAUDE_PROMPT].
+ */
+private fun claudeDoneInputScript(line: String, runIndex: Int): List<DemoScriptStep> {
+    val ack = listOf(
+        "$B●$R On it — reworking that now.",
+        "$B●$R Good idea. Let me fold that in.",
+        "$B●$R Sure — taking another pass.",
+    )
+    val read = listOf(
+        toolStep("Read", "src/api/metrics.ts", "Read 41 lines"),
+        toolStep("Read", "src/api/sessions.ts", "Read 149 lines"),
+        toolStep("Read", "docs/architecture.md", "Read 26 lines"),
+    )
+    val edit = listOf(
+        toolStep("Edit", "src/api/metrics.ts", "Updated src/api/metrics.ts with 7 additions"),
+        toolStep("Edit", "src/api/metrics.ts", "Updated src/api/metrics.ts with 3 additions and 1 removal"),
+        toolStep("Edit", "docs/architecture.md", "Documented the /metrics endpoint"),
+    )
+    val done = listOf(
+        "$B●$R Done — folded that in and the suite is still green.",
+        "$B●$R That's in. All 19 tests still pass.",
+        "$B●$R Done. The docs and the endpoint agree again; tests are green.",
+    )
+    val v = runIndex.mod(ack.size)
+    return listOf(
+        DemoScriptStep(400, "\r\n$CLAUDE✻$R ${DIM}Thinking…$R"),
+        DemoScriptStep(1_300, CLEAR_LINE + ack[v] + "\r\n\r\n" + claudeStatus("Brewing", 3, "thinking with high effort")),
+        DemoScriptStep(
+            1_700,
+            CLEAR_LINE + toolSummary(
+                "Searching for ${B}3$R patterns, reading ${B}2$R files, running ${B}1$R shell command…",
+                "src/api/metrics.ts",
+            ) + claudeStatus("Brewing", 6, "thinking with high effort"),
+        ),
+        DemoScriptStep(1_500, CLEAR_LINE + read[v] + claudeStatus("Simmering", 8, "folding the change in")),
+        DemoScriptStep(1_900, CLEAR_LINE + edit[v] + claudeStatus("Percolating", 10, "running the suite")),
+        DemoScriptStep(
+            2_100,
+            CLEAR_LINE + toolStep("Bash", "npx vitest run", "19 passed (19)") +
+                claudeStatus("Frosting", 13, "almost done thinking with high effort"),
+        ),
+        DemoScriptStep(1_400, CLEAR_LINE + done[v] + "\r\n\r\n" + DEMO_CLAUDE_PROMPT),
     )
 }
 
@@ -362,9 +577,9 @@ private fun claudeTranscript(): String = lines(
     "  of 20 requests with a refill of 5/s per client. Next I'll update the",
     "  README and add a 429 integration test.",
     "",
-    "$CLAUDE✻$R ${DIM}Polishing… (37s · ↑ 2.4k tokens · esc to interrupt)$R",
-    "",
-) + DEMO_CLAUDE_PROMPT
+    // The transcript ends mid-status-line (no trailing newline): the live
+    // script's CLEAR_LINE rewrites tick this exact line in place.
+) + claudeStatus("Frosting", 157, "thinking with high effort")
 
 /** Shell session: a pull, a build, and a git status matching the fixtures. */
 private fun buildShellTranscript(): String = lines(
@@ -459,8 +674,41 @@ private fun claudeDocsTranscript(): String = lines(
     "$B●$R ${B}Write$R(scratch/notes.md)",
     "  ${DIM}⎿  Wrote 6 lines$R",
     "",
-    "$CLAUDE✻$R ${DIM}Documenting… (12s · ↑ 1.1k tokens · esc to interrupt)$R",
-)
+    // Ends mid-status-line, like claudeTranscript(), for the live script.
+) + claudeStatus("Noodling", 71, "reading the deploy docs")
+
+/**
+ * A fourth Claude Code session that has just *finished* a task: the full
+ * run is in the scrollback (request, tool calls, green test run, a Done
+ * summary) and the session sits idle at the Claude input prompt. Typing
+ * anything into it plays [claudeDoneInputScript] — Claude picks the work
+ * back up and the pane flips to the "working" state until the burst ends.
+ */
+private fun claudeDoneTranscript(): String = lines(
+    "$DEMO_PROMPT${"claude"}",
+    "",
+    "$B>$R add a /metrics endpoint exposing request counters",
+    "",
+    "$B●$R I'll add a small metrics module and expose it on the API. Reading",
+    "  the server entry first to see where it mounts.",
+    "",
+    "$B●$R ${B}Read$R(src/server.ts)",
+    "  ${DIM}⎿  Read 88 lines$R",
+    "",
+    "$B●$R ${B}Write$R(src/api/metrics.ts)",
+    "  ${DIM}⎿  Wrote 41 lines$R",
+    "",
+    "$B●$R ${B}Edit$R(src/server.ts)",
+    "  ${DIM}⎿  Updated src/server.ts with 4 additions$R",
+    "",
+    "$B●$R ${B}Bash$R(npx vitest run)",
+    "  ${DIM}⎿  19 passed (19)$R",
+    "",
+    "$B●$R Done — ${B}GET /metrics$R now reports request totals, 429 counts, and",
+    "  active sessions. All 19 tests pass. Tell me if you'd like histograms",
+    "  or a Prometheus text format on top.",
+    "",
+) + DEMO_CLAUDE_PROMPT
 
 /** esbuild watch output (no prompt — a foreground watcher). */
 private fun watchTranscript(): String = lines(
@@ -485,9 +733,10 @@ internal fun demoSessionSpecs(): List<DemoSessionSpec> = listOf(
     DemoSessionSpec(
         sessionId = "demo-s1",
         transcript = claudeTranscript(),
-        prompt = DEMO_CLAUDE_PROMPT,
-        startsAtPrompt = true,
-        respond = ::demoClaudeRespond,
+        prompt = DEMO_PROMPT,
+        startsAtPrompt = false, // Claude owns the tty; Ctrl-C stops the feed
+        respond = ::demoShellRespond,
+        liveScript = claudeMainLiveScript(),
     ),
     DemoSessionSpec(
         sessionId = "demo-s2",
@@ -518,11 +767,20 @@ internal fun demoSessionSpecs(): List<DemoSessionSpec> = listOf(
         respond = ::demoShellRespond,
     ),
     DemoSessionSpec(
+        sessionId = "demo-s6",
+        transcript = claudeDoneTranscript(),
+        prompt = DEMO_CLAUDE_PROMPT,
+        startsAtPrompt = true, // idle at the Claude input prompt
+        respond = ::demoShellRespond, // unused: inputScript takes the Enter path
+        inputScript = ::claudeDoneInputScript,
+    ),
+    DemoSessionSpec(
         sessionId = "demo-s7",
         transcript = claudeDocsTranscript(),
         prompt = DEMO_PROMPT,
         startsAtPrompt = false, // Claude owns the tty until Ctrl-C
         respond = ::demoShellRespond,
+        liveScript = claudeDocsLiveScript(),
     ),
 )
 

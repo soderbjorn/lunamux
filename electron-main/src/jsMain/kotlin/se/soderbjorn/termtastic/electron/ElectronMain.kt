@@ -50,7 +50,40 @@ private val IS_DEV_LAUNCH: Boolean = URL_OVERRIDE != null
  * both prod and a regular dev launch, letting all three coexist.
  */
 private val IS_DEMO: Boolean = (process.env.TERMTASTIC_DEMO as? String) == "1"
+
+/**
+ * When `TERMTASTIC_INSECURE_BACKEND=1`, the window relaxes its same-origin
+ * policy (`webSecurity=false`) so a UI served from a throwaway static origin
+ * (a dev bundle over loopback HTTP) can call a *different* server's
+ * API/WebSocket (e.g. production on `127.0.0.1:8443`, selected via the
+ * renderer's `?backend=` param) without cross-origin blocking. Loopback-only and
+ * strictly opt-in, so normal/prod builds are never affected.
+ * See scripts/run-electron-to-prod-server.sh, which sets this together with
+ * [TERMTASTIC_URL][URL_OVERRIDE] and [TERMTASTIC_INSTANCE][INSTANCE].
+ */
+private val INSECURE_BACKEND: Boolean = (process.env.TERMTASTIC_INSECURE_BACKEND as? String) == "1"
+
+/**
+ * Optional instance name from `TERMTASTIC_INSTANCE`. When set, this launch
+ * becomes a *distinct* app "Termtastic <name>" — its own dock/menu label, its
+ * own `~/Library/Application Support/Termtastic <name>` userData dir (hence its
+ * own device token), and its own single-instance lock — so any number of
+ * differently-named instances run side by side with the real install. Set by
+ * scripts/run-electron-to-prod-server.sh, which launches this branch's UI as a pure
+ * client against an already-running (typically production) server.
+ */
+private val INSTANCE: String? = (process.env.TERMTASTIC_INSTANCE as? String)?.takeIf { it.isNotEmpty() }
+
+// The default branches below are the real "Termtastic" identity, matching
+// electron/package.json (name/appId/productName) — so packaged prod and
+// no-notarize builds produce the real app. To run a *distinct*, coexisting
+// instance side by side with the real install (its own dock label, userData
+// dir, and single-instance lock), set TERMTASTIC_INSTANCE — the INSTANCE branch
+// below labels it "Termtastic <name>". scripts/run-electron-to-prod-server.sh
+// uses this to launch this branch's UI as a pure client (default name "Test")
+// against an already-running (typically production) server on 127.0.0.1:8443.
 private val APP_NAME: String = when {
+    INSTANCE != null -> "Termtastic $INSTANCE"
     IS_DEMO -> "Termtastic Demo"
     IS_DEV_LAUNCH -> "Termtastic Dev"
     else -> "Termtastic"
@@ -792,6 +825,9 @@ private fun createWindow() {
     webPrefs.preload = NodePath.join(__dirname, "..", "..", "preload.js")
     webPrefs.contextIsolation = true
     webPrefs.nodeIntegration = false
+    // Opt-in cross-origin backend (see INSECURE_BACKEND). Lets a statically
+    // served UI drive a different server's API; loopback-only, off by default.
+    if (INSECURE_BACKEND) webPrefs.webSecurity = false
     // Pass the authoritative chrome flag to the renderer at boot so
     // darkness-toolkit's `autoApplyCustomTitleBarBodyClass` can toggle
     // `dt-custom-titlebar` synchronously on the first frame. Termtastic's
@@ -1089,7 +1125,10 @@ fun main() {
     // reset the first's scratch state.
     val dataDir = when {
         IS_DEMO -> NodePath.join(app.getPath("temp"), "termtastic-demo")
-        IS_DEV_LAUNCH -> NodePath.join(app.getPath("appData"), APP_NAME)
+        // A named instance (TERMTASTIC_INSTANCE) or any dev launch gets a dir
+        // keyed off its app name, so each instance owns independent state and
+        // an independent lock.
+        IS_DEV_LAUNCH || INSTANCE != null -> NodePath.join(app.getPath("appData"), APP_NAME)
         else -> null
     }
     if (dataDir != null) {

@@ -48,7 +48,7 @@ class DemoServerTest {
     fun initialConfigIsSeeded() {
         val config = repo.config.value
         requireNotNull(config)
-        assertEquals(3, config.tabs.size)
+        assertEquals(4, config.tabs.size)
         assertEquals("demo-t1", config.activeTabId)
         assertEquals("working", repo.states.value["demo-s1"])
         // Every terminal pane's session has a transcript spec.
@@ -80,9 +80,10 @@ class DemoServerTest {
         server.handle(WindowCommand.AddPaneToTab(tabId = "demo-t3", cwd = null))
         val tab = repo.config.value!!.tabs.first { it.id == "demo-t3" }
         assertEquals(before + 1, tab.panes.size)
-        val newPane = tab.panes.maxBy { it.z }
+        // The new pane is focused (auto re-tiling reassigns z, so z is not
+        // a reliable way to find it).
+        val newPane = tab.panes.first { it.leaf.id == tab.focusedPaneId }
         assertTrue(newPane.leaf.sessionId.startsWith("demo-s"))
-        assertEquals(tab.focusedPaneId, newPane.leaf.id)
     }
 
     /**
@@ -236,6 +237,35 @@ class DemoServerTest {
         // A second patch merges rather than replacing the stored settings.
         server.applyUiSettings(buildJsonObject { put("SOME_OTHER_KEY", "x") })
         assertTrue(repo.geometryByTab.value["demo-t1"]?.get("demo-p2") != null)
+    }
+
+    /**
+     * The finished Claude session (`demo-s6`) starts idle, flips to
+     * `working` (published through the state map) when the user types a
+     * line into it, and returns to idle when the burst is interrupted with
+     * Ctrl-C — the demo's "Claude resumes when you talk to it" behaviour.
+     */
+    @Test
+    fun finishedClaudeResumesOnInput() = runBlocking {
+        val session = server.session("demo-s6")
+        val collected = StringBuilder()
+        val collector = scope.launch {
+            session.output().collect { collected.append(it.decodeToString()) }
+        }
+        withTimeout(5_000) {
+            // The completed-task transcript replays, and the session is idle.
+            while (!collected.contains("/metrics")) kotlinx.coroutines.delay(10)
+            assertEquals(null, repo.states.value["demo-s6"])
+
+            session.inputText("add histograms too\r")
+            while (repo.states.value["demo-s6"] != "working") kotlinx.coroutines.delay(10)
+
+            // Ctrl-C interrupts the burst and clears the state again.
+            session.inputText("\u0003")
+            while (repo.states.value["demo-s6"] == "working") kotlinx.coroutines.delay(10)
+            while (!collected.contains("^C")) kotlinx.coroutines.delay(10)
+        }
+        collector.cancel()
     }
 
     /** Unknown commands fall back to a shell-style error. */

@@ -233,6 +233,38 @@ internal object PaneManager {
         return if (changed) cfg.copy(tabs = newTabs) else null
     }
 
+    /**
+     * Set the persisted **3D-world visual zoom** multiplier on [paneId].
+     * Called from `WindowState.setPaneZoom` when the 3D world dispatches a
+     * [WindowCommand.SetPaneZoom] (the `+`/`−`/`0` keys). Non-finite values
+     * are rejected and the rest clamped defensively — the 3D world already
+     * clamps to its own tighter display range, this just keeps garbage out
+     * of the persisted config.
+     *
+     * @param cfg the current config
+     * @param paneId the pane whose zoom to set
+     * @param zoom the new zoom multiplier (1.0 = unzoomed)
+     * @return the updated config, or `null` when the pane is missing, the
+     *   value is non-finite, or the zoom is unchanged
+     * @see Pane.zoom
+     */
+    fun setPaneZoom(cfg: WindowConfig, paneId: String, zoom: Double): WindowConfig? {
+        if (!zoom.isFinite()) return null
+        val clamped = zoom.coerceIn(0.01, 100.0)
+        var changed = false
+        val newTabs = cfg.tabs.map { tab ->
+            val idx = tab.panes.indexOfFirst { it.leaf.id == paneId }
+            if (idx < 0) return@map tab
+            val current = tab.panes[idx]
+            if (current.zoom == clamped) return@map tab
+            changed = true
+            val newPanes = tab.panes.toMutableList()
+            newPanes[idx] = current.copy(zoom = clamped)
+            tab.copy(panes = newPanes)
+        }
+        return if (changed) cfg.copy(tabs = newTabs) else null
+    }
+
     /** Bring [paneId] to the top of its tab's stacking order. */
     fun raisePane(cfg: WindowConfig, paneId: String): WindowConfig? {
         var changed = false
@@ -429,6 +461,32 @@ internal object PaneManager {
             newPanes[bIdx] = b.copy(x = a.x, y = a.y, width = a.width, height = a.height)
             val newTabs = cfg.tabs.toMutableList()
             newTabs[tabIdx] = tab.copy(panes = newPanes)
+            return cfg.copy(tabs = newTabs)
+        }
+        return null
+    }
+
+    /**
+     * Reorder [aId] within its tab so it sits immediately before or after [bId]
+     * (per [before]). Both panes must live in the same tab; the pane list is
+     * re-sequenced without touching geometry. No-op (returns null) if either pane
+     * is missing, they are in different tabs, or the move is a no-op.
+     */
+    fun movePaneWithinTab(cfg: WindowConfig, aId: String, bId: String, before: Boolean): WindowConfig? {
+        if (aId.isEmpty() || bId.isEmpty() || aId == bId) return null
+        for ((tabIdx, tab) in cfg.tabs.withIndex()) {
+            val srcIdx = tab.panes.indexOfFirst { it.leaf.id == aId }
+            val tgtIdx = tab.panes.indexOfFirst { it.leaf.id == bId }
+            if (srcIdx < 0) continue
+            if (tgtIdx < 0) return null // target not in the same tab — reject
+            val moving = tab.panes[srcIdx]
+            val without = tab.panes.toMutableList().also { it.removeAt(srcIdx) }
+            val newTgtIdx = without.indexOfFirst { it.leaf.id == bId }
+            val insertAt = if (before) newTgtIdx else newTgtIdx + 1
+            if (insertAt == srcIdx) return null
+            without.add(insertAt, moving)
+            val newTabs = cfg.tabs.toMutableList()
+            newTabs[tabIdx] = tab.copy(panes = without)
             return cfg.copy(tabs = newTabs)
         }
         return null

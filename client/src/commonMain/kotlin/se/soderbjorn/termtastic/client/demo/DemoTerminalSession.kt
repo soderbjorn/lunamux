@@ -15,7 +15,9 @@
 package se.soderbjorn.termtastic.client.demo
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.onSubscription
@@ -45,10 +47,19 @@ import kotlinx.coroutines.sync.withLock
  */
 class DemoTerminalSession internal constructor(
     private val spec: DemoSessionSpec,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) {
     /** The fixture session id, mirroring [DemoSessionSpec.sessionId]. */
     val sessionId: String get() = spec.sessionId
+
+    /**
+     * Simulated-agent activity callback: invoked with `true` when a script
+     * run starts (the "Claude" in this session begins working) and `false`
+     * when it finishes or is interrupted. Wired by [DemoServer] at session
+     * creation to flip the session's `working` state in the published state
+     * map — the demo counterpart of the real server's Claude state detector.
+     */
+    internal var onAgentActivity: ((Boolean) -> Unit)? = null
 
     /** Maximum scrollback retained, mirroring the server's 64 KB ring. */
     private val maxScrollbackChars = 64_000
@@ -95,8 +106,27 @@ class DemoTerminalSession internal constructor(
     }
 
     /**
+     * The currently-running script player ([DemoSessionSpec.liveScript]
+     * loop or one [DemoSessionSpec.inputScript] burst), or an inactive/null
+     * job when the simulated agent is idle. While active, keystrokes are
+     * swallowed and Ctrl-C interrupts the run.
+     */
+    private var scriptJob: Job? = null
+
+    /** Number of input-script bursts played, for canned-variant rotation. */
+    private var inputRunCount = 0
+
+    init {
+        // Sessions with a live feed start "working" immediately — their
+        // fixture state is already seeded as working, so no activity
+        // callback is needed (or wired) this early.
+        spec.liveScript?.let { startScript(it, loop = true) }
+    }
+
+    /**
      * Permanently shut the session down: stop accepting input and cancel
-     * the consumer coroutine so the session can be garbage-collected.
+     * the consumer and script coroutines so the session can be
+     * garbage-collected.
      *
      * Called by [DemoServer.reapOrphanSessions] when the last pane
      * referencing this session closes — the demo equivalent of the real
@@ -105,6 +135,44 @@ class DemoTerminalSession internal constructor(
     fun close() {
         inputChannel.close()
         inputJob.cancel()
+        scriptJob?.cancel()
+    }
+
+    /**
+     * Start playing [steps] on the session's scope: each step waits its
+     * delay, then its text is written to the scrollback and the live flow.
+     * Reports the run to [onAgentActivity] so [DemoServer] can flip the
+     * session's `working` state on and off.
+     *
+     * @param steps the timed output steps to play.
+     * @param loop `true` to repeat the steps forever (a session that is
+     *   permanently mid-task), `false` to play once and go idle again.
+     */
+    private fun startScript(steps: List<DemoScriptStep>, loop: Boolean) {
+        onAgentActivity?.invoke(true)
+        scriptJob = scope.launch {
+            do {
+                for (step in steps) {
+                    delay(step.delayMs)
+                    write(step.text)
+                }
+            } while (loop)
+            onAgentActivity?.invoke(false)
+        }
+    }
+
+    /**
+     * Ctrl-C while a script is playing: cancel the run, report the agent
+     * as idle, and drop to the spec's prompt — the demo analogue of
+     * interrupting Claude and landing back in the shell (looping feeds) or
+     * at the Claude input prompt (input bursts).
+     */
+    private suspend fun interruptScript() {
+        scriptJob?.cancel()
+        scriptJob = null
+        atPrompt = true
+        onAgentActivity?.invoke(false)
+        write("^C\r\n${spec.prompt}")
     }
 
     /**
@@ -175,6 +243,14 @@ class DemoTerminalSession internal constructor(
             return
         }
 
+        // A running script (live feed or input burst) owns the terminal:
+        // swallow keystrokes — echoing them would garble the in-place
+        // status-line rewrites — except Ctrl-C, which interrupts the agent.
+        if (scriptJob?.isActive == true) {
+            if (ch == '\u0003') interruptScript()
+            return
+        }
+
         if (!atPrompt) {
             // A foreground program owns the terminal: only Ctrl-C does
             // anything (stops it and drops to the shell prompt).
@@ -190,12 +266,23 @@ class DemoTerminalSession internal constructor(
                 val line = lineBuffer.toString()
                 lineBuffer.clear()
                 write("\r\n")
-                val response = if (line.trim() == "clear") {
-                    "\u001b[2J\u001b[H"
-                } else {
-                    spec.respond(line)
+                val inputScript = spec.inputScript
+                when {
+                    // Simulated-agent sessions: any non-blank input sends
+                    // "Claude" back to work for one scripted burst (the
+                    // burst's last step re-prints the prompt).
+                    inputScript != null && line.isNotBlank() ->
+                        startScript(inputScript(line, inputRunCount++), loop = false)
+                    inputScript != null -> write(spec.prompt)
+                    else -> {
+                        val response = if (line.trim() == "clear") {
+                            "\u001b[2J\u001b[H"
+                        } else {
+                            spec.respond(line)
+                        }
+                        write(response + spec.prompt)
+                    }
                 }
-                write(response + spec.prompt)
             }
             '\u0003' -> { // Ctrl-C: abandon the current line.
                 lineBuffer.clear()

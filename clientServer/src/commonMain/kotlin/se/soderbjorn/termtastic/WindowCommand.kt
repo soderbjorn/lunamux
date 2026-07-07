@@ -425,6 +425,22 @@ sealed class WindowCommand {
     ) : WindowCommand()
 
     /**
+     * Set the pane's persisted **3D-world visual zoom** multiplier. Sent by
+     * the 3D world whenever the user zooms the front pane (`+`/`−`) or resets
+     * it (`0`), so the magnification survives app restarts instead of living
+     * only in the renderer's memory. A pure presentation value — the server
+     * just clamps and stores it in [Pane.zoom]; nothing reflows.
+     *
+     * @param paneId the pane whose zoom changed
+     * @param zoom the new zoom multiplier (1.0 = unzoomed); the server clamps
+     *   it to a sane range and ignores non-finite values
+     * @see Pane.zoom
+     */
+    @Serializable
+    @SerialName("setPaneZoom")
+    data class SetPaneZoom(val paneId: String, val zoom: Double) : WindowCommand()
+
+    /**
      * Bring a pane to the top of the stacking order (raise its z-index to
      * `maxZ + 1` within its containing tab). Dispatched on pane activation
      * so clicking any pane surfaces it above its overlapping neighbours.
@@ -503,6 +519,34 @@ sealed class WindowCommand {
     @Serializable
     @SerialName("swapPanes")
     data class SwapPanes(val paneAId: String, val paneBId: String) : WindowCommand()
+
+    /**
+     * Reorder a pane **within its own tab** by moving it immediately before or
+     * after another pane in the same tab — the pane-list analogue of [MoveTab].
+     * Unlike [SwapPanes] (which trades geometry but keeps list positions), this
+     * changes the pane's index in `TabConfig.panes`, so auto-tiled layouts re-flow
+     * and any consumer that reads pane order (e.g. the 3D world ring) sees the
+     * pane's slot change. No-op if the panes are missing or live in different tabs.
+     *
+     * @param paneId the pane being moved
+     * @param targetPaneId the reference pane in the same tab
+     * @param before `true` to place [paneId] before [targetPaneId], `false` for after
+     * @param retile `true` (default) re-applies the tab's remembered layout preset
+     *   after the reorder — the 2D behavior, where Auto re-flows tiles to match the
+     *   new list order. The 3D world sends `false`: there the reorder is a ring-slot
+     *   change and a preset re-tile would rewrite every pane's 2D geometry underneath
+     *   the world, kicking off resize churn (each client refits its PTYs to the new
+     *   boxes) that visibly snaps ring panes to sizes the user never chose. Old
+     *   clients omit the field and get the 2D default.
+     */
+    @Serializable
+    @SerialName("movePaneWithinTab")
+    data class MovePaneWithinTab(
+        val paneId: String,
+        val targetPaneId: String,
+        val before: Boolean,
+        val retile: Boolean = true,
+    ) : WindowCommand()
 
     /**
      * Switch the active (visible) tab. Persisted so tab selection survives restarts.

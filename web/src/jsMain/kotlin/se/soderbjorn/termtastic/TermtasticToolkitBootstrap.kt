@@ -68,16 +68,17 @@ private const val ICON_NEWS =
     """<svg class="tt-news-topbar" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>"""
 
 /**
- * Globe — opens the 3D tab/pane overview (carousel ring). A classic
- * wireframe globe (outer circle + equator + a meridian ellipse), drawn in
- * the same 24×24 stroke style as [ICON_ABOUT] / [ICON_NEWS] so it reads as
- * part of the same topbar icon set. Sits immediately left of the trailing
- * "+" New button.
+ * Triptych — opens the 3D tab/pane overview (carousel ring). Three cards in
+ * a row with the center one forward (app-switcher silhouette), drawn in the
+ * same 24×24 stroke style as [ICON_ABOUT] / [ICON_NEWS] so it reads as part
+ * of the same topbar icon set. Sits immediately left of the trailing "+"
+ * New button. Replaced the earlier wireframe globe, which read as
+ * "language/region" rather than "switch apps".
  *
  * @see buildOverview3dTopbarAction
  */
-private const val ICON_GLOBE =
-    """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>"""
+private const val ICON_TRIPTYCH =
+    """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7" width="5" height="10" rx="1"/><rect x="9.5" y="4" width="5" height="16" rx="1"/><rect x="16.5" y="7" width="5" height="10" rx="1"/></svg>"""
 
 /** Material Symbols "content_copy" — file-browser path-copy action. */
 private const val PA_ICON_COPY =
@@ -103,6 +104,15 @@ internal const val REFORMAT_HOTKEY_ACTION_ID: String = "termtastic.terminal.refo
  * @see registerOverview3dHotkey
  */
 internal const val OVERVIEW3D_HOTKEY_ACTION_ID: String = "termtastic.overview3d.toggle"
+
+/**
+ * Stable action id for the **3D world spike** toggle hotkey (default ⌥⌘← /
+ * Alt+Meta+ArrowLeft), the mirror of [OVERVIEW3D_HOTKEY_ACTION_ID]'s ⌥⌘→: one
+ * opens the app switcher, the other opens the world spike.
+ *
+ * @see registerWorld3dSpikeHotkey
+ */
+internal const val WORLD3D_SPIKE_HOTKEY_ACTION_ID: String = "termtastic.world3dspike.toggle"
 
 /** Reformat (terminal action). */
 private const val PA_ICON_REFORMAT =
@@ -405,6 +415,26 @@ private fun registerOverview3dHotkey() {
     ) { toggleOverview3d() }
 }
 
+/**
+ * Register the **3D world spike** toggle hotkey (default ⌥⌘← /
+ * Alt+Meta+ArrowLeft) — the left-hand mirror of [registerOverview3dHotkey]'s ⌥⌘→.
+ * Same user-rebindable registration mechanics; opens the panes-rotunda world
+ * ([toggleWorld3dSpike]) rather than the app switcher. Idempotent — called once
+ * at boot from [bootViaToolkitShell].
+ *
+ * @see toggleWorld3dSpike
+ * @see WORLD3D_SPIKE_HOTKEY_ACTION_ID
+ */
+private fun registerWorld3dSpikeHotkey() {
+    HotkeyBindings.registerAction(
+        HotkeyActionSpec(
+            id = WORLD3D_SPIKE_HOTKEY_ACTION_ID,
+            label = "3D mode",
+            defaults = listOf(Hotkey(key = "ArrowLeft", alt = true, meta = true)),
+        ),
+    ) { toggleWorld3dSpike() }
+}
+
 /* -------------------------------------------------------------------- */
 /* Per-pane action buttons in the chrome header. Carries content-kind   */
 /* specific actions (reformat for terminal panes, copy-path for file-   */
@@ -591,14 +621,14 @@ private fun buildNewsTopbarAction(): TopbarAction = TopbarAction(
 )
 
 /**
- * Builds the "3D overview" leading topbar action — a globe that toggles the
+ * Builds the "3D overview" leading topbar action — a triptych that toggles the
  * carousel-ring tab/pane overview ([toggleOverview3d]). Placed in the
  * [AppShellSpec.extraTopbarBeforeStandard] slot so it renders immediately to
  * the LEFT of the trailing "+" New split-button, giving mouse users a click
  * target for what was previously only reachable via the ⌥⌘→ hotkey
  * (see [registerOverview3dHotkey]).
  *
- * @return the globe topbar action; its click toggles the overview open/closed.
+ * @return the triptych topbar action; its click toggles the overview open/closed.
  * @see toggleOverview3d
  */
 private fun buildOverview3dTopbarAction(): TopbarAction {
@@ -607,9 +637,9 @@ private fun buildOverview3dTopbarAction(): TopbarAction {
     // class — same sizing, vertical centering, currentColor tint, and hover
     // affordance as the adjacent standard cluster ("+" / Layout / Appearance).
     // The plain [TopbarAction] fallback renders a bare button with none of
-    // that styling, which made the globe read as off-colour and mis-centred
+    // that styling, which made the icon read as off-colour and mis-centred
     // with no hover. `element` takes precedence over `iconHtml` in the shell.
-    val button = buildTopbarIconButton(ICON_GLOBE, "3D tab overview") { toggleOverview3d() }
+    val button = buildTopbarIconButton(ICON_TRIPTYCH, "3D tab overview") { toggleOverview3d() }
     // Stash the element so [applyOverview3dChromeVisibility] can show/hide it
     // live when the experimental "3D app switcher" flag toggles.
     overview3dTopbarButton = button
@@ -622,14 +652,63 @@ private fun buildOverview3dTopbarAction(): TopbarAction {
 }
 
 /**
- * The pre-built topbar globe button (from [buildOverview3dTopbarAction]),
+ * The pre-built topbar app-switcher button (from [buildOverview3dTopbarAction]),
  * captured so [applyOverview3dChromeVisibility] can toggle its visibility
  * without re-querying the DOM. `null` until the shell spec is built at boot.
  */
 private var overview3dTopbarButton: HTMLElement? = null
 
+/** Cube glyph for the temporary Phase-2 world-mode spike topbar button. */
+private const val ICON_CUBE =
+    """<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>"""
+
 /**
- * Show or hide the topbar 3D-overview globe button to match the current
+ * Builds the temporary **Phase-2 world-mode spike** topbar action — a cube that
+ * toggles [toggleWorld3dSpike], the throwaway proof that a real xterm.js
+ * terminal can live and be typed into on a CSS3D 3D plane. Placed alongside the
+ * app-switcher triptych in the leading topbar slot. Remove with the spike itself.
+ *
+ * @return the cube topbar action; its click toggles the spike overlay.
+ * @see toggleWorld3dSpike
+ */
+private fun buildWorld3dSpikeTopbarAction(): TopbarAction {
+    val button = buildTopbarIconButton(ICON_CUBE, "3D mode") { toggleWorld3dSpike() }
+    // Stash the element so [applyWorld3dSpikeChromeVisibility] can show/hide it
+    // live when the experimental "3D world" flag toggles.
+    world3dSpikeTopbarButton = button
+    return TopbarAction(
+        id = "tt-topbar-world3d-spike",
+        label = "3D mode",
+        onActivate = { toggleWorld3dSpike() },
+        element = button,
+    )
+}
+
+/**
+ * The pre-built topbar cube button (from [buildWorld3dSpikeTopbarAction]),
+ * captured so [applyWorld3dSpikeChromeVisibility] can toggle its visibility
+ * without re-querying the DOM. `null` until the shell spec is built at boot.
+ */
+private var world3dSpikeTopbarButton: HTMLElement? = null
+
+/**
+ * Show or hide the topbar 3D-world cube button to match the current
+ * `experimentalWorld3d` flag ([isExperimentalWorld3dEnabled]).
+ *
+ * Called once after the shell mounts to seed the initial state, and again from
+ * the App Settings toggle's `onChange` so flipping the flag adds/removes the
+ * button live — no reload needed. The ⌥⌘← hotkey is gated separately at the
+ * [toggleWorld3dSpike] chokepoint, so it needs no DOM work here.
+ *
+ * @see isExperimentalWorld3dEnabled
+ */
+internal fun applyWorld3dSpikeChromeVisibility() {
+    world3dSpikeTopbarButton?.style?.display =
+        if (isExperimentalWorld3dEnabled()) "" else "none"
+}
+
+/**
+ * Show or hide the topbar 3D-overview app-switcher button to match the current
  * `experimental3dSwitcher` flag ([isExperimental3dSwitcherEnabled]).
  *
  * Called once after the shell mounts to seed the initial state, and again from
@@ -970,7 +1049,7 @@ fun bootViaToolkitShell(root: HTMLElement) {
             // `for (tab in cfg.tabs)` block and repaints every
             // `.tt-status-dot[data-tab-state='<tabId>']` element it finds.
             tabTrailingBadge = { tabId -> buildTabStatusDot(tabId) },
-            // Globe button in the LEADING trailing-cluster slot — the toolkit
+            // App-switcher button in the LEADING trailing-cluster slot — the toolkit
             // renders `extraTopbarBeforeStandard` immediately to the left of the
             // standard "+" New split-button (with a small divider between), so
             // this places the 3D-overview toggle right where the user asked:
@@ -978,6 +1057,7 @@ fun bootViaToolkitShell(root: HTMLElement) {
             // the ⌥⌘→ hotkey.
             extraTopbarBeforeStandard = buildList {
                 add(buildOverview3dTopbarAction())
+                add(buildWorld3dSpikeTopbarAction())
             },
             extraTopbarTrailing = buildList {
                 add(buildNewsTopbarAction())
@@ -1094,12 +1174,17 @@ fun bootViaToolkitShell(root: HTMLElement) {
     // flag: the chord is always registered (so it appears in the Keyboard
     // Shortcuts sidebar and works the instant the flag is enabled), but stays
     // inert while the flag is off via the [toggleOverview3d] chokepoint.
-    // Seed the topbar globe button's visibility from the flag, and only pay
+    // Seed the topbar app-switcher button's visibility from the flag, and only pay
     // the WebGL context-creation / shader-compile prewarm cost when the
     // feature is actually enabled. See [registerOverview3dHotkey],
     // [applyOverview3dChromeVisibility], and [prewarmOverview3d].
     registerOverview3dHotkey()
+    registerWorld3dSpikeHotkey() // ⌥⌘← opens the world spike (mirror of ⌥⌘→)
     applyOverview3dChromeVisibility()
+    // Seed the topbar cube button's visibility from the experimental "3D world"
+    // flag; the ⌥⌘← hotkey stays inert while off via the [toggleWorld3dSpike]
+    // chokepoint. See [applyWorld3dSpikeChromeVisibility].
+    applyWorld3dSpikeChromeVisibility()
     if (isExperimental3dSwitcherEnabled()) {
         kotlinx.browser.window.setTimeout({ prewarmOverview3d() }, 1500)
     }

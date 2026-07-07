@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Grid Sizing — Debug Log</title>
+<style>
+  :root {
+    --paper: #faf8f5;
+    --ink: #26213f;
+    --ink-dim: #6b6584;
+    --line: #e3dfd6;
+    --card: #ffffff;
+    --card-line: #e8e4db;
+    --accent: #c23d85;
+    --accent-soft: #f7e3ee;
+    --ok: #1f7a4d;
+    --ok-soft: #e0f0e7;
+    --bad: #b3403a;
+    --bad-soft: #f6e3e1;
+    --warn: #93641c;
+    --warn-soft: #f5ecd9;
+    --code-bg: #f1ede5;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #16132a;
+      --ink: #e6e2f2;
+      --ink-dim: #9a93b8;
+      --line: #2c2749;
+      --card: #1d1936;
+      --card-line: #322c55;
+      --accent: #ef6fb0;
+      --accent-soft: #3a2140;
+      --ok: #4cc38a;
+      --ok-soft: #1c3529;
+      --bad: #e06c6c;
+      --bad-soft: #3b2222;
+      --warn: #d9a94e;
+      --warn-soft: #3a2f1a;
+      --code-bg: #241f42;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #faf8f5; --ink: #26213f; --ink-dim: #6b6584; --line: #e3dfd6;
+    --card: #ffffff; --card-line: #e8e4db;
+    --accent: #c23d85; --accent-soft: #f7e3ee;
+    --ok: #1f7a4d; --ok-soft: #e0f0e7;
+    --bad: #b3403a; --bad-soft: #f6e3e1;
+    --warn: #93641c; --warn-soft: #f5ecd9;
+    --code-bg: #f1ede5;
+  }
+  :root[data-theme="dark"] {
+    --paper: #16132a; --ink: #e6e2f2; --ink-dim: #9a93b8; --line: #2c2749;
+    --card: #1d1936; --card-line: #322c55;
+    --accent: #ef6fb0; --accent-soft: #3a2140;
+    --ok: #4cc38a; --ok-soft: #1c3529;
+    --bad: #e06c6c; --bad-soft: #3b2222;
+    --warn: #d9a94e; --warn-soft: #3a2f1a;
+    --code-bg: #241f42;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 900px; margin: 0 auto; padding: 48px 28px 96px; }
+
+  h1, h2, h3 { font-family: var(--mono); text-wrap: balance; line-height: 1.25; }
+  h1 { font-size: 1.7rem; margin: 8px 0 4px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.12rem; margin: 0 0 14px; }
+  h3 { font-size: 0.95rem; margin: 0 0 6px; }
+  p { max-width: 70ch; margin: 0 0 12px; }
+  ul { max-width: 70ch; margin: 0 0 12px; padding-left: 1.3em; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); font-weight: 600;
+  }
+  .meta {
+    font-family: var(--mono); font-size: 0.8rem; color: var(--ink-dim);
+    display: flex; flex-wrap: wrap; gap: 6px 20px; margin-bottom: 40px;
+  }
+
+  section { border-top: 1px solid var(--line); padding: 28px 0 20px; }
+  section > .eyebrow { display: block; margin-bottom: 10px; color: var(--ink-dim); }
+
+  code {
+    font-family: var(--mono); font-size: 0.86em;
+    background: var(--code-bg); border-radius: 4px; padding: 0.1em 0.35em;
+  }
+
+  .chip {
+    display: inline-block; font-family: var(--mono); font-size: 0.68rem;
+    font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    border-radius: 3px; padding: 2px 8px; vertical-align: middle; white-space: nowrap;
+  }
+  .chip.ok   { color: var(--ok);   background: var(--ok-soft); }
+  .chip.bad  { color: var(--bad);  background: var(--bad-soft); }
+  .chip.warn { color: var(--warn); background: var(--warn-soft); }
+  .chip.info { color: var(--accent); background: var(--accent-soft); }
+
+  .callout {
+    background: var(--card); border: 1px solid var(--card-line);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 18px 22px; margin: 0 0 8px;
+  }
+  .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--card); border: 1px solid var(--card-line);
+    border-radius: 6px; padding: 16px 20px;
+  }
+  .panel .eyebrow { display: block; margin-bottom: 8px; }
+  .panel ul { margin-bottom: 0; }
+
+  .round {
+    background: var(--card); border: 1px solid var(--card-line);
+    border-radius: 6px; padding: 20px 24px; margin-bottom: 16px;
+  }
+  .round-head {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+  }
+  .round-num {
+    font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
+    color: var(--accent); letter-spacing: 0.1em;
+  }
+  .round h3 { margin: 0; flex: 1 1 auto; min-width: 200px; }
+  .outcome {
+    font-size: 0.86rem; color: var(--ink-dim);
+    border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 10px;
+  }
+  .outcome strong { color: var(--ink); }
+
+  table {
+    border-collapse: collapse; width: 100%; font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+  }
+  th, td { text-align: left; padding: 7px 14px 7px 0; vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--ink-dim); border-bottom: 1px solid var(--line);
+  }
+  td { border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: none; }
+  .tablewrap { overflow-x: auto; }
+
+  kbd {
+    font-family: var(--mono); font-size: 0.8em; border: 1px solid var(--card-line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--card);
+  }
+  .filelist { font-family: var(--mono); font-size: 0.82rem; line-height: 1.9; }
+  .filelist span { color: var(--ink-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <span class="eyebrow">Termtastic · world3d-spike · debug log</span>
+    <h1>3D World Grid Sizing &amp; Reformat</h1>
+    <div class="meta">
+      <span>2026-07-06</span>
+      <span>branch: world3d-spike</span>
+      <span>session: fix-3d-world-reformat-blanking</span>
+    </div>
+  </header>
+
+  <div class="callout">
+    <span class="eyebrow">Current state</span>
+    <p><strong>Two sessions, nine rounds</strong> — a swallowed <code>TypeError</code> aborting every resize (R4), three latent bugs in the never-before-seen OOB overlay it awakened (R5–R6), a fleet of phantom headless clients plus a reconnect-ForceResize eviction storm squeezing every shared PTY (R7), a fit-vs-grid feedback ratchet in the 3D world that the R4 fix ironically completed (R8), and a second session (R9) that made reformat real (the jiggle), made grid resizes fluid, gated the last two ratchet paths, and finally made the pane box tell the truth about its chrome. <span class="chip ok">overlay bars confirmed gone in-app</span> <span class="chip ok">R8 verified</span> <span class="chip ok">R9 verified in-app: "seems to work, after a moment it settles correctly"</span></p>
+    <p>The fixes now live in two places: this spike branch (dev bundle for <code>scripts/run-electron-3d.sh</code>) and a <strong><code>resize-fixes</code> worktree off main</strong> (<code>…/termtastic/resize-fixes</code>, commits <code>57bbbe0</code>, <code>b5837cb</code>, <code>42c6c38</code>) that the user now daily-drives as their production server. A related focus fix landed in <strong>darkness-toolkit</strong> (<code>d1df34e</code>): maximizing a pane now makes it active + focused.</p>
+  </div>
+
+  <section>
+    <span class="eyebrow">Goal</span>
+    <p>In the 3D world, the grid keys (<kbd>,</kbd> <kbd>.</kbd> width, <kbd>&lt;</kbd> <kbd>&gt;</kbd> height) should <strong>immediately add or remove columns/rows so the visible pane grows or shrinks</strong>, with the reformat applied automatically — not hold the pane at one display size while changing how much fits. Reformat (<kbd>r</kbd>) should work without destroying content, and nothing in 3D should damage the 2D view of the same session.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Symptoms observed (chronological)</span>
+    <div class="tablewrap"><table>
+      <tr><th>Symptom</th><th>Status</th></tr>
+      <tr><td>Grid keys shrank/grew the <em>text</em>, pane stayed the same size (font-scaling look)</td>
+          <td><span class="chip ok">explained</span> stale renderer — window predated the <code>GRID_SCALES_BOX</code> build</td></tr>
+      <tr><td><kbd>r</kbd> in 3D blanked the pane entirely; 2D full → 3D shows tail only → blank after <kbd>r</kbd>. User: "reformat has never really worked in 3D"</td>
+          <td><span class="chip ok">root-caused</span></td></tr>
+      <tr><td>After a 3D reformat, the <strong>2D view</strong> of the same session also lost content / resized weirdly</td>
+          <td><span class="chip ok">root-caused</span></td></tr>
+      <tr><td>After round-2 fixes: <kbd>r</kbd> temporarily cleared content and unexpectedly <em>resized</em> the pane</td>
+          <td><span class="chip ok">root-caused</span></td></tr>
+      <tr><td>Grid keys changed only the "inner terminal size"; the pane itself never moved</td>
+          <td><span class="chip ok">root-caused</span> stale DOM measurement</td></tr>
+      <tr><td>Stray pink dot floating on the pane edge</td>
+          <td><span class="chip ok">root-caused</span> working-border SVG never resized</td></tr>
+      <tr><td>Some panes open <strong>blank</strong> in 3D; visiting them in 2D fixes them (and they stay fixed back in 3D)</td>
+          <td><span class="chip warn">likely fixed by rethink</span> mirror-only bug; that path was replaced</td></tr>
+      <tr><td>Hatched "unused space" bars on pane edges in <strong>2D</strong>, on all clients, that Reformat never cleared</td>
+          <td><span class="chip ok">fixed (R5–R7)</span> three overlay bugs + phantom clients; bars confirmed gone</td></tr>
+      <tr><td>On entering the 3D world, panes <strong>shrink step by step to tiny</strong> — in every attached client simultaneously</td>
+          <td><span class="chip warn">fixed (R8), awaiting verification</span> fit-vs-grid-derived-container ratchet</td></tr>
+      <tr><td>Maximizing a non-active pane didn't make it active/focused (2D, pre-existing)</td>
+          <td><span class="chip ok">fixed in darkness-toolkit</span> <code>d1df34e</code></td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Root causes found</span>
+    <ul>
+      <li><strong>Two competing size authorities.</strong> The pane's pixel box (uniform-screens look) and the PTY's actual grid were reconciled through FitAddon fits and <code>.xterm-screen</code> rect measurement ("hug"). xterm updates its DOM <em>asynchronously</em>, so these reads were stale — panes failed to resize, jumped size on reformat, opened blank. This was the bug factory.</li>
+      <li><strong>Server: <code>forceClientSize</code> evicts everyone.</strong> A ForceResize clears <em>every</em> client's size vote, pins the PTY to the sender's grid, and broadcasts <code>Size</code> to all attached clients — so a 3D mirror reformat collapsed the real 2D terminal (<code>TerminalSessionManager.kt:473</code>).</li>
+      <li><strong>Mirrors ignored <code>Size</code> frames.</strong> The preview socket dropped all text frames, so a mirror's grid drifted from the PTY and repaint bytes rendered against the wrong grid (<code>World3DSpikeRing.kt</code>).</li>
+      <li><strong>SIGWINCH repaint wipes a mirror's view.</strong> A mirror shows only a replayed scrollback tail (fresh xterm, 400-line scrollback, 64&nbsp;KB ring replay); the program's repaint on resize clears it. Only alt-screen TUIs were guarded.</li>
+      <li><strong>World open was not PTY-neutral.</strong> Opening the world silently fitted every mounted pane to the box and sent resize votes — perturbing live sessions on every entry.</li>
+      <li><strong>Working-border SVG built once</strong> at pane-birth size, never resized — its travelling accent-coloured dot drifted off the real pane edge (the pink dot).</li>
+      <li><strong>Teardown never restored 2D geometry</strong> — a 3D-forced PTY size survived back into 2D.</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="eyebrow">Attempts, in order</span>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 1</span>
+        <h3>Auto-reformat on grid keys (patch)</h3>
+        <span class="chip bad">failed</span>
+      </div>
+      <p>Added <code>sendForceResize</code> into <code>applyGridScale</code> so grid keys pushed the new grid to the PTY, bypassing the per-pane <code>autoReflow</code> gate (like the 2D Reformat button). Also found the bundle-staleness trap: <code>jsBrowserDistribution</code> does <em>not</em> refresh the served dev dist — <code>jsBrowserDevelopmentExecutableDistribution</code> does.</p>
+      <div class="outcome"><strong>Outcome:</strong> made the pre-existing blanking automatic. Panes blanked on reformat; 2D damaged. The real root causes were deeper.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 2</span>
+        <h3>Patch the root causes individually</h3>
+        <span class="chip bad">mostly failed</span>
+      </div>
+      <ul>
+        <li>Mirror socket parses <code>Size</code> frames and follows the PTY <span class="chip ok">kept (concept)</span></li>
+        <li>Shared hardened reassert helper + delayed 220&nbsp;ms "re-hug" after repaint <span class="chip bad">superseded</span></li>
+        <li>World close restores 2D geometry (<code>forceReassert</code> per mounted pane) <span class="chip ok">kept</span></li>
+        <li>Server floors forced sizes at 20×5 so an unmeasured view can't pin the PTY at ~1×1 <span class="chip warn">repo-only, not live</span></li>
+      </ul>
+      <div class="outcome"><strong>Outcome:</strong> the Size-following made panes <em>hug the PTY grid</em>, so they now changed size unexpectedly on attach and on <kbd>r</kbd>; grid keys still didn't move the pane (stale DOM measure); the pink dot appeared. User verdict: "still seriously bonkers" → <em>rethink this much harder</em>.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 3</span>
+        <h3>Rethink: the PTY-truth sizing model</h3>
+        <span class="chip warn">shipped, unverified</span>
+      </div>
+      <p><strong>One size authority: the PTY grid.</strong> A pane is a truthful window onto it — pane pixels are derived <em>arithmetically</em> (<code>cols × cellWidth</code>, <code>rows × cellHeight</code>), never measured from the DOM. The grid only changes on explicit command, and every change is one synchronous, atomic step: terminal + pane plane + border SVG + PTY together.</p>
+      <ul>
+        <li><kbd>,</kbd> <kbd>.</kbd> = ±10 columns; <kbd>&lt;</kbd> <kbd>&gt;</kbd> = ±4 rows (user-approved steps)</li>
+        <li><kbd>r</kbd> = set grid to fill the standard screen box, computed arithmetically</li>
+        <li>Server <code>Size</code> broadcasts flow through the same function (follow, don't reassert)</li>
+        <li><strong>World open is PTY-neutral</strong> — no fits, no votes, panes appear at their true size (user approved dropping the uniform-at-open look, which was a lie anyway)</li>
+        <li>No per-pane grid memory needed — the PTY itself remembers</li>
+        <li>Working-border SVG resizes with the pane (pink dot fix)</li>
+        <li>Deleted: <code>hugGrid</code>, <code>applyGridScale</code>, factor maps, <code>GRID_SCALES_BOX</code>, the re-hug timer, all FitAddon use in the 3D grid path</li>
+      </ul>
+      <div class="outcome"><strong>Outcome:</strong> compiled clean; all new symbols verified in the served bundle; old symbols verified gone. In-app test: grid keys <em>still</em> changed only the internal terminal size — the pane box never moved. The model was right; something was silently aborting its presentation step.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 4</span>
+        <h3>The actual culprit: a hidden TypeError inside every resize</h3>
+        <span class="chip ok">root-caused, fixed, verified headless</span>
+      </div>
+      <p>Reproduced the symptom in headless Chrome against the demo client (<code>?demo</code> + CDP): pressing <kbd>.</kbd> grew the xterm screen (970&nbsp;→&nbsp;1223&nbsp;px) while the pane wrapper stayed pixel-identical, with <strong>zero</strong> width/height style writes. <code>Debugger.setPauseOnExceptions</code> then caught what <code>runCatching</code> had been swallowing:</p>
+      <ul>
+        <li><code>TypeError: tmp0_safe_receiver.asDynamic is not a function</code> in <code>updateOobOverlay</code> (<code>TerminalHelpers.kt:186</code>): <code>entry.term.asDynamic().element?.asDynamic()?.querySelector(…)</code> — a <strong>Kotlin/JS trap</strong>: <code>?.asDynamic()</code> on an <em>already-dynamic</em> receiver compiles to a real <code>.asDynamic()</code> method call on the DOM element at runtime, which throws whenever the terminal has a live element (i.e. always). Confirmed the compiled bundle contained exactly <strong>one</strong> such runtime call site — this one. The line is old committed code, matching "reformat has never really worked in 3D".</li>
+        <li>xterm fires <code>onResize</code> listeners <em>synchronously inside</em> <code>term.resize()</code>; the 2D layout wires <code>onResize → updateOobOverlay</code>. So every <code>setPaneGrid</code> ran <code>term.resize()</code> (grid changed ✓), the listener threw, the exception propagated out of <code>resize()</code>, and <code>runCatching</code> silently skipped <code>presentPaneToGrid</code> — internal size changed, pane box never did. The same throw also broke <code>applyServerSize</code> after its own resize (it calls <code>updateOobOverlay</code> before <code>spikeOnServerSize</code>), so Size-broadcast following died too.</li>
+      </ul>
+      <p><strong>Fixes:</strong> (1) <code>TerminalHelpers.kt</code> — cast to <code>HTMLElement</code> first, no <code>?.asDynamic()</code> on a dynamic receiver; (2) <code>World3DSpikeReformat.kt</code> — <code>setPaneGrid</code> isolates <code>term.resize()</code> in its own <code>runCatching</code> so no listener anywhere can ever abort the presentation again.</p>
+      <div class="outcome"><strong>Outcome:</strong> verified headless in demo mode — <kbd>.</kbd><kbd>.</kbd> grew the pane 751→852&nbsp;px, <kbd>,</kbd> shrank it, <kbd>&gt;</kbd> grew rows, <kbd>r</kbd> snapped to the box with content intact. Side effect: the OOB "unused space" hatch overlays render for the first time ever (the function used to die before drawing them) — surfacing a chain of latent bugs in that never-exercised feature, fixed across Rounds 5–6 — and, less obviously, completing the Round-8 feedback loop.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 5</span>
+        <h3>The awakened OOB overlays: slivers + never-clearing hatch</h3>
+        <span class="chip ok">fixed, in served bundle</span>
+      </div>
+      <ul>
+        <li><strong>Hatch didn't clear on 2D Reformat.</strong> <code>updateOobOverlay</code> measured the used area from <code>.xterm-screen</code>'s <code>getBoundingClientRect()</code> — but xterm repaints its DOM <em>asynchronously</em>, so when the overlay recomputed (synchronously, mid-resize) it saw the stale pre-reformat size and nothing ever re-measured. Same stale-DOM class of bug as the whole 3D saga. Now sized <em>arithmetically</em> from the live grid (<code>cols × cellWidth</code>), correct at the instant of the resize.</li>
+        <li><strong>Slivers on healthy panes.</strong> The show-threshold was 4&nbsp;px, but a perfectly fitted terminal always leaves a sub-cell remainder (up to one cell) — now the threshold is one full cell per axis.</li>
+        <li><strong>Why the hatch appears at all right now:</strong> it marks PTYs genuinely pinned smaller than their 2D boxes (leftover ForceResizes from today's 3D work — the condition existed before; it was just invisible because the overlay code always crashed). The installed production app's bundle (server.jar, built 07-05) carries the same crash, so it can never show them — they appear only through the dev-bundle client. One Reflow per affected pane re-fits and re-pins the PTY; with the stale-rect fix the hatch now actually disappears when it does.</li>
+      </ul>
+      <div class="outcome"><strong>Outcome:</strong> improved but not enough — bars persisted in-app (bottom-only in the end). Two deeper overlay bugs remained; see Round 6.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 6</span>
+        <h3>Overlay endgame: judge by what Reformat would actually do</h3>
+        <span class="chip ok">fixed — bars confirmed gone in-app</span>
+      </div>
+      <ul>
+        <li><strong>Padding counted as "unused".</strong> The overlay compared the used grid against the pane container's full rect — but the container includes structural chrome the terminal can never occupy (the xterm element's padding, the scrollbar gutter, the sub-cell remainder: ~15–25&nbsp;px). Every perfectly fitted pane showed permanent bars, and Reformat "did nothing" because there was nothing to reclaim. Fix: gate on the fit addon's <code>proposeDimensions()</code> — show only when a reformat would add ≥1 col/row.</li>
+        <li><strong>Then bottom-only bars remained:</strong> the gate used the fit addon's <em>raw</em> proposal, but the actual Reformat applies <code>safeFit</code>, which <em>clamps rows</em> against the real viewport height (xterm one-row-overshoot guard). The overlay demanded a row Reformat correctly refuses to add. Fix: extract the clamped computation as <code>proposeSafeDimensions()</code> and use it for <em>both</em> the fit and the overlay gate — one source of truth, so the overlay lights up iff Reformat would change the grid.</li>
+      </ul>
+      <div class="outcome"><strong>Outcome:</strong> user confirmed "the bars are gone" on the daily-driver build. Overlays now appear only when another client genuinely holds the session smaller — and Reformat clears them by construction.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 7</span>
+        <h3>Phantom clients + the reconnect-ForceResize eviction storm</h3>
+        <span class="chip ok">root-caused &amp; fixed</span>
+      </div>
+      <p>Reformat in 2D "did nothing" against the live server even after Round 6. <code>lsof</code> told the story: a <strong>headless Chrome left running by a concurrent Claude session</strong> held three hidden pages logged into the production server (756×469 window, live xterms, 21 established connections) — surviving even a server restart, since clients auto-reconnect every 500&nbsp;ms.</p>
+      <ul>
+        <li><strong>Server sizes each PTY as min() across attached clients' votes</strong> (<code>applyEffectiveSize</code>) — tmux-style, by design. Small background clients legitimately shrink shared sessions.</li>
+        <li><strong>The real bug: every pane socket sent a <code>ForceResize</code> on every (re)connect</strong> (<code>connectPane.onopen → forceReassert</code>) — the eviction kind that wipes all other clients' votes and pins the PTY. Last connector wins; the phantom's reconnect churn bulldozed every session seconds after any user Reformat. Confirmed present in the production (main) bundle too.</li>
+        <li><strong>Fix:</strong> reconnect now fits locally and casts a <em>soft vote</em> (min() semantics preserved; cold-startup still works — min over one vote is that vote). The manual Reformat button keeps force semantics: an explicit user action. Plus the server floors forced sizes at 20×5 so a degenerate force can never collapse all clients.</li>
+        <li>Known trade-offs, watched during daily-driving: a session stays small while a genuinely smaller client is attached (honest min(), not a bug); a dead client's vote could linger if the server misses the disconnect — mitigated by the server's 20&nbsp;s WebSocket pings (~40&nbsp;s teardown).</li>
+      </ul>
+      <div class="outcome"><strong>Outcome:</strong> phantom killed (<code>kill 59803</code>); soft-vote + floor fixes ported to the <code>resize-fixes</code> worktree the user now daily-drives.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 8</span>
+        <h3>The 3D shrink ratchet — completed by the Round-4 fix</h3>
+        <span class="chip warn">fixed, awaiting in-app verification</span>
+      </div>
+      <p>New symptom after everything above: entering the 3D world made panes <strong>shrink step by step to tiny — in every attached client at once</strong>. A feedback loop between the two sizing philosophies:</p>
+      <ul>
+        <li>In 3D, a pane's container is <em>derived from</em> the grid (<code>presentPaneToGrid</code>: exactly <code>cols × cellW</code>).</li>
+        <li>The 2D <code>ResizeObserver</code> still watched that container: reparent → autoReflow fit → the fit addon subtracts its padding/scrollbar allowance → proposes a <em>smaller</em> grid → votes it to the server.</li>
+        <li>Size broadcast → <code>spikeOnServerSize</code> → plane re-presented smaller → container smaller → observer fires → … one step down per server round-trip, mirrored by every client on the shared PTY.</li>
+      </ul>
+      <p><strong>Why it was new:</strong> the loop's return edge used to be dead — the Round-4 <code>TypeError</code> aborted <code>applyServerSize</code> before <code>spikeOnServerSize</code> could re-present the plane, so the cycle broke after one pass. Fixing the crash completed the circuit.</p>
+      <p><strong>Fix:</strong> while a pane rides a 3D plane (<code>isRidingSpikePlane</code>), the 2D fit machinery stands down — the ResizeObserver refit and the socket-open fit are skipped (fitting a grid-derived box back onto the grid is circular by construction). Soft votes still flow (the current grid <em>is</em> the truth in 3D); world-close restore is unaffected (<code>spikeOpen</code> is already false there).</p>
+      <div class="outcome"><strong>Outcome:</strong> in the served dev bundle; verify by relaunching the spike app — panes should hold size on world entry, and the 2D clients should stay still.</div>
+    </div>
+
+    <div class="round">
+      <div class="round-head">
+        <span class="round-num">ROUND 9</span>
+        <h3>Session 2: real reformat, fluid resize, the last ratchets, and the box that lied by 22px</h3>
+        <span class="chip ok">verified in-app</span>
+      </div>
+      <ul>
+        <li><strong>`r` reformat, three designs later.</strong> The R3 snap-to-standard-box yanked panes to a wildly different size — user decree: <em>a 3D reformat must never change the pane's physical size</em>. Replaced with re-pin-current-grid — which turned out to be <strong>end-to-end invisible</strong>: the kernel raises SIGWINCH only on a *real* size change, and the server's size <code>StateFlow</code> dedups equal values, so a same-size ForceResize reaches nobody (why "reformat never worked in 3D", ever). Final design: the <strong>jiggle</strong> (tmux's redraw trick) — force the PTY one row off and back (<code>REFORMAT_JIGGLE_MS</code>), two real SIGWINCHes, full program repaint at the current grid, then pin the viewport to the tail. The clue that unmasked it: a grid-key width change "auto-reformats" — because it is a real change.</li>
+        <li><strong>Grid keys: bigger steps, fluid glide.</strong> ±20 cols / ±10 rows per press, pane box eases over <code>GRID_ANIM_MS</code> (260&nbsp;ms CSS width/height transition; terminal reflows instantly, the box clips/reveals; border SVG stretches along). Detour: ⌃-arrows are swallowed system-wide by macOS Mission Control; ⌥-arrows never reached the world handler in the real app — reverted to <kbd>,</kbd> <kbd>.</kbd> <kbd>&lt;</kbd> <kbd>&gt;</kbd>.</li>
+        <li><strong>Two more shrink-ratchet paths gated.</strong> Every Mac-window resize fired the toolkit's <code>onGeometryChanged</code> → <code>forceReassert</code> on all visible terminals — fitting spike-riding panes to their grid-derived boxes, one shrink step per resize event. The gate now lives <em>inside</em> <code>forceReassert</code> (covers fonts-loaded, tab-activation edge, ⌃⌥R too); world-close restore unaffected (<code>spikeOpen</code> clears first).</li>
+        <li><strong>The pane box must budget ALL the chrome.</strong> <code>presentPaneToGrid</code> sized the box to bare <code>grid × cell</code>; the real DOM adds the xterm element's padding + scrollbar gutter <em>and</em> <code>.terminal-inner</code>'s 10/4/12/12 breathing-room strip (stylesheet padding survives inline cssText; it lives on an <em>intermediate</em> element, so a container-only read missed it — walk the whole chain and sum every level). Without it the screen sat 10px low and the bottom line clipped ("the peeking cursor"), immune to `r` by construction. Diagnosed by the user pasting a measuring snippet into the dev-window DevTools — <code>screenBottomOverflow</code> was the single truth-telling number.</li>
+        <li><strong>Open-time settle passes.</strong> The world-open present runs before the CSS3D subtree is styled (computed padding reads 0 → box 22px short) and a mirror's ring replay outruns the first tail pin ("no cursor on launch"). Two settle passes (120/700&nbsp;ms) re-present + re-pin.</li>
+        <li><strong>OOB overlay gated off on planes.</strong> Its <code>getBoundingClientRect</code> math reads through the CSS3D transform — after `r` it painted a bogus hatch strip over live content. Hidden + skipped while riding ([<code>isRidingSpikePlane</code>]).</li>
+      </ul>
+      <div class="outcome"><strong>Outcome:</strong> user-confirmed: grid keys resize fluidly at the new steps, `r` visibly reformats without changing pane size, window resizes no longer shrink panes, and panes open at the correct box with the cursor settling into view. Process lesson (now in memory): during long operations, report progress continually.</div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">What to verify after relaunch</span>
+    <div class="grid2">
+      <div class="panel">
+        <span class="eyebrow" style="color:var(--ok)">Expected to work</span>
+        <ul>
+          <li><strong>R8:</strong> entering the 3D world no longer shrinks panes — they hold size, and the 2D clients stay still</li>
+          <li>Panes open at their <em>real</em> sizes (varied, not uniform) and are not blank</li>
+          <li><kbd>,</kbd>/<kbd>.</kbd> and <kbd>&lt;</kbd>/<kbd>&gt;</kbd> visibly grow/shrink the pane with content reflowing immediately <span class="chip ok">verified headless</span></li>
+          <li><kbd>r</kbd> snaps the pane to the standard box without destroying content <span class="chip ok">verified headless</span></li>
+          <li>Back in 2D: panes intact at their own grid</li>
+          <li>2D: no hatch bars on healthy panes; Reformat clears any real ones <span class="chip ok">confirmed in-app</span></li>
+          <li>Maximizing a non-active pane makes it active + focused <span class="chip ok">toolkit d1df34e</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <span class="eyebrow" style="color:var(--warn)">Expected &amp; acceptable</span>
+        <ul>
+          <li>A brief clear-and-repaint when a grid genuinely resizes — the program (e.g. Claude Code) redraws on SIGWINCH; this also happens in 2D, just less visibly</li>
+          <li>Grid keys are no-ops on alt-screen TUIs (vim, less) — deliberate guard</li>
+          <li>Panes shrunk by the earlier bugs recover on one Reflow/Reformat each</li>
+          <li>A session stays small while a genuinely smaller client is attached — honest min() semantics, hinted by the (now truthful) hatch overlay</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Environment facts worth remembering</span>
+    <ul>
+      <li><code>scripts/run-electron-3d.sh</code> builds the <em>development</em> web bundle, serves it on a throwaway port (default 8090), and drives the <strong>installed production server</strong> at <code>127.0.0.1:8443</code> (<code>/Applications/Termtastic.app</code>) as a pure client. Web fixes ship by re-running the script; server fixes need an app update.</li>
+      <li>Panes not mounted in this window's 2D layout are <strong>mirrors</strong> — a second live client on the same PTY socket, fed a one-time ring replay. Engaging promotes them to the real terminal.</li>
+      <li>A diagnostic WebSocket probe (<code>pty-probe.mjs</code>, in the session scratchpad) can attach as a second client and dump post-ForceResize bytes; it was blocked on extracting the auth token, but can be run manually.</li>
+      <li>Another Claude session is concurrently editing this same working tree (it split <code>World3DSpike.kt</code> into modules mid-session) — <strong>and its leftover headless Chrome was the Round-7 phantom client</strong>. Lesson: before diagnosing any multi-client resize weirdness, run <code>lsof -nP -iTCP:8443 -sTCP:ESTABLISHED</code> and account for every connection.</li>
+      <li><strong>Kotlin/JS trap:</strong> <code>?.asDynamic()</code> on an already-dynamic receiver compiles to a real runtime <code>.asDynamic()</code> call (TypeError). Audit any bundle with <code>grep -c '\.asDynamic()'</code> — a correct build has zero. When a <code>runCatching</code>-wrapped path silently does nothing, headless CDP with <code>Debugger.setPauseOnExceptions: all</code> shows the swallowed exception with a full stack.</li>
+      <li><strong>PTY size = min() across attached clients' soft votes</strong> (<code>TerminalSessionManager.applyEffectiveSize</code>); <code>ForceResize</code> clears all votes and pins the sender's grid (now floored at 20×5). Clients auto-reconnect every 500&nbsp;ms forever (<code>connectPane.onclose</code>), so any per-connect side effect repeats on every blip.</li>
+      <li>The user now daily-drives a <strong><code>resize-fixes</code> worktree</strong> (<code>…/termtastic/resize-fixes</code>, branch off main <code>ed316c3</code>) as their production server, with all Round 4–7 fixes committed there. The spike branch carries the same fixes plus the 3D-only Round-8 gate. The maximize-focus fix lives in <strong>darkness-toolkit</strong> main (<code>d1df34e</code>), picked up automatically via the Gradle composite build.</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="eyebrow">Files touched</span>
+    <div class="filelist">
+      <span>— spike branch (world3d-spike) —</span><br>
+      <span>— R9 deltas: World3DSpikeReformat.kt (jiggle reformat + tail pin, xtermChrome/elementPadding chain walk, animated presentPaneToGrid, double settle pass), World3DSpikeConfig.kt (GRID_COLS_STEP 20 / GRID_ROWS_STEP 10, GRID_ANIM_MS, REFORMAT_JIGGLE_MS), TerminalHelpers.kt (forceReassert + updateOobOverlay gated off spike planes), World3DSpike.kt/World3DSpikeChrome.kt (key detour + revert) —</span><br>
+      web/…/World3DSpikeReformat.kt <span>— PTY-truth model: cellMetrics, presentPaneToGrid, setPaneGrid (resize isolated in its own runCatching), arithmetic reformat, spikeOnServerSize; isRidingSpikePlane (R8 gate)</span><br>
+      web/…/World3DSpikeGrid.kt <span>— grid keys as cell deltas; hugGrid/applyGridScale removed</span><br>
+      web/…/World3DSpikeRing.kt <span>— mirror Size handling; 2D reassert on world close</span><br>
+      web/…/World3DSpikeModel.kt <span>— resizeWorkingBorder (pink-dot fix)</span><br>
+      web/…/World3DSpikeConfig.kt <span>— GRID_COLS_STEP/GRID_ROWS_STEP + bounds; scale-factor consts removed</span><br>
+      web/…/World3DSpikeState.kt <span>— per-pane grid factor maps removed</span><br>
+      web/…/TerminalHelpers.kt <span>— R4 asDynamic crash fix; R5–R6 overlay: arithmetic sizing, proposeSafeDimensions gate; applyServerSize re-presents the 3D plane</span><br>
+      web/…/LayoutBuilder.kt <span>— R7 reconnect soft vote (no ForceResize on onopen); R8 ResizeObserver + onopen fits gated off 3D planes</span><br>
+      server/…/TerminalSessionManager.kt <span>— forced-size floor 20×5</span><br>
+      <br><span>— resize-fixes worktree (off main; the daily-driver production build) —</span><br>
+      web/…/TerminalHelpers.kt <span>— 57bbbe0/b5837cb/42c6c38: asDynamic fix, overlay arithmetic sizing + proposeSafeDimensions gate</span><br>
+      web/…/LayoutBuilder.kt <span>— 57bbbe0: reconnect soft vote</span><br>
+      server/…/TerminalSessionManager.kt <span>— 57bbbe0: forced-size floor 20×5</span><br>
+      <br><span>— darkness-toolkit main —</span><br>
+      toolkit-web/…/shell/AppShellMount.kt <span>— d1df34e: maximize routes through bringPaneToFront (active + focused)</span>
+    </div>
+  </section>
+</div>
+</body>
+</html>

@@ -143,6 +143,10 @@ private fun hotkeyGroups(): List<HotkeyGroupModel> = listOf(
             // ⌃⌥O; configurable + registered in `registerOverview3dHotkey`.
             // See [OVERVIEW3D_HOTKEY_ACTION_ID].
             actionRow("3D tab overview", OVERVIEW3D_HOTKEY_ACTION_ID),
+            // Sibling of the above: ⌥⌘← opens the 3D world spike (panes
+            // rotunda) instead of the app switcher. See
+            // [WORLD3D_SPIKE_HOTKEY_ACTION_ID] / `registerWorld3dSpikeHotkey`.
+            actionRow("3D mode", WORLD3D_SPIKE_HOTKEY_ACTION_ID),
         ),
     ),
     HotkeyGroupModel(

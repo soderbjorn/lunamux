@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termtastic 3D World Mode — Phase 2 Spike (Handoff)</title>
+<style>
+  :root {
+    --bg: #0c1017; --panel: #131a24; --panel2: #0f151d; --ink: #d7e2f4; --muted: #8ea3c2;
+    --accent: #4f8cf7; --good: #4bd08b; --warn: #f0b649; --bad: #ff6b5a; --line: #26374e;
+    --code-bg: #0a0e14; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 0 6rem;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+  header {
+    background: radial-gradient(circle at 30% 0%, #16324f, #0c1017 70%);
+    border-bottom: 1px solid var(--line); padding: 3rem 0 2rem; margin-bottom: 2rem;
+  }
+  header .wrap { max-width: 900px; }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 1.05rem; }
+  .tag { display: inline-block; font: 600 12px/1 var(--mono); padding: 5px 9px; border-radius: 6px;
+    border: 1px solid var(--line); color: var(--muted); margin: .6rem .4rem 0 0; background: var(--panel2); }
+  .tag.good { color: var(--good); border-color: #1f5f42; }
+  .tag.warn { color: var(--warn); border-color: #5f4a1f; }
+  h2 { font-size: 1.35rem; margin: 2.6rem 0 .8rem; padding-bottom: .4rem; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.08rem; margin: 1.8rem 0 .5rem; color: #eaf1ff; }
+  p, li { color: #cdd9ec; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: .87em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; border: 1px solid #1b2430; }
+  pre { background: var(--code-bg); border: 1px solid #1b2430; border-radius: 8px; padding: 14px 16px; overflow-x: auto; }
+  pre code { background: none; border: none; padding: 0; font-size: 13px; line-height: 1.5; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .lesson { border-left: 3px solid var(--accent); }
+  .lesson .p { color: var(--bad); font-weight: 600; }
+  .lesson .i { color: var(--warn); font-weight: 600; }
+  .lesson .s { color: var(--good); font-weight: 600; }
+  .lesson dt { font: 600 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; margin-top: .7rem; }
+  .lesson dd { margin: .15rem 0 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .92rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .05em; }
+  td code { white-space: nowrap; }
+  .kbd { display: inline-block; font: 600 12px/1 var(--mono); padding: 4px 7px; border-radius: 5px;
+    border: 1px solid var(--line); border-bottom-width: 2px; background: #1a2432; color: #eaf1ff; }
+  .filelist td:first-child { white-space: nowrap; }
+  ul.tight { margin: .4rem 0; } ul.tight li { margin: .2rem 0; }
+  .callout { background: #14202e; border: 1px solid #24405e; border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0; }
+  .callout.warn { background: #241d10; border-color: #5f4a1f; }
+  .muted { color: var(--muted); }
+  .commit { font-family: var(--mono); font-size: .82rem; color: var(--good); }
+  hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 3rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Termtastic 3D World Mode — Phase&nbsp;2 Spike</h1>
+    <div class="sub">Handoff notes for the next agent: what it is, how it works, why the tricky bits are the way they are, and where to take it next.</div>
+    <div>
+      <span class="tag warn">status: throwaway spike</span>
+      <span class="tag">branch: <b>world3d-spike</b></span>
+      <span class="tag">web module (Kotlin/JS)</span>
+      <span class="tag good">verified headless in demo</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<h2>1. What this is</h2>
+<p>
+A spike that answers one product question: <b>can you actually work in a 3D "world" of your terminals?</b>
+It takes the <b>real, live termtastic panes</b> and arranges them in a ring (a mini "rotunda", inspired by
+the 3D app switcher). The pane rotated to the front is a genuine, fully-interactive terminal — real shell,
+real line editing, real mouse selection — while the others stay live but passive around it. You can rotate
+the ring and zoom the front pane.
+</p>
+<p>
+It is deliberately a <b>spike</b>, not a feature: one window's currently-mounted panes, a plain ring, a
+temporary topbar button. But it exercises the real feature's core and retired every hard technical unknown.
+It is <b>not merged</b> — it lives only on the <code>world3d-spike</code> branch, gated behind a temporary
+cube button in the topbar (next to the globe / 3D switcher button).
+</p>
+
+<div class="callout">
+<b>The headline result:</b> a real xterm.js terminal on a CSS3D 3D plane can be focused, typed into, and
+<i>selected</i> accurately, composited with the rest of the 3D scene — <b>as long as the interactive pane is
+kept flat-facing the camera at a true 1:1 pixel mapping.</b> That single invariant drives most of the design.
+</div>
+
+<h2>2. Where the code is</h2>
+<table class="filelist">
+  <tr><th>File</th><th>What</th></tr>
+  <tr><td><code>web/.../termtastic/World3DSpike.kt</code></td><td>The whole spike (~570 lines): overlay, ring layout, reparenting, rotation, zoom, restore. Start here.</td></tr>
+  <tr><td><code>web/.../termtastic/ThreeCss3d.kt</code></td><td>Minimal Kotlin/JS bindings for three.js's <code>CSS3DRenderer</code> / <code>CSS3DObject</code> addon.</td></tr>
+  <tr><td><code>web/.../termtastic/TermtasticToolkitBootstrap.kt</code></td><td>The temporary "3D world spike" cube topbar button (<code>buildWorld3dSpikeTopbarAction</code>) + its slot registration. Remove with the spike.</td></tr>
+  <tr><td><code>web/.../termtastic/Three.kt</code></td><td>Core three.js bindings. The switcher work added <code>fov</code> + <code>up</code> to <code>PerspectiveCamera</code> (on <code>main</code>).</td></tr>
+</table>
+<p class="muted">
+Full path prefix: <code>web/src/jsMain/kotlin/se/soderbjorn/termtastic/</code>. Reused, unmodified app pieces:
+<code>terminals</code> registry + <code>TerminalEntry</code> (<code>TerminalRegistry.kt</code> / <code>TerminalHelpers.kt</code>),
+<code>ensureTerminal</code> (<code>LayoutBuilder.kt</code>), <code>safeFit</code>, <code>updateOobOverlay</code>, and the <code>Terminal</code> xterm binding (<code>Xterm.kt</code>).
+</p>
+<p class="muted">
+Related but separate: the <b>3D app switcher</b> styles (Orbit / Vertigo and the five others) are on <code>main</code>
+in <code>Overview3D*.kt</code>. This spike is a different thing (work-in-place vs. a task-switcher overlay) but shares the CSS/WebGL plumbing lessons.
+</p>
+
+<h2>3. How it works (architecture)</h2>
+<ul class="tight">
+  <li><b>Open:</b> enumerate the real mounted panes (<code>terminals.values</code> whose <code>container.isConnected</code>). For each, <b>reparent its real xterm container</b> (<code>TerminalEntry.container</code>, a <code>.terminal</code> div) out of the 2D layout and onto a <code>CSS3DObject</code> plane, remembering its original parent/sibling.</li>
+  <li><b>Layout:</b> planes sit on a horizontal ring (<code>RING_R</code>). Each frame, pane <i>i</i> is placed at angle <code>baseAngle[i] + ringAngle</code>, facing outward. The <b>front</b> pane (angle ≈ 0) faces the camera.</li>
+  <li><b>Camera:</b> a single <code>PerspectiveCamera</code>, <b>fixed</b> at the CSS3D "perspective distance" (<code>perspDistance()</code>) so a plane at the ring front, unscaled, renders at exactly 1:1 with its native pixels. Both the CSS3D renderer and (conceptually) the scene share it.</li>
+  <li><b>Interactivity:</b> only the settled front pane gets <code>pointer-events:auto</code> + focus; it is the real terminal, so backspace / word-motion / history / selection all work. Others get <code>pointer-events:none</code> and a dim overlay (still live — they're the actual terminals, just passive).</li>
+  <li><b>Rotate:</b> <span class="kbd">◀</span> <span class="kbd">▶</span> buttons or <span class="kbd">Alt</span>+<span class="kbd">←</span>/<span class="kbd">→</span> change which pane is front; the ring eases; the new front takes focus.</li>
+  <li><b>Zoom:</b> <span class="kbd">Alt</span>+<span class="kbd">↑</span>/<span class="kbd">↓</span> zoom the front pane (see the zoom lesson below).</li>
+  <li><b>Close:</b> restore every terminal's native font, then move each container back to its exact original DOM position. The app's 2D layout is untouched afterward.</li>
+</ul>
+
+<h2>4. Key mechanisms &amp; hard-won lessons</h2>
+<p class="muted">Each of these was a real bug or dead-end. Read them before changing the corresponding area — the "obvious" simplification usually reintroduces the bug.</p>
+
+<div class="card lesson">
+  <h3>Why CSS3D (not a WebGL texture)</h3>
+  <dl>
+    <dt class="p">Problem</dt><dd>The 3D switcher renders panes as <i>snapshot textures</i> — read-only. You can't type into a texture.</dd>
+    <dt class="i">Insight</dt><dd>three.js's <code>CSS3DRenderer</code> renders <i>real DOM elements</i> as CSS-<code>transform</code>ed 3D planes, sharing the camera. So a real xterm keeps full input/cursor/selection.</dd>
+    <dt class="s">Solution / caveat</dt><dd>Reparent the real xterm onto a <code>CSS3DObject</code>. <b>Compositing rule:</b> the whole CSS3D layer is one browser compositing plane — WebGL geometry <i>cannot</i> be drawn in front of a CSS3D element (they're stacked layers). CSS3D elements <i>do</i> occlude each other. That's why this spike is pure CSS3D (no WebGL layer).</dd>
+  </dl>
+</div>
+
+<div class="card lesson">
+  <h3>The 1:1 selection invariant (the load-bearing constraint)</h3>
+  <dl>
+    <dt class="p">Problem</dt><dd>xterm maps a mouse position to a cell by dividing the pointer offset by the <i>layout</i> cell size. Any CSS <b>scale</b> or <b>rotation/tilt</b> breaks this: a scaled plane's on-screen size ≠ its layout size, so selection drifts (measured: at 3× visual zoom, a drag at y=271 selected at y=374, and the error grows down the pane).</dd>
+    <dt class="i">Insight</dt><dd>Selection is only correct when <b>1 layout px = 1 screen px</b> for the interactive pane — i.e. flat-facing the camera, unscaled, at the perspective distance.</dd>
+    <dt class="s">Solution</dt><dd>The front pane is <b>billboarded flat</b> and its <code>CSS3DObject</code> scale is eased to <b>1.0</b>. Tilt/scale is only ever applied to non-interactive side panes. If you ever need selection on a <i>tilted</i> pane, you must bypass xterm's mouse math entirely (raycaster → UV → cell → drive selection) — see Next Steps.</dd>
+  </dl>
+</div>
+
+<div class="card lesson">
+  <h3>Reparenting real terminals</h3>
+  <dl>
+    <dt class="i">How</dt><dd>Move <code>entry.container</code> into the plane wrapper; capture <code>origParent</code> + <code>origNext</code> and the prior inline CSS (stashed on a <code>data-spike-prevcss</code> attribute) to restore exactly on close.</dd>
+    <dt class="s">Rule</dt><dd>An xterm's element can live in only one DOM parent, so this <i>is</i> "the actual pane" (not a copy). <b>Pin the container to its current px size so it doesn't refit</b> — refitting resizes the real PTY (server churn) and reintroduces the gray-margin bug below.</dd>
+  </dl>
+</div>
+
+<div class="card lesson">
+  <h3>The gray "OOB unused-space" bars (only on real terminals)</h3>
+  <dl>
+    <dt class="p">Problem</dt><dd>Real terminals showed gray bars; demo (emulated) didn't. A terminal grid is quantised to whole character cells, so it can't fill an arbitrary-pixel box — leaving a sub-cell margin. Real, <i>server-sized</i> PTYs shade that margin with a gray <code>.oob-overlay</code> ("Reformat to reclaim"); demo terminals refit to fill, so no margin.</dd>
+    <dt class="s">Solution</dt><dd>Size the plane to the <b>actual grid</b> (<code>.xterm-screen</code> rect), pin the container to its native size, offset it so the grid sits at the plane's top-left, <b>clip</b> the remainder (<code>overflow:hidden</code>), and hide <code>oobOverlayRight/Bottom</code>. No unused space → nothing to shade. See <code>sizePlaneToGrid()</code>.</dd>
+  </dl>
+</div>
+
+<div class="card lesson">
+  <h3>Zoom: the whole saga (smooth AND exact selection)</h3>
+  <dl>
+    <dt class="p">Attempt 1 — camera dolly</dt><dd>Smooth, but visually <b>scaled</b> the front pane → broke selection (see 1:1 invariant).</dd>
+    <dt class="p">Attempt 2 — font-size zoom</dt><dd>Front stays 1:1 (selection exact), but every <span class="kbd">Alt</span>+<span class="kbd">↑</span>/<span class="kbd">↓</span> reflowed the terminal → <b>janky</b>.</dd>
+    <dt class="i">Insight (from the repo owner)</dt><dd>Decouple the two: <b>scale smoothly during the gesture, commit a crisp font on settle.</b> And <b>snap zoom steps to whole font sizes</b> so the commit lands exactly (no quantization pop).</dd>
+    <dt class="s">Solution (current)</dt><dd>
+      <ul class="tight">
+        <li><span class="kbd">Alt</span>+<span class="kbd">↑</span>/<span class="kbd">↓</span> step a <b>target</b> zoom by one whole font size (<code>zoom = fs / baseFont</code>).</li>
+        <li>During the gesture the front pane eases its <code>CSS3DObject</code> scale toward <code>target/committed</code> — pure GPU transform, no reflow, fluid.</li>
+        <li><code>ZOOM_COMMIT_MS</code> (200ms) after the last press, <code>commitZoom()</code> re-bakes the font to the target (crisp, 1:1) and divides the visual scale by the same grid-growth ratio <i>in the same frame</i> → on-screen size unchanged across the swap; the loop eases the residual scale to 1.0.</li>
+        <li>Because the container is scaled with the font, the column/row count stays ~constant (minimal PTY churn), and because the target is a font-achievable zoom, <code>committed == target</code> exactly → seamless landing.</li>
+      </ul>
+      Net: smooth zoom + pixel-exact selection at rest. Selection is only "off" during the ~200ms active gesture, which is fine (you're zooming, not selecting).
+    </dd>
+  </dl>
+</div>
+
+<div class="card lesson">
+  <h3>Side-pane normalization &amp; interaction model</h3>
+  <dl>
+    <dt class="s">Normalize</dt><dd>Non-front panes ease toward a common height (<code>COMMON_H</code>), <b>shrink-only</b> (clamped ≤ 1.0) to avoid upscaling blur. The interactive front pane is <b>never</b> scaled (1:1 invariant).</dd>
+    <dt class="s">Keys</dt><dd>All navigation uses <b>Alt</b>+arrows so plain arrow keys still reach the focused shell (the classic terminal-in-3D tension: every keystroke is meaningful, so you can't use bare arrows for camera control).</dd>
+  </dl>
+</div>
+
+<h2>5. Controls</h2>
+<table>
+  <tr><th>Input</th><th>Action</th></tr>
+  <tr><td>Cube icon in topbar</td><td>Toggle the spike overlay open/closed</td></tr>
+  <tr><td><span class="kbd">◀</span> <span class="kbd">▶</span> / <span class="kbd">Alt</span>+<span class="kbd">←</span> <span class="kbd">→</span></td><td>Rotate the ring (change front pane; new front takes focus)</td></tr>
+  <tr><td><span class="kbd">Alt</span>+<span class="kbd">↑</span> <span class="kbd">↓</span></td><td>Zoom the front pane's text larger / smaller (smooth, commits to 1:1)</td></tr>
+  <tr><td>Click the front pane, then type</td><td>Work in the real terminal (all shell editing + mouse selection)</td></tr>
+  <tr><td><span class="kbd">✕</span> (top-right)</td><td>Close; restores every pane to the 2D layout</td></tr>
+</table>
+
+<h2>6. State model (in <code>World3DSpike.kt</code>)</h2>
+<table>
+  <tr><th>Var</th><th>Meaning</th></tr>
+  <tr><td><code>spikePanes: List&lt;RingPane&gt;</code></td><td>Reparented panes in ring order. <code>RingPane</code> holds the <code>entry</code>, its <code>wrapper</code>/<code>obj</code>, restore bookkeeping (<code>origParent</code>/<code>origNext</code>), <code>baseAngle</code>, and the native <code>baseFont</code>/<code>baseCw</code>/<code>baseCh</code> + <code>normScale</code>.</td></tr>
+  <tr><td><code>spikeSelected</code> / <code>spikeRingAngle</code></td><td>Which pane is front; the eased ring rotation.</td></tr>
+  <tr><td><code>spikeFocusedIndex</code></td><td>Pane last given focus (so focus is handed over once per settle).</td></tr>
+  <tr><td><code>spikeFontZoom</code> / <code>spikeZoomTarget</code></td><td>Committed vs. target zoom. Both are always <code>fs/baseFont</code> values. During a gesture they differ; after commit they're equal.</td></tr>
+  <tr><td><code>spikeZoomLastTs</code></td><td><code>performance.now()</code> of the last zoom key, for the commit debounce.</td></tr>
+</table>
+<p class="muted">Core helpers: <code>sizePlaneToGrid()</code> (hug the grid, clip, hide OOB), <code>applyFontZoom()</code> (bake a font zoom), <code>commitZoom()</code> (seamless scale→font handoff), <code>rotateRing()</code> / <code>zoomFront()</code>, and the <code>startSpikeLoop()</code> render loop that does all per-frame easing.</p>
+
+<h2>7. How to run &amp; verify</h2>
+<p><b>Run in the browser (demo, no backend):</b></p>
+<pre><code>cd &lt;this worktree&gt;
+./gradlew :web:jsBrowserDevelopmentRun --continuous     # serves http://localhost:8080
+# open http://localhost:8080/?demo  → click the cube icon in the topbar</code></pre>
+<p><b>Run against real terminals:</b> open the app normally (not <code>?demo</code>) with a few panes; click the cube. Only then do you get true interactive shells (demo panes are a scripted sim). Real terminals are also where the gray-bar and font/selection edge cases actually bite — always sanity-check there.</p>
+
+<div class="callout warn">
+<b>Verification harness (important — this is how every fix above was confirmed).</b> Headless Chrome + demo mode + CDP:
+<ul class="tight">
+  <li>Launch: <code>Google Chrome --headless=new --remote-debugging-port=9222 --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader</code> (swiftshader is required — WebGL/CSS3D).</li>
+  <li>Node 22+ has a global <code>WebSocket</code>; a small <code>.mjs</code> speaks CDP directly (create target via <code>PUT /json/new</code>, then <code>Runtime.evaluate</code> / <code>Input.dispatchKeyEvent</code> / <code>Input.dispatchMouseEvent</code> / <code>Page.captureScreenshot</code>).</li>
+  <li>Key CDP gotchas: modifiers are a <b>bitmask</b> (<code>Alt=1</code>), not <code>altKey</code>; printable chars use the <code>text</code> field; strip <code>#webpack-dev-server-client-overlay</code> before screenshots.</li>
+  <li><b>Selection test that caught the zoom bug:</b> drag across a known line on the front pane, then read the <code>.xterm-selection</code> child rects and compare their <code>y</code> to the drag <code>y</code>. If they diverge, selection is broken. (The front pane is the wrapper with <code>pointer-events:auto</code> — not the last <code>.xterm</code> on the page.)</li>
+</ul>
+See <code>docs/web-demo-headless-verify</code> notes; the driver scripts used during development lived in a scratchpad (ephemeral) — re-create as needed.
+</div>
+
+<h2>8. Known limitations</h2>
+<ul>
+  <li><b>Selection during an active zoom gesture</b> is off for ~200ms (the pane is visually scaled until commit). By design. If precise selection <i>while</i> visually scaled is ever required, only the raycaster approach solves it.</li>
+  <li><b>Only one window's currently-mounted panes</b> are shown. Unmounted tabs (which the switcher previews via mirror sockets) are ignored.</li>
+  <li><b>Side-pane normalization is invisible with &lt; 3 panes</b> (the demo often has 2; the second sits directly behind the front). Test with 3+.</li>
+  <li><b>Reparent may resize real PTYs</b> if a refit fires (we avoid it by pinning sizes, but font-zoom does a controlled refit).</li>
+  <li><b>Differently-proportioned panes</b> make the ring slightly irregular; normalization is height-only.</li>
+  <li><b>No click-a-side-pane-to-front</b> yet (side panes are <code>pointer-events:none</code>); rotation is via keys/buttons only.</li>
+</ul>
+
+<h2>9. Next steps / ideas</h2>
+<ul>
+  <li><b>Pull panes from all tabs</b>, not just the mounted ones, so the ring is fuller (reuse the switcher's mirror-source pattern for unmounted tabs).</li>
+  <li><b>Click a side pane to bring it to front</b> (needs a pick path that doesn't steal terminal input — e.g. a transparent hit target, or the raycaster).</li>
+  <li><b>Raycaster selection for tilted panes:</b> add an invisible WebGL pick-plane matching each pane's transform, <code>raycaster.intersectObject().uv → (col,row)</code>, and drive xterm selection — the only way to select on a non-1:1 pane. Note xterm's public selection API is thin (single-row <code>select</code>, whole-line <code>selectLines</code>); arbitrary multi-row ranges need its internal <code>SelectionService</code>.</li>
+  <li><b>Persist pane world positions</b> (LocalStore JSON, same pattern as the toolkit's pane geometry) → promote from "ring" to a freely-arranged spatial workspace.</li>
+  <li><b>The "cockpit wall" model:</b> park the panes you monitor on a curved wall in view (all live), scatter the rest across the world, and surface off-screen activity with <b>beacons + a mini-map</b>. This reconciles "watch many at once" with "store panes in different places".</li>
+  <li><b>Promote to a real feature:</b> a settings toggle + persisted layout + a proper entry point (replace the temporary cube button), and a "focus animates to face you at 1:1" transition so previews can tilt while the focused pane stays selectable.</li>
+</ul>
+
+<h2>10. Commit history (branch <code>world3d-spike</code>)</h2>
+<table>
+  <tr><th>Commit</th><th>What</th></tr>
+  <tr><td class="commit">759ef78</td><td>Phase-2 spike: one interactive xterm on a CSS3D plane (proved the core question).</td></tr>
+  <tr><td class="commit">625cef3</td><td>Fix selection geometry (billboard 1:1) + backspace echo (local-echo era).</td></tr>
+  <tr><td class="commit">c71f6c5</td><td>v2: rotunda of the REAL panes, front interactive, + zoom.</td></tr>
+  <tr><td class="commit">0ee7336</td><td>Fix gray "unused space" bars — size planes to the real grid.</td></tr>
+  <tr><td class="commit">4320597</td><td>Fix selection during zoom (font-zoom, 1:1) + normalize side panes.</td></tr>
+  <tr><td class="commit">6f80c32</td><td>Smooth GPU zoom during the gesture, commit to 1:1 font on settle.</td></tr>
+  <tr><td class="commit">8a18c6d</td><td>Snap zoom to whole font sizes so the commit lands exactly (no pop).</td></tr>
+</table>
+
+<h2>11. Gotchas for the next agent (Kotlin/JS specifics)</h2>
+<ul class="tight">
+  <li><b>Kotlin block comments nest.</b> A literal <code>/*</code> inside a KDoc (e.g. writing a path like <code>examples/jsm/*</code>) opens a nested comment → "Unclosed comment". Avoid <code>/*</code> in doc text.</li>
+  <li><b>Control chars in strings</b> (ESC 0x1B, DEL 0x7F) must be real bytes or unicode escapes (<code>\u001b</code>, <code>\u007f</code>) &mdash; a literal ANSI code like <code>[1;36m</code> written without the ESC just prints the bracket codes as text.</li>
+  <li><b>CSS3D addon import:</b> <code>@JsModule("three/examples/jsm/renderers/CSS3DRenderer.js")</code> resolves under the repo's webpack (three 0.170).</li>
+  <li><b>Typed DOM gaps:</b> <code>CSSStyleDeclaration</code> lacks <code>pointerEvents</code> in the binding — use <code>style.setProperty("pointer-events", …)</code>. Vector props (<code>position</code>/<code>rotation</code>/<code>scale</code>/<code>up</code>) are <code>dynamic</code> — use <code>.set(x,y,z)</code> and read <code>.x as Double</code>.</li>
+  <li><b><code>json(...)</code></b> is <code>kotlin.js.json</code> (needs the import); used for three.js/xterm option objects.</li>
+  <li><b><code>.terminal</code> selector over-matches</b> in tests (nested xterm elements) — count real panes via <code>.xterm</code> or the reparented wrappers, not <code>.terminal</code>.</li>
+  <li>Camera <code>fov</code>/<code>up</code> are reset per open in the core (<code>Overview3D.openOverview3d</code>) so a style that animates them can't leak — the spike relies on <code>up=(0,1,0)</code> and the fixed distance.</li>
+</ul>
+
+<footer>
+  Termtastic 3D World Mode — Phase 2 spike. Branch <code>world3d-spike</code>, off <code>main</code>. Not merged; behind a temporary topbar button.
+  Everything above was verified headlessly in demo mode; the gray-bar / selection / zoom nuances were found and confirmed against real terminals.
+</footer>
+
+</div>
+</body>
+</html>

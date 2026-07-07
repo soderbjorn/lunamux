@@ -141,7 +141,6 @@ private fun start() {
         if (window.navigator.userAgent.contains("Electron", ignoreCase = true)) "Computer" else "Web"
     authQueryParam = "auth=" + encodeUriComponent(authTokenForSending()) +
         "&clientType=" + encodeUriComponent(clientTypeAtStart)
-    proto = if (window.location.protocol == "https:") "wss" else "ws"
     isElectronClient = window.navigator.userAgent.contains("Electron", ignoreCase = true)
     // The `dt-electron-mac` body class is added by darkness-toolkit's
     // `autoApplyElectronMacBodyClass` (called from `injectDarknessToolkitStyles`
@@ -152,12 +151,39 @@ private fun start() {
     // Server-state plumbing. In demo mode the "server" is the in-process
     // simulation selected by the magic demo host — no network anywhere.
     isDemoClient = detectDemoUrl()
+    // Secret Electron-only hotkey (Cmd/Ctrl+Alt+Shift+D) that reboots the
+    // renderer into/out of demo mode by toggling the #demo marker and
+    // reloading. See installDemoSwitchHotkey for the full story.
+    if (isElectronClient) installDemoSwitchHotkey()
     val loc = window.location
-    val port = loc.port.toIntOrNull() ?: if (loc.protocol == "https:") 443 else 80
+    // Resolve the backend authority. A `?backend=host:port` URL param points the
+    // UI at a *different* live server — always TLS, since the server is TLS-only
+    // (see ServerUrl). Used by scripts/run-electron-to-prod-server.sh to run this branch's
+    // bundle against an already-running server. Absent the param, we talk to the
+    // origin we were served from, so every other path behaves exactly as before.
+    val backendOverride = runCatching {
+        (js("new URLSearchParams(window.location.search).get('backend')") as? String)
+            ?.takeIf { it.isNotEmpty() }
+    }.getOrNull()
+    val bHost: String
+    val bPort: Int
+    val bSecure: Boolean
+    if (backendOverride != null) {
+        val parts = backendOverride.split(":")
+        bHost = parts[0]
+        bPort = parts.getOrNull(1)?.toIntOrNull() ?: 8443
+        bSecure = true
+    } else {
+        bHost = loc.hostname
+        bPort = loc.port.toIntOrNull() ?: if (loc.protocol == "https:") 443 else 80
+        bSecure = loc.protocol == "https:"
+    }
+    backendHost = "$bHost:$bPort"
+    proto = if (bSecure) "wss" else "ws"
     val serverUrl = if (isDemoClient) {
         ServerUrl(host = se.soderbjorn.termtastic.client.demo.DEMO_HOST, port = 0)
     } else {
-        ServerUrl(host = loc.hostname, port = port)
+        ServerUrl(host = bHost, port = bPort)
     }
     termtasticClient = TermtasticClient(
         serverUrl = serverUrl,

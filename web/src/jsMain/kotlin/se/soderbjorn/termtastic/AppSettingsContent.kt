@@ -37,11 +37,15 @@
  *       - **Enable file browser** — when off, hides the File Browser
  *         entry from the topbar "New pane" hover dropdown.
  *       - **Enable Git change view** — same for the Git entry.
+ *       - **Enable 3D mode** — when off, hides the topbar cube button and
+ *         leaves the ⌥⌘← hotkey inert (gated at the [toggleWorld3dSpike]
+ *         chokepoint). Ships off by default.
  *
  * The flags persist server-side under top-level keys in
  * `/api/ui-settings`:
  *   - `experimentalFileBrowser` (Boolean, default false)
  *   - `experimentalGitView` (Boolean, default false)
+ *   - `experimentalWorld3d` (Boolean, default false)
  *   - `experimental3dSwitcher` (Boolean, default true)
  *   - `experimental3dSwitcherStyle` (String, default "rotunda") — which 3D
  *     switcher style the picker selects; only shown while the switcher is on.
@@ -78,6 +82,9 @@ private const val KEY_EXPERIMENTAL_FILE_BROWSER = "experimentalFileBrowser"
 
 /** Persistence key for the experimental Git-view flag. */
 private const val KEY_EXPERIMENTAL_GIT_VIEW = "experimentalGitView"
+
+/** Persistence key for the experimental 3D world mode flag. */
+private const val KEY_EXPERIMENTAL_WORLD3D = "experimentalWorld3d"
 
 /** Persistence key for the experimental 3D tab/pane switcher flag. */
 private const val KEY_EXPERIMENTAL_OVERVIEW_3D = "experimental3dSwitcher"
@@ -212,9 +219,30 @@ fun isExperimentalGitViewEnabled(): Boolean =
     snapshotBoolean(KEY_EXPERIMENTAL_GIT_VIEW)
 
 /**
+ * Whether the experimental **3D world** mode is enabled — the interactive
+ * panes-on-3D-planes overview reached via the topbar cube button and the ⌥⌘←
+ * hotkey.
+ *
+ * Ships **off by default** (a raw spike): when the key is unset this returns
+ * `false`, so the cube button is hidden and the ⌥⌘← hotkey is inert. Both gate
+ * through this flag — the button via [applyWorld3dSpikeChromeVisibility] and the
+ * hotkey/menu via the [toggleWorld3dSpike] chokepoint. A user who turns the
+ * App Settings toggle on persists an explicit `true`.
+ *
+ * Read live from [toolkitSettingsSnapshot] so flipping the toggle takes effect
+ * without a reload.
+ *
+ * @return `true` only when the user has explicitly opted in.
+ * @see KEY_EXPERIMENTAL_WORLD3D
+ * @see toggleWorld3dSpike
+ */
+fun isExperimentalWorld3dEnabled(): Boolean =
+    snapshotBoolean(KEY_EXPERIMENTAL_WORLD3D)
+
+/**
  * Whether the 3D tab/pane switcher (the carousel-ring overview) is enabled.
  * Ships **on by default** (including in the Electron demo): when the key is
- * unset this returns `true`, so the topbar globe button shows and the ⌥⌘→
+ * unset this returns `true`, so the topbar app-switcher button shows and the ⌥⌘→
  * hotkey is live. Both gate through this flag: the button via
  * [applyOverview3dChromeVisibility] and the hotkey/menu via the
  * [toggleOverview3d] chokepoint. A user who unchecks the App Settings toggle
@@ -548,7 +576,7 @@ private fun buildGeneralSection(): HTMLElement {
             putJsonBoolean(KEY_EXPERIMENTAL_OVERVIEW_3D, v)
             // Reveal the style picker in step with the toggle.
             styleRow.style.display = if (v) "" else "none"
-            // Show/hide the topbar globe button live; the ⌥⌘→ hotkey gates
+            // Show/hide the topbar app-switcher button live; the ⌥⌘→ hotkey gates
             // itself through the toggleOverview3d chokepoint, so it needs no
             // work here.
             applyOverview3dChromeVisibility()
@@ -608,6 +636,18 @@ private fun buildExperimentalSection(): HTMLElement {
         onChange = { v ->
             updateSnapshotBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
             putJsonBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
+        },
+    ))
+    section.appendChild(buildToggleRow(
+        labelText = "Enable 3D mode",
+        initialValue = isExperimentalWorld3dEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_EXPERIMENTAL_WORLD3D, v)
+            putJsonBoolean(KEY_EXPERIMENTAL_WORLD3D, v)
+            // Show/hide the topbar cube button live; the ⌥⌘← hotkey gates
+            // itself through the toggleWorld3dSpike chokepoint, so it needs no
+            // work here.
+            applyWorld3dSpikeChromeVisibility()
         },
     ))
 

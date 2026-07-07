@@ -238,7 +238,7 @@ fun openTerminalLinkPicker(
                         "thumbnail" to thumbnail, "hiddenHost" to hiddenHost, "socket" to null
                     ))
                 } else {
-                    val previewUrl = "$proto://${window.location.host}/pty/${leaf.sessionId}?$authQueryParam"
+                    val previewUrl = "$proto://$backendHost/pty/${leaf.sessionId}?$authQueryParam"
                     val previewSocket = WebSocket(previewUrl)
                     previewSocket.asDynamic().binaryType = "arraybuffer"
                     previewSocket.onmessage = { event ->
