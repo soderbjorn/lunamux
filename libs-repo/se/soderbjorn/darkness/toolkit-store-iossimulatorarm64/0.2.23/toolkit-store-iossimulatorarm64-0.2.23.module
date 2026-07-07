@@ -1,0 +1,116 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-store/0.2.23/toolkit-store-0.2.23.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-store",
+    "version": "0.2.23",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "iosSimulatorArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.23"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-iosSimulatorArm64Main-0.2.23.klib",
+          "url": "toolkit-store-iossimulatorarm64-0.2.23.klib",
+          "size": 44877,
+          "sha512": "9158a6be5969d5979863fd856be09502e78fad11e76c261ca71273f8803684c4cb3c27f0dd7ea4c85027fb377695f3e198ebceecf9ac635e29914b25203fe1c6",
+          "sha256": "16c72667f703a8311088b1fa37b15243ffb456bf4ec23c6a227fbcc99079a0a1",
+          "sha1": "f4b6a223bd1d68809888f051a42a2796e4d26308",
+          "md5": "6e54c5af32cd3b2903304597f4d03d28"
+        }
+      ]
+    },
+    {
+      "name": "iosSimulatorArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "files": [
+        {
+          "name": "toolkit-store-iossimulatorarm64-0.2.23-sources.jar",
+          "url": "toolkit-store-iossimulatorarm64-0.2.23-sources.jar",
+          "size": 13757,
+          "sha512": "787276d15fa9af841b1fa66b73895da3875289a6a037c7e408725edef7c3f80b49be1b569ec2943ca309347390c219c29b3103b47c68491eeae47ccb03499ced",
+          "sha256": "cd806bfef522f3138bab592e1c385d662e3bc90dbc34423a40f17163776cee88",
+          "sha1": "bbbfcef44773ae04d02753d4e48012260da71a78",
+          "md5": "e37a51a7ee22ecb62ea45dcb1fb8caf9"
+        }
+      ]
+    },
+    {
+      "name": "iosSimulatorArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.23"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-iossimulatorarm64-0.2.23-metadata.jar",
+          "url": "toolkit-store-iossimulatorarm64-0.2.23-metadata.jar",
+          "size": 3865,
+          "sha512": "33177a465356741677882a0b60e5d718cd05e3aa40932080e3b9575b73e272a92ed322f19de2a611a6981f522c2a204aaff6455b60825d61b0db6dfdaf79c5ba",
+          "sha256": "985b73d31fffe05f2599ee22d0749ebd08d4b96eea15b02d370c31eb98797185",
+          "sha1": "0d9f15a343e744f3891133ac383f828bc616fc74",
+          "md5": "83977ecea35abcb1880f3addf6ec9731"
+        }
+      ]
+    }
+  ]
+}
