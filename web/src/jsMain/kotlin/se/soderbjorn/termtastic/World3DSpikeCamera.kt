@@ -63,7 +63,6 @@ internal fun toggleFlyMode() {
         spikeCamReturning = false
         spikeFlyMode = true
     }
-    updateFlyBadge()
     // Swap the bottom-left legend to match the mode (navigate ↔ fly),
     // honouring the shared `k` hidden flag.
     updateLegendVisibility()
@@ -503,11 +502,6 @@ internal fun rotateFlyBasis(pitch: Double, yaw: Double, roll: Double) {
 
     spikeCamFx = fx; spikeCamFy = fy; spikeCamFz = fz
     spikeCamUx = ux; spikeCamUy = uy; spikeCamUz = uz
-}
-
-/** Shows/hides the "FREE FLY" controls badge to match [spikeFlyMode]. */
-internal fun updateFlyBadge() {
-    spikeFlyBadge?.style?.setProperty("opacity", if (spikeFlyMode) "1" else "0")
 }
 
 /**

@@ -101,7 +101,7 @@ private fun buildBeaconChevron(chrome: SpikeChrome, withPulseKeyframes: Boolean)
     // Two nested chevrons, thick round strokes, doubled drop-shadow for the neon
     // bloom; opacity breathes via the shared keyframes at the halo's calm cadence.
     wrapper.innerHTML += """
-        <svg viewBox="0 0 640 900" width="$BEACON_W" height="$BEACON_H"
+        <svg class="spike-beacon-glyph" viewBox="0 0 640 900" width="$BEACON_W" height="$BEACON_H"
              fill="none" stroke="${chrome.accent}" stroke-width="64"
              stroke-linecap="round" stroke-linejoin="round"
              style="filter:drop-shadow(0 0 26px ${chrome.accent}) drop-shadow(0 0 90px ${chrome.accent});

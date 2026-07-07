@@ -101,6 +101,9 @@ internal fun refreshAndApplyActiveTheme() {
             " custom=${s.customThemes.size}"
     )
     applyAll()
+    // Re-tint the 3D world's pane chrome/beacons if it is open — its colours
+    // are otherwise baked at overlay-open time (no-op when closed).
+    restyleWorldChrome()
     refreshThemeManager()
     // Push the live selection into the toolkit's stored snapshot. Termtastic
     // owns theme resolution outside the toolkit (slot picks write through

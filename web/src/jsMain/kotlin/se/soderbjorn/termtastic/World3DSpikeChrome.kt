@@ -62,17 +62,6 @@ internal fun buildRingChrome(overlay: HTMLElement) {
     overlay.appendChild(badge)
     spikeModeBadge = badge
 
-    val fly = document.createElement("div") as HTMLElement
-    // Just the mode indicator — the full control list lives in the fly-mode
-    // shortcuts legend (bottom-left, toggled with `k` like the navigate one).
-    fly.textContent = "FREE FLY · F to land · k shortcuts"
-    fly.style.cssText = "position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:3;" +
-        "pointer-events:none;padding:5px 14px;border-radius:14px;border:1px solid #2a4b6e;" +
-        "background:#0d1a2acc;color:#6bc6ff;font:600 12px ui-monospace,Menlo,monospace;white-space:nowrap;" +
-        "opacity:0;transition:opacity 160ms ease;"
-    overlay.appendChild(fly)
-    spikeFlyBadge = fly
-
     // Amber confirm banner for the two-press pane/tab removal — bottom-centre, clear
     // of the top badges and the bottom-left legend. Hidden until a removal is armed.
     val confirm = document.createElement("div") as HTMLElement
@@ -227,34 +216,137 @@ internal fun flyShortcutIdForCode(code: String): String? = when (code) {
  * visible is decided by [updateLegendVisibility] (mode + the shared
  * [spikeLegendHidden] flag).
  *
+ * In the **web demo** — demo mode in a plain browser ([isDemoClient] without
+ * [isElectronClient]), i.e. the marketing site's embedded iframe — the same
+ * bottom-left column also carries the big **"Play demo tour" button**
+ * ([buildDemoTourButton]) stacked above whichever legend is visible. The
+ * Electron demo launch keeps the tour reachable through the secret ⌥⌘M chord
+ * only, and outside demo mode the tour has no simulated sessions to drive,
+ * so no button is built in either case.
+ *
  * @param overlay the spike overlay to append the legends to.
  */
 internal fun buildShortcutsLegend(overlay: HTMLElement) {
     spikeLegendRows.clear()
     spikeFlyLegendRows.clear()
-    spikeLegendPanel = buildLegendPanel(overlay, "SHORTCUTS", SPIKE_SHORTCUTS, spikeLegendRows)
-    spikeFlyLegendPanel = buildLegendPanel(overlay, "FREE FLY", SPIKE_FLY_SHORTCUTS, spikeFlyLegendRows)
+    // Bottom-left flex column: the tour button (when present) stacks directly
+    // above whichever legend panel is visible, tracking that panel's height
+    // instead of overlapping it at a guessed offset.
+    val column = document.createElement("div") as HTMLElement
+    column.style.cssText = "position:absolute;left:16px;bottom:14px;z-index:3;pointer-events:none;" +
+        "display:flex;flex-direction:column;align-items:flex-start;gap:10px;"
+    overlay.appendChild(column)
+    if (isDemoClient && !isElectronClient) buildDemoTourButton(column)
+    spikeLegendPanel = buildLegendPanel(column, "SHORTCUTS", SPIKE_SHORTCUTS, spikeLegendRows)
+    spikeFlyLegendPanel = buildLegendPanel(column, "FREE FLY", SPIKE_FLY_SHORTCUTS, spikeFlyLegendRows)
     updateLegendVisibility()
+}
+
+/** Idle label of the demo-tour button. @see updateDemoTourButton */
+private const val PLAY_TOUR_LABEL = "▶ Play demo tour"
+
+/** Label of the demo-tour button while the tour runs. @see updateDemoTourButton */
+private const val STOP_TOUR_LABEL = "■ Stop demo tour"
+
+/**
+ * Builds the big **"Play demo tour"** button above the shortcuts legend — the
+ * clickable twin of the secret ⌥⌘M chord, wired straight to [toggleDemoMovie].
+ * Web demo only ([isDemoClient] and not [isElectronClient], checked by the
+ * caller [buildShortcutsLegend]) — in the Electron demo the tour stays a
+ * hotkey-only secret.
+ * For its first ~15 s the button pulses gently (a slow scale + green-glow
+ * swell) to draw the visitor's eye, then holds still
+ * ([spikeDemoTourPulseTimer]); starting the tour ends the pulse early
+ * ([updateDemoTourButton]). A small dim line under the button notes the tour
+ * is optional — the legend keys are live for the visitor's own hands.
+ *
+ * @param parent the bottom-left chrome column to append the button to.
+ */
+private fun buildDemoTourButton(parent: HTMLElement) {
+    // The attention pulse needs @keyframes, which inline `style=` cannot
+    // declare — so the keyframes ride in a <style> that lives and dies with
+    // the chrome column.
+    // A slow, gentle swell — attention-drawing without being disruptive.
+    val pulse = document.createElement("style") as HTMLElement
+    pulse.textContent = "@keyframes tt-demo-tour-pulse{" +
+        "0%,100%{transform:scale(1);box-shadow:0 6px 24px rgba(0,0,0,0.45);}" +
+        "50%{transform:scale(1.04);box-shadow:0 0 14px rgba(75,208,139,0.45),0 6px 24px rgba(0,0,0,0.45);}}"
+    parent.appendChild(pulse)
+
+    val btn = document.createElement("button") as HTMLElement
+    btn.textContent = PLAY_TOUR_LABEL
+    btn.style.cssText = "pointer-events:auto;cursor:pointer;padding:12px 22px;border-radius:12px;" +
+        "border:1px solid #1f5f42;background:#0f2018e6;color:#4bd08b;" +
+        "font:700 15px ui-monospace,Menlo,monospace;box-shadow:0 6px 24px rgba(0,0,0,0.45);" +
+        "animation:tt-demo-tour-pulse 3s ease-in-out infinite;"
+    btn.addEventListener("click", {
+        // Drop focus so the button can't be re-activated by a later keypress.
+        btn.blur()
+        toggleDemoMovie()
+    })
+    parent.appendChild(btn)
+    spikeDemoTourButton = btn
+
+    // Small reassurance under the button: the tour is optional, the keys in
+    // the legend below are live for the visitor's own hands.
+    val hint = document.createElement("div") as HTMLElement
+    hint.textContent = "or explore yourself — the keys below all work"
+    hint.style.cssText = "pointer-events:none;margin-top:-4px;" +
+        "font:400 10px ui-monospace,Menlo,monospace;color:#6d80a0;"
+    parent.appendChild(hint)
+    spikeDemoTourHint = hint
+
+    spikeDemoTourPulseTimer = window.setTimeout({ stopDemoTourPulse() }, 15_000)
+}
+
+/**
+ * Ends the tour button's attention pulse: clears the 15 s timer and removes
+ * the keyframe animation. Idempotent — reached from the timer itself and
+ * from [updateDemoTourButton] when the tour starts.
+ */
+private fun stopDemoTourPulse() {
+    spikeDemoTourPulseTimer?.let { window.clearTimeout(it) }
+    spikeDemoTourPulseTimer = null
+    spikeDemoTourButton?.style?.removeProperty("animation")
+}
+
+/**
+ * Syncs the demo-tour button's label with the tour state ([spikeMovieJob]):
+ * "Play" when idle, "Stop" while the tour runs — so the one button both
+ * starts and stops the tour, exactly like ⌥⌘M. A running tour also ends the
+ * attention pulse; the button has done its job. Called from [toggleDemoMovie]
+ * on start and [movieCleanup] on every stop; a no-op when there is no button
+ * (non-demo mode, or the world is closed).
+ */
+internal fun updateDemoTourButton() {
+    val btn = spikeDemoTourButton ?: return
+    val running = spikeMovieJob != null
+    btn.textContent = if (running) STOP_TOUR_LABEL else PLAY_TOUR_LABEL
+    // The "explore yourself" line promises live keys — false while the tour
+    // has them locked out, so it hides for the duration.
+    spikeDemoTourHint?.style?.display = if (running) "none" else ""
+    if (running) stopDemoTourPulse()
 }
 
 /**
  * Builds one legend panel (heading + keycap table) and registers its rows
- * for the keypress flash.
+ * for the keypress flash. Positioning comes from the bottom-left flex column
+ * built by [buildShortcutsLegend], not from the panel itself.
  *
- * @param overlay the spike overlay to append to.
+ * @param parent the chrome column to append to.
  * @param title the small uppercase heading.
  * @param shortcuts the rows to render.
  * @param rows the id→row map to fill for [flashShortcut].
  * @return the panel element.
  */
 private fun buildLegendPanel(
-    overlay: HTMLElement,
+    parent: HTMLElement,
     title: String,
     shortcuts: List<SpikeShortcut>,
     rows: MutableMap<String, HTMLElement>,
 ): HTMLElement {
     val panel = document.createElement("div") as HTMLElement
-    panel.style.cssText = "position:absolute;left:16px;bottom:14px;z-index:3;pointer-events:none;" +
+    panel.style.cssText = "pointer-events:none;" +
         "padding:6px 8px;border-radius:10px;border:1px solid #2a3242;background:#0b0f16cc;" +
         "font:10px ui-monospace,Menlo,monospace;color:#a9bad4;box-shadow:0 6px 24px rgba(0,0,0,0.45);"
 
@@ -287,7 +379,7 @@ private fun buildLegendPanel(
         rows[shortcut.id] = row
     }
     panel.appendChild(table)
-    overlay.appendChild(panel)
+    parent.appendChild(panel)
     return panel
 }
 

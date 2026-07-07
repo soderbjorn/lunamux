@@ -379,9 +379,13 @@ internal fun resolveZoomPresetCodes() {
  *    [flyBelowPane]; any movement key cancels); `F` lands back to Navigate, `Esc`
  *    closes the whole overlay. Every other key is swallowed (nothing leaks).
  *
- * One chord is checked **before** all three modes: the secret, demo-only **⌥⌘M**
- * that starts/stops the guided world tour ([toggleDemoMovie]) — mode-independent so
- * a playing movie can be stopped wherever its choreography currently is.
+ * One gate runs **before** all three modes: while the guided tour plays, *real*
+ * (`isTrusted`) keys are locked out — Esc (or ⌥⌘M) stops the tour but never the
+ * world; only the ✕ button (or Esc once the tour has stopped) closes the world —
+ * and everything else is swallowed so a stray press can't disturb the
+ * choreography. The tour's own synthetic presses ([moviePress], `isTrusted`
+ * false) fall through and drive the modes as usual. When no tour is playing,
+ * the demo-only **⌥⌘M** chord starts one ([toggleDemoMovie]).
  *
  * @return the listener to attach on `window` (capture phase).
  */
@@ -389,10 +393,25 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
     val ke = ev as KeyboardEvent
     val consume = { ke.preventDefault(); ke.stopPropagation(); ke.stopImmediatePropagation() }
 
-    // Secret demo-only chord **⌥⌘M**: start/stop the guided world tour. Checked in
-    // every mode (before the modal branches below) so a playing movie can be stopped
-    // mid-beat whether it left the world navigating, engaged, or flying. Deliberately
-    // absent from the legend, and inert outside demo mode. @see toggleDemoMovie
+    // Tour lockout: while the demo movie plays, every *real* key is swallowed so
+    // stray input can't disturb the choreography — except Esc (or the ⌥⌘M toggle),
+    // which stops the tour mid-beat wherever it currently is, deliberately WITHOUT
+    // closing the 3D world (that takes the ✕ button, or Esc after the tour stops).
+    // The tour's own synthetic presses (moviePress, isTrusted == false) skip this
+    // gate and drive the modal branches below like human input.
+    if (spikeMovieJob != null && ke.isTrusted) {
+        consume()
+        if (ke.key == "Escape" || (ke.altKey && ke.metaKey && ke.code == "KeyM")) {
+            spikeMovieJob?.cancel()
+        }
+        return@handler
+    }
+
+    // Secret demo-only chord **⌥⌘M**: start the guided world tour (stopping one is
+    // handled by the tour lockout above). Checked in every mode (before the modal
+    // branches below). Deliberately absent from the legend, and inert outside demo
+    // mode — without the simulated demo sessions there is nothing for the tour to
+    // drive. @see toggleDemoMovie
     if (isDemoClient && ke.altKey && ke.metaKey && ke.code == "KeyM") {
         consume(); toggleDemoMovie(); return@handler
     }
@@ -597,9 +616,12 @@ internal fun closeWorld3dSpike() {
 
     spikeSelectionMode = false
     spikeModeBadge = null
-    spikeFlyBadge = null
     spikeLegendPanel = null
     spikeFlyLegendPanel = null
+    spikeDemoTourPulseTimer?.let { window.clearTimeout(it) }
+    spikeDemoTourPulseTimer = null
+    spikeDemoTourButton = null
+    spikeDemoTourHint = null
     spikeLegendRows.clear()
     spikeFlyLegendRows.clear()
     spikeNavLabelTimer?.let { window.clearTimeout(it) }

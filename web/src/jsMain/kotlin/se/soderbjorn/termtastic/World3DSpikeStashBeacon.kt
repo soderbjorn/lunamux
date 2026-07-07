@@ -95,7 +95,7 @@ private fun buildStashDiamond(chrome: SpikeChrome, withPulseKeyframes: Boolean):
     // Two nested diamond outlines, thick round strokes, doubled drop-shadow for the
     // neon bloom; opacity breathes via the shared keyframes at its own calm cadence.
     wrapper.innerHTML += """
-        <svg viewBox="0 0 640 640" width="$STASH_BEACON_S" height="$STASH_BEACON_S"
+        <svg class="spike-beacon-glyph" viewBox="0 0 640 640" width="$STASH_BEACON_S" height="$STASH_BEACON_S"
              fill="none" stroke="${chrome.accent}" stroke-width="56"
              stroke-linecap="round" stroke-linejoin="round"
              style="filter:drop-shadow(0 0 26px ${chrome.accent}) drop-shadow(0 0 90px ${chrome.accent});

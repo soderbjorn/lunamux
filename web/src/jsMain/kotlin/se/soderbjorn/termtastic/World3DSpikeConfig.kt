@@ -619,7 +619,7 @@ internal const val PANE_BASE_SHADOW = "0 0 42px rgba(0,0,0,0.55)"
  *
  *  - [WAITING_GLOW_COLOR] the halo colour as bare `r,g,b` (fed into `rgba(...)`).
  *  - [WAITING_GLOW_BORDER] the same red as a hex border colour.
- *  - [WAITING_PULSE_SPEED] rad/frame the urgency breath advances (~2.5s per pulse).
+ *  - [WAITING_PULSE_SPEED] rad/frame the urgency breath advances (~3.3s per pulse).
  *  - [WAITING_GLOW_MIN]/[WAITING_GLOW_MAX] the halo alpha floor/ceiling; the floor is
  *    deliberately non-zero so the red never fully disappears between pulses.
  *  - [WAITING_GLOW_BLUR] px blur radius of the bloom (a big soft spread seen from afar).
@@ -627,7 +627,7 @@ internal const val PANE_BASE_SHADOW = "0 0 42px rgba(0,0,0,0.55)"
  */
 internal const val WAITING_GLOW_COLOR = "239,68,68" // #ef4444
 internal const val WAITING_GLOW_BORDER = "#ef4444"
-internal const val WAITING_PULSE_SPEED = 0.05 // rad/frame → ~2.5s per urgent pulse
+internal const val WAITING_PULSE_SPEED = 0.032 // rad/frame → ~3.3s per pulse — urgent but not frantic
 internal const val WAITING_GLOW_MIN = 0.28 // floor: the red never fully fades out
 internal const val WAITING_GLOW_MAX = 0.90 // full flare
 internal const val WAITING_GLOW_BLUR = 64.0 // px — a wide soft bloom, spottable from across the ring

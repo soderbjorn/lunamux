@@ -318,6 +318,29 @@ internal var spikeLegendPanel: HTMLElement? = null
 internal var spikeFlyLegendPanel: HTMLElement? = null
 
 /**
+ * The big "Play demo tour" button stacked above the shortcuts legend — the
+ * clickable twin of the ⌥⌘M chord. Built only in the web demo
+ * ([isDemoClient] in a plain browser, not [isElectronClient]): the Electron
+ * demo keeps the tour hotkey-only, and outside demo mode the tour has no
+ * simulated sessions to drive; `null` when closed. @see updateDemoTourButton
+ */
+internal var spikeDemoTourButton: HTMLElement? = null
+
+/**
+ * Timer ending the tour button's attention pulse (~15 s after the chrome is
+ * built), or `null` once the pulse has stopped. @see updateDemoTourButton
+ */
+internal var spikeDemoTourPulseTimer: Int? = null
+
+/**
+ * The small "or explore yourself" reassurance line under the tour button —
+ * hidden while the tour plays (the keys are locked out then, so the promise
+ * would be false); `null` when closed or outside the web demo.
+ * @see updateDemoTourButton
+ */
+internal var spikeDemoTourHint: HTMLElement? = null
+
+/**
  * Whether the user hid the shortcut legends with `k`. One flag for **both**
  * legends — hiding shortcuts in navigate mode hides them in fly mode too.
  * Kept for the app run like the other spike memories, so reopening the
@@ -482,9 +505,6 @@ internal var spikeCamVZ = 0.0
 internal var spikeCamPitchVel = 0.0
 internal var spikeCamYawVel = 0.0
 internal var spikeCamRollVel = 0.0
-
-/** The "FREE FLY" mode badge (controls hint), or `null` when closed. */
-internal var spikeFlyBadge: HTMLElement? = null
 
 /** Keyup listener (fly-key release tracking), detached on close. */
 internal var spikeKeysUp: ((Event) -> Unit)? = null

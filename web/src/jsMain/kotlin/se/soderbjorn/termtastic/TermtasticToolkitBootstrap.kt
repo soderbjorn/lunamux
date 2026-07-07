@@ -25,6 +25,7 @@
 package se.soderbjorn.termtastic
 
 import kotlinx.browser.document
+import kotlinx.browser.window
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -668,11 +669,18 @@ private const val ICON_CUBE =
  * terminal can live and be typed into on a CSS3D 3D plane. Placed alongside the
  * app-switcher triptych in the leading topbar slot. Remove with the spike itself.
  *
+ * In the **web demo** ([isDemoClient] without [isElectronClient]) the bare
+ * cube gets the [decorateWorld3dDemoTopbarButton] dressing — a "3D Mode"
+ * label, a "NEW!" tag, and a temporary glow — because the website's visitors
+ * have no reason to hover an unlabelled icon, and this button is the door to
+ * the demo's showpiece.
+ *
  * @return the cube topbar action; its click toggles the spike overlay.
  * @see toggleWorld3dSpike
  */
 private fun buildWorld3dSpikeTopbarAction(): TopbarAction {
     val button = buildTopbarIconButton(ICON_CUBE, "3D mode") { toggleWorld3dSpike() }
+    if (isDemoClient && !isElectronClient) decorateWorld3dDemoTopbarButton(button)
     // Stash the element so [applyWorld3dSpikeChromeVisibility] can show/hide it
     // live when the experimental "3D world" flag toggles.
     world3dSpikeTopbarButton = button
@@ -690,6 +698,49 @@ private fun buildWorld3dSpikeTopbarAction(): TopbarAction {
  * without re-querying the DOM. `null` until the shell spec is built at boot.
  */
 private var world3dSpikeTopbarButton: HTMLElement? = null
+
+/**
+ * Web-demo dressing for the topbar 3D-world cube: a visible **"3D Mode"**
+ * label next to the icon, a tiny top-aligned **"NEW!"** tag, and the same
+ * ~15 s slow attention glow the in-world tour button uses. Applied in place
+ * on the pre-built icon button — the `.dt-topbar-icon-button` class stays,
+ * so hover/tint still match the rest of the topbar.
+ *
+ * Called only by [buildWorld3dSpikeTopbarAction], and only in the web demo
+ * ([isDemoClient] and not [isElectronClient]) — a real install's topbar
+ * keeps the quiet bare-icon look.
+ *
+ * @param button the pre-built cube icon button to decorate.
+ */
+private fun decorateWorld3dDemoTopbarButton(button: HTMLElement) {
+    // Widen the toolkit's fixed 30×30 icon square into a labelled pill.
+    button.style.width = "auto"
+    button.style.padding = "0 8px"
+    button.style.setProperty("gap", "6px")
+
+    val label = document.createElement("span") as HTMLElement
+    label.textContent = "3D Mode"
+    // The icon-button class zeroes line-height (SVG centring); text needs it back.
+    label.style.cssText = "font-size:12px;font-weight:600;line-height:normal;white-space:nowrap;"
+    button.appendChild(label)
+
+    val tag = document.createElement("span") as HTMLElement
+    tag.textContent = "NEW!"
+    tag.style.cssText = "align-self:flex-start;margin-top:3px;font-size:8px;font-weight:700;" +
+        "line-height:normal;letter-spacing:0.5px;color:var(--t-accent, #4bd08b);"
+    button.appendChild(tag)
+
+    // Same attention treatment as the in-world tour button: a slow glow
+    // swell that stops by itself after ~15 s. Keyframes ride in a
+    // page-lifetime <style> (inline `style=` cannot declare @keyframes).
+    val glow = document.createElement("style") as HTMLElement
+    glow.textContent = "@keyframes tt-world3d-demo-glow{" +
+        "0%,100%{box-shadow:0 0 0 rgba(75,208,139,0);}" +
+        "50%{box-shadow:0 0 12px rgba(75,208,139,0.55);}}"
+    document.head?.appendChild(glow)
+    button.style.setProperty("animation", "tt-world3d-demo-glow 3s ease-in-out infinite")
+    window.setTimeout({ button.style.removeProperty("animation") }, 15_000)
+}
 
 /**
  * Show or hide the topbar 3D-world cube button to match the current

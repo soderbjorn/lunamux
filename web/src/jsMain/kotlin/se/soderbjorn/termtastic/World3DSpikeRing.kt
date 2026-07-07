@@ -84,6 +84,65 @@ internal fun spikeChrome(): SpikeChrome {
 }
 
 /**
+ * Re-resolves [spikeChrome] and re-tints the **open** world in place, so a
+ * theme change while the 3D overlay is up (the demo tour's Workbench swap,
+ * a Theme Manager pick, an appearance flip) doesn't leave the ring wearing
+ * the colours captured at open time. No-op when the world is closed.
+ *
+ * Called from `refreshAndApplyActiveTheme` (main.kt) right after the 2D
+ * repaint. Three kinds of colour live in the world:
+ *  - **per-frame** — pane edge/glow colours the render loop re-reads from
+ *    [spikeChromeColors] every frame; updating the global is enough;
+ *  - **static pane chrome** — wrapper surface and title-bar colours baked
+ *    into inline styles by [buildRingPane]/[buildEmptyTabCard]; restyled
+ *    here element by element (bar = wrapper child 0, tab span = bar child 1);
+ *  - **beacon glyphs** — the accent-stroked SVGs of the home/stash beacons
+ *    ([buildHomeBeacon]/[buildStashBeacon]), found via their
+ *    `spike-beacon-glyph` class and re-stroked/re-bloomed in place (their
+ *    pulse animations carry different names/cadences, so the style attribute
+ *    is not rewritten wholesale);
+ *  - **mirror terminals** — the read-only xterm instances [buildRingPane]
+ *    creates for panes whose real terminal isn't mounted; they never enter
+ *    the `terminals` registry, so [applyThemeToTerminals] misses them and
+ *    they are re-themed here directly.
+ */
+internal fun restyleWorldChrome() {
+    if (!spikeOpen) return
+    val chrome = spikeChrome()
+    spikeChromeColors = chrome
+
+    // Mirror panes carry fresh xterm instances that never enter the
+    // `terminals` registry, so [applyThemeToTerminals] can't reach them —
+    // re-theme them here. Real entries (p.entry != null) are already covered
+    // by the registry pass that ran just before this in [applyAll].
+    val xtermTheme = runCatching { buildXtermTheme() }.getOrNull()
+    for (p in spikePanes) {
+        if (p.entry == null && xtermTheme != null) p.term?.options?.theme = xtermTheme
+        p.wrapper.style.background = chrome.surface
+        val bar = p.wrapper.children.item(0) as? HTMLElement ?: continue
+        bar.style.background = chrome.titlebarBg
+        bar.style.setProperty("border-bottom", "1px solid ${chrome.accent}")
+        bar.style.color = chrome.titleText
+        (bar.children.item(1) as? HTMLElement)?.style?.color = chrome.titleDim
+    }
+    for (c in spikeEmptyTabs) {
+        c.wrapper.style.background = chrome.surface
+        c.wrapper.style.border = "1px dashed ${chrome.accent}"
+        c.wrapper.style.color = chrome.titleDim
+        (c.wrapper.children.item(0) as? HTMLElement)?.style?.color = chrome.accent
+        (c.wrapper.children.item(1) as? HTMLElement)?.style?.color = chrome.titleText
+    }
+    spikeOverlay?.querySelectorAll(".spike-beacon-glyph")?.let { glyphs ->
+        for (i in 0 until glyphs.length) {
+            val svg = glyphs.item(i) as? Element ?: continue
+            svg.setAttribute("stroke", chrome.accent)
+            svg.asDynamic().style.filter =
+                "drop-shadow(0 0 26px ${chrome.accent}) drop-shadow(0 0 90px ${chrome.accent})"
+        }
+    }
+}
+
+/**
  * Builds one ring plane for [spec]: obtains its terminal (real registry term, or
  * a fresh read-only mirror), reparents it onto a titled CSS3D plane, and appends
  * a [RingPane]. Sizing is finalized in [postOpenLayout].

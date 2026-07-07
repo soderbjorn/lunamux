@@ -46,11 +46,60 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLElement
+import kotlin.random.Random
 import org.w3c.dom.events.KeyboardEvent
 import org.w3c.dom.events.KeyboardEventInit
+import se.soderbjorn.darkness.core.Appearance
 
 /** The running movie coroutine, or `null` when no tour is playing. */
 internal var spikeMovieJob: Job? = null
+
+/**
+ * The name of the built-in toolkit theme the tour plays under on the demo
+ * website — the Amiga Workbench palette, matching the fixture workspace's
+ * trackmo storyline. @see movieApplyTourTheme
+ */
+private const val TOUR_THEME_NAME = "Workbench 1.3"
+
+/**
+ * The appearance + dark-slot theme that were live before the tour swapped to
+ * [TOUR_THEME_NAME], or `null` when no swap is active (Electron demo, or no
+ * tour playing). Consumed (and cleared) by [movieRestoreTourTheme].
+ */
+private var movieSavedTheme: Pair<Appearance, String>? = null
+
+/**
+ * Swaps the app to the tour's [TOUR_THEME_NAME] — website demo only
+ * ([isElectronClient] launches keep whatever theme is live): remembers the
+ * current appearance + dark-slot selection in [movieSavedTheme], then binds
+ * the Workbench theme to the dark slot and forces the dark appearance. The
+ * reactive theme collector in `main.kt` repaints the chrome, every terminal,
+ * and — via [restyleWorldChrome] — the open 3D world's pane chrome and
+ * beacons, so the whole tour plays in Workbench colours.
+ */
+private suspend fun movieApplyTourTheme() {
+    if (isElectronClient) return
+    val s = appVm.stateFlow.value
+    movieSavedTheme = s.appearance to s.darkThemeName
+    appVm.setAppearance(Appearance.Dark)
+    appVm.setDarkThemeName(TOUR_THEME_NAME)
+}
+
+/**
+ * Restores the appearance + dark-slot theme saved by [movieApplyTourTheme],
+ * if any. Called from [movieCleanup] on every stop path (natural end, Esc /
+ * ⌥⌘M cancel, world close); the restore runs on a fresh coroutine because
+ * cleanup executes in the dying movie job's `finally`.
+ */
+private fun movieRestoreTourTheme() {
+    val (appearance, darkName) = movieSavedTheme ?: return
+    movieSavedTheme = null
+    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+    GlobalScope.launch {
+        appVm.setDarkThemeName(darkName)
+        appVm.setAppearance(appearance)
+    }
+}
 
 /** The small top-centre termtastic branding pill shown while the movie plays, or `null`. */
 internal var spikeMovieBadge: HTMLElement? = null
@@ -75,18 +124,24 @@ internal fun toggleDemoMovie() {
     spikeMovieJob = GlobalScope.launch {
         try {
             showMovieBadge()
+            movieApplyTourTheme()
+            movieRestoreDefaults()
             playDemoMovie()
         } finally {
             movieCleanup()
         }
     }
+    // Flip the demo-tour button to its "stop" label (and end its attention
+    // pulse); movieCleanup flips it back on every stop path.
+    updateDemoTourButton()
 }
 
 /**
- * Removes the tour chrome (branding pill + narration row) and forgets the
- * movie job. Idempotent — called from the movie coroutine's `finally`
- * (natural end, ⌥⌘M cancel, or the cancel in [closeWorld3dSpike]), and safe
- * when the overlay is already gone.
+ * Removes the tour chrome (branding pill + narration row), restores the
+ * pre-tour theme ([movieRestoreTourTheme]), and forgets the movie job.
+ * Idempotent — called from the movie coroutine's `finally` (natural end,
+ * ⌥⌘M cancel, or the cancel in [closeWorld3dSpike]), and safe when the
+ * overlay is already gone.
  */
 private fun movieCleanup() {
     spikeMovieBadge?.remove()
@@ -94,12 +149,14 @@ private fun movieCleanup() {
     spikeMovieSubtitle?.remove()
     spikeMovieSubtitle = null
     spikeMovieJob = null
+    movieRestoreTourTheme()
+    updateDemoTourButton()
 }
 
 /**
  * Builds and shows the movie's two on-screen elements:
- *  - the small **top-centre branding pill** — one line naming the in-progress
- *    3D mode and the product URL (for shared recordings), styled like the
+ *  - the small **top-centre branding pill** — one line naming the product
+ *    (and its new 3D mode) with the URL (for shared recordings), styled like the
  *    termtastic wordmark: spring-green monospace on a near-black pill with a
  *    soft green glow;
  *  - the big **lower-right narration row** — a single large white line
@@ -110,11 +167,9 @@ private fun movieCleanup() {
 private fun showMovieBadge() {
     val overlay = spikeOverlay ?: return
     val pill = document.createElement("div") as HTMLElement
-    pill.textContent = "● New 3D mode (unreleased) — in progress for Termtastic — the multiplexing " +
-        "terminal server with Mac, Android and iOS apps — https://termtastic.soderbjorn.se"
-    // top:52 keeps clear of the FREE FLY badge (top-centre at 14px) during the
-    // movie's flight beats.
-    pill.style.cssText = "position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:5;" +
+    pill.textContent = "● Termtastic · the multiplexing terminal server with Mac, Android and iOS " +
+        "apps · now also in 3D · https://termtastic.soderbjorn.se"
+    pill.style.cssText = "position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:5;" +
         "pointer-events:none;padding:6px 16px;border-radius:10px;border:1px solid #17301c;" +
         "background:#0a120acc;color:#8cf7a6;font:600 12px ui-monospace,Menlo,monospace;white-space:nowrap;" +
         "text-shadow:0 0 10px rgba(120,255,170,0.55),0 0 26px rgba(120,255,170,0.30);"
@@ -183,6 +238,41 @@ private suspend fun moviePress(
 }
 
 /**
+ * Rolls the demo world back to its fixture defaults before the choreography
+ * plays, so the tour — written against the fixture workspace — always finds
+ * the world it expects no matter what the visitor did first:
+ *
+ *  1. backs out of any modal state: free-fly is landed, and [leaveFrontPane]
+ *     drops selection mode and disengages an engaged terminal;
+ *  2. resets the demo server ([DemoServer.resetToFixtures] via
+ *     [termtasticClient]): the fixture tabs/panes/states are re-published —
+ *     the open ring reconciles live ([reconcileRing]), so visitor-created
+ *     panes shrink away and closed fixture panes grow back — and every
+ *     fixture session restarts its canned content in place, rewinding the
+ *     attached terminals;
+ *  3. re-fronts the fixture's opening pane (first pane of the first tab),
+ *     forgets local per-pane zoom memory, and flies the camera home, waiting
+ *     for the journey and the ring to settle so the first beat starts from
+ *     rest.
+ */
+private suspend fun movieRestoreDefaults() {
+    if (spikeFlyMode) toggleFlyMode()
+    leaveFrontPane()
+
+    termtasticClient.demoServer?.resetToFixtures()
+
+    spikeZoomByPane.clear()
+    spikeTabIndex = 0
+    for (i in spikeTabSel.indices) spikeTabSel[i] = 0
+    spikeSettledIndex = -1
+    loadFrontZoom()
+    resetCamera()
+    movieAwaitCamera()
+    movieAwaitSettled()
+    delay(600)
+}
+
+/**
  * Polls [cond] (every 120 ms) until it holds or [timeoutMs] elapses — the
  * movie's synchronization primitive for animations it cannot subscribe to
  * (camera tours, ring settling, mirror promotion). Aborts early when the
@@ -224,11 +314,34 @@ private suspend fun movieTypeIntoFront(text: String) {
     val p = spikePanes.getOrNull(frontIndex()) ?: return
     movieAwait(5_000) { terminals[p.paneId]?.sendInput != null }
     val send = terminals[p.paneId]?.sendInput ?: return
-    for ((i, ch) in text.withIndex()) {
-        send(ch.toString())
-        // 55–130 ms per key, deterministic but uneven, with a longer breath
-        // after each word — reads as human typing rather than a paste.
-        delay(55L + (i % 4) * 25L + if (ch == ' ') 60L else 0L)
+
+    // A practised typist, genuinely random: most keys land 30–100 ms apart,
+    // spaces get a small extra breath, and roughly one key in twelve
+    // hesitates an extra ~120–280 ms. The offsets are pre-computed…
+    var at = 0L
+    val schedule = text.map { ch ->
+        var pause = 30L + Random.nextLong(70)
+        if (ch == ' ') pause += Random.nextLong(60)
+        if (Random.nextInt(12) == 0) pause += 120L + Random.nextLong(160)
+        at += pause
+        ch to at
+    }
+    // …and replayed against the wall clock, sending every character whose
+    // moment has passed on each wake-up. A per-character `delay()` would
+    // quantize to however often the busy render loop lets timers fire (the
+    // tilted 3D beat can starve them to a few wakes per second), stretching
+    // the line into slow, metronomic typing; wall-clock catch-up keeps the
+    // total pace and its human unevenness intact under any frame rate.
+    val start = window.performance.now()
+    var sent = 0
+    while (sent < schedule.size) {
+        if (!spikeOpen) return
+        val elapsed = (window.performance.now() - start).toLong()
+        while (sent < schedule.size && schedule[sent].second <= elapsed) {
+            send(schedule[sent].first.toString())
+            sent++
+        }
+        if (sent < schedule.size) delay(16)
     }
 }
 
@@ -280,8 +393,8 @@ private suspend fun playGrandOrbit() {
  * the order a first-time viewer best reads the world: what a pane is → what
  * the keys do to it → the agent is *alive* → panes have places (shelf, other
  * floors) → the world is a whole → you can fly it. Written against the demo
- * fixture workspace ([DemoFixtures.initialConfig]): the Orbit tab fans
- * `Claude Code` (perpetually working), a build shell, and `claude: metrics`
+ * fixture workspace ([DemoFixtures.initialConfig]): the Compo tab fans
+ * `Claude Code` (perpetually working), a build shell, and `claude: greets`
  * (finished, resumes when spoken to).
  *
  * Every keyed beat goes through [moviePress] (→ real handler → legend flash);
@@ -294,7 +407,7 @@ private suspend fun playDemoMovie() {
     movieAwaitSettled()
     delay(3_000)
 
-    // ── Fan across the Orbit tab: build shell, then the finished metrics Claude.
+    // ── Fan across the Compo tab: build shell, then the finished greets Claude.
     movieNarrate("arrow keys walk the windows of this tab")
     moviePress("ArrowRight", "ArrowRight"); movieAwaitSettled(); delay(1_300)
     moviePress("ArrowRight", "ArrowRight"); movieAwaitSettled(); delay(1_300)
@@ -328,7 +441,7 @@ private suspend fun playDemoMovie() {
     moviePress("j", "KeyJ")
     movieAwaitCamera(); delay(500)
     moviePress("Enter", "Enter"); delay(900)
-    movieTypeIntoFront("show the current /metrics counters and add a p95 latency row")
+    movieTypeIntoFront("add a POKE 53280,0")
     delay(500)
     movieSubmitFront()
     delay(11_000) // the scripted burst runs ~10 s with the working glow on
