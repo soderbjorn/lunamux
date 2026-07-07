@@ -404,6 +404,15 @@ fun markScrollButtonNewOutput(entry: TerminalEntry) {
  * zero-delta no-op inside xterm. Runs independently of [TerminalEntry.autoReflow]
  * because scroll position is orthogonal to PTY sizing.
  *
+ * Restoring `scrollTop` isn't enough on its own: the scroll *area* it moves
+ * within can also be stale. PTY output keeps arriving while a tab is hidden, so
+ * xterm's `Viewport._innerRefresh` runs those writes with the element's
+ * `offsetHeight == 0` and sizes the scroll area one screen short; a same-size
+ * switch never recomputes it, so the `scrollTop` set below would clamp a screen
+ * above the bottom (first wheel-up jumps a screen, and you can't scroll back
+ * down). So we call `syncScrollArea(true)` first to force a re-measure, and the
+ * manual set just backstops it.
+ *
  * Called from the per-pane `ResizeObserver` on each hidden→visible edge (tab
  * activation, where the container gains a non-zero size) and from
  * [renderConfig] after every config push (covers in-place reattaches — e.g.
@@ -419,17 +428,24 @@ fun markScrollButtonNewOutput(entry: TerminalEntry) {
 fun resyncViewportScroll(entry: TerminalEntry) {
     val term = entry.term
     val el = term.asDynamic().element as? HTMLElement ?: return
-    val viewport = el.querySelector(".xterm-viewport") as? HTMLElement ?: return
+    val viewportEl = el.querySelector(".xterm-viewport") as? HTMLElement ?: return
     val core = term.asDynamic()._core
     val cellHeight = (core?._renderService?.dimensions?.css?.cell?.height as? Number)?.toDouble() ?: return
     if (cellHeight <= 0.0) return
+    // Recompute xterm's scroll-area height first, with the now-visible
+    // dimensions: writes to a hidden tab ran Viewport._innerRefresh with
+    // offsetHeight == 0, leaving the area one screen short, and a same-size
+    // switch never fixes it — so the scrollTop below would otherwise clamp a
+    // screen above the bottom. No-op when already in sync.
+    try { core.viewport.syncScrollArea(true) } catch (_: Throwable) {}
     val buffer = term.asDynamic().buffer.active
     val viewportY = (buffer.viewportY as? Number)?.toInt() ?: return
     val target = viewportY.toDouble() * cellHeight
-    // Only touch the DOM when actually misaligned, so a freshly-rendered
-    // pane that is already in sync doesn't churn scrollTop every push.
-    if (kotlin.math.abs(viewport.scrollTop - target) > 0.5) {
-        viewport.scrollTop = target
+    // Backstop the syncScrollArea above (and the pre-`viewport`-handle case):
+    // only touch the DOM when actually misaligned, so an in-sync pane doesn't
+    // churn scrollTop on every push.
+    if (kotlin.math.abs(viewportEl.scrollTop - target) > 0.5) {
+        viewportEl.scrollTop = target
     }
     // Re-assert the pill against the (unchanged) scroll offset, so a reattach
     // that happened to drop the class leaves it consistent with isScrolledUp.
