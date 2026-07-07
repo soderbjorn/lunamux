@@ -39,13 +39,13 @@
  *       - **Enable Git change view** — same for the Git entry.
  *       - **Enable 3D mode** — when off, hides the topbar cube button and
  *         leaves the ⌥⌘← hotkey inert (gated at the [toggleWorld3dSpike]
- *         chokepoint). Ships off by default.
+ *         chokepoint). Ships on by default.
  *
  * The flags persist server-side under top-level keys in
  * `/api/ui-settings`:
  *   - `experimentalFileBrowser` (Boolean, default false)
  *   - `experimentalGitView` (Boolean, default false)
- *   - `experimentalWorld3d` (Boolean, default false)
+ *   - `experimentalWorld3d` (Boolean, default true)
  *   - `experimental3dSwitcher` (Boolean, default true)
  *   - `experimental3dSwitcherStyle` (String, default "rotunda") — which 3D
  *     switcher style the picker selects; only shown while the switcher is on.
@@ -223,21 +223,21 @@ fun isExperimentalGitViewEnabled(): Boolean =
  * panes-on-3D-planes overview reached via the topbar cube button and the ⌥⌘←
  * hotkey.
  *
- * Ships **off by default** (a raw spike): when the key is unset this returns
- * `false`, so the cube button is hidden and the ⌥⌘← hotkey is inert. Both gate
- * through this flag — the button via [applyWorld3dSpikeChromeVisibility] and the
- * hotkey/menu via the [toggleWorld3dSpike] chokepoint. A user who turns the
- * App Settings toggle on persists an explicit `true`.
+ * Ships **on by default**: when the key is unset this returns `true`, so the
+ * cube button shows and the ⌥⌘← hotkey is live. Both gate through this flag —
+ * the button via [applyWorld3dSpikeChromeVisibility] and the hotkey/menu via
+ * the [toggleWorld3dSpike] chokepoint. A user who turns the App Settings
+ * toggle off persists an explicit `false`, which overrides the default.
  *
  * Read live from [toolkitSettingsSnapshot] so flipping the toggle takes effect
  * without a reload.
  *
- * @return `true` only when the user has explicitly opted in.
+ * @return `true` unless the user has explicitly opted out.
  * @see KEY_EXPERIMENTAL_WORLD3D
  * @see toggleWorld3dSpike
  */
 fun isExperimentalWorld3dEnabled(): Boolean =
-    snapshotBoolean(KEY_EXPERIMENTAL_WORLD3D)
+    snapshotBoolean(KEY_EXPERIMENTAL_WORLD3D, default = true)
 
 /**
  * Whether the 3D tab/pane switcher (the carousel-ring overview) is enabled.
