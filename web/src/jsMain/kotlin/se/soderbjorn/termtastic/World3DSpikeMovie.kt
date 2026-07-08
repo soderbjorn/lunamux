@@ -59,7 +59,7 @@ internal var spikeMovieJob: Job? = null
  * website — the Amiga Workbench palette, matching the fixture workspace's
  * trackmo storyline. @see movieApplyTourTheme
  */
-private const val TOUR_THEME_NAME = "Workbench 1.3"
+private const val TOUR_THEME_NAME = "Workbench"
 
 /**
  * The appearance + dark-slot theme that were live before the tour swapped to
