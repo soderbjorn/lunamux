@@ -141,6 +141,43 @@ internal class RingPane(
      * rather than snapping on arrival. @see shelfBrowse
      */
     var shelfLit: Double = 0.0,
+    /**
+     * **Phaser-fire close** progress in elapsed frames, or `< 0` when the pane is not
+     * being phaser-killed. Armed by [startPhaserDeath] (only under [PHASER_CLOSE_ENABLED]);
+     * [tickPhaser] advances it each frame, ramping [phaserTint] and spawning bolts, and
+     * once it reaches [PHASER_TOTAL_FRAMES] sets [dying] so the normal shrink-out collapses
+     * the pane. A phasering pane is deliberately *not* marked [dying] by [reconcileRing]
+     * when its Close lands, so it lingers at the ring front getting shot for the full
+     * several seconds. @see tickPhaser
+     */
+    var phaserPhase: Double = -1.0,
+    /** Frames until the next irregular phaser-bolt volley (counts down each frame). @see tickPhaser */
+    var phaserNextBolt: Double = 0.0,
+    /**
+     * Transient **recoil** jolt from phaser hits: [tickPhaser] bumps it by
+     * [PHASER_RECOIL_PER_HIT] each time a bolt lands and the render loop decays it by
+     * [PHASER_RECOIL_DECAY]/frame, punching the pane's bulge and scale so every strike
+     * visibly rocks the wounded pane. @see tickPhaser
+     */
+    var phaserRecoil: Double = 0.0,
+    /**
+     * The deepening-red "heat" veil laid over the wrapper during a phaser close, or
+     * `null` when not phasering. Created by [startPhaserDeath] and removed on collapse;
+     * its opacity is driven per frame by [tickPhaser]. @see startPhaserDeath
+     */
+    var phaserTint: HTMLElement? = null,
+    /**
+     * **Wormhole spawn** progress in elapsed frames, or `< 0` when the pane is not
+     * being born through a wormhole. Armed by [armWormholeSpawn] (only under
+     * [WORMHOLE_SPAWN_ENABLED]); [tickWormhole] advances it each frame and, while it is
+     * live, fully overrides the pane's world transform — holding it hidden inside the
+     * vortex through the camera-focus and open legs, then lerping it out of the portal
+     * to the ring slot the render loop computed this frame — so the pane appears to
+     * emerge from the rift. Cleared back to `-1` on completion, handing the pane back to
+     * normal ring placement seamlessly (the emergence ends exactly at the ring slot).
+     * @see tickWormhole @see armWormholeSpawn
+     */
+    var spawnPhase: Double = -1.0,
 )
 
 /**

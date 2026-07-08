@@ -93,6 +93,10 @@ internal fun toggleFlyMode() {
  *   the classic in-plane arc. @see STASH_CAM_SWAY
  * @param roll max bank (radians) about the camera's own nose, `sin 2πs` profile — leans
  *   into the journey, unwinds, counter-banks, lands level. @see STASH_CAM_ROLL
+ * @param endLook if non-null, the aim eases from the in-flight look (fixed point or
+ *   [followPaneId] pane) toward this point over the final [CAM_TOUR_END_BLEND] of the
+ *   flight — swinging the gaze to frame the destination sign on touchdown while still
+ *   tracking the pane on the way. @see spikeCamTourHasEndLook
  */
 internal fun flyCamTo(
     tx: Double, ty: Double, tz: Double,
@@ -104,6 +108,7 @@ internal fun flyCamTo(
     followPaneId: String? = null,
     sway: Double = 0.0,
     roll: Double = 0.0,
+    endLook: Triple<Double, Double, Double>? = null,
 ) {
     clearFlyVelocity()
 
@@ -145,9 +150,23 @@ internal fun flyCamTo(
     spikeCamTourFollowPaneId = followPaneId
     spikeCamTourSway = sway
     spikeCamTourRoll = roll
+    spikeCamTourHasEndLook = endLook != null
+    endLook?.let { (ex, ey, ez) ->
+        spikeCamTourEndLookX = ex; spikeCamTourEndLookY = ey; spikeCamTourEndLookZ = ez
+    }
 
     spikeCamReturnT = 0.0
     spikeCamReturning = true
+
+    // [wh-flyto] DEBUG: log every deliberate camera flight — start pose, target, aim,
+    // frame length, whether it lands pristine, and any followed pane. Pairs with the
+    // per-frame [wh-cammove] snap detector and the [wh-camjump] hand-off probe so the
+    // whole camera trajectory around a spawn is traceable. Remove with the other [wh-*].
+    window.asDynamic().console.warn(
+        "[wh-flyto] (${spikeCamReturnStartX.toInt()},${spikeCamReturnStartY.toInt()},${spikeCamReturnStartZ.toInt()})" +
+            "->(${tx.toInt()},${ty.toInt()},${tz.toInt()}) look=(${lookX.toInt()},${lookY.toInt()},${lookZ.toInt()}) " +
+            "frames=${frames.toInt()} pristine=$landPristine follow=$followPaneId",
+    )
 }
 
 /**
@@ -160,6 +179,20 @@ internal fun resetCamera() {
     if (!spikeCamFlown) return
     spikeTilted = false // coming home always straightens a `j` tilt
     val homeZ = RING_R + perspDistance(window.innerHeight)
+    if (cameraAtShelf()) {
+        // Returning home from up at the shelf: gaze at the COMMAND CENTER sign hanging
+        // over the home beacon through the long descent, then ease the aim down to the
+        // ring (origin) as we settle — so the journey home is crowned by the sign
+        // instead of just dropping onto the screens. The plain low `c` return skips this.
+        flyCamTo(
+            0.0, 0.0, homeZ,
+            0.0, BEACON_Y + BEACON_LABEL_RISE, homeZ,
+            landPristine = true, frames = STASH_CAM_FRAMES,
+            pullout = STASH_CAM_PULLOUT, rise = STASH_CAM_RISE,
+            endLook = Triple(0.0, 0.0, 0.0),
+        )
+        return
+    }
     flyCamTo(0.0, 0.0, homeZ, 0.0, 0.0, 0.0, landPristine = true)
 }
 

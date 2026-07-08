@@ -73,6 +73,53 @@ internal fun buildHomeBeacon(scene: Scene, chrome: SpikeChrome) {
     scene.add(aim)
     spikeBeaconSpin = spin
     spikeBeaconPhase = 0.0
+
+    // The "COMMAND CENTER" banner floats [BEACON_LABEL_RISE] world-units above the
+    // beacon anchor (further from the origin than the chevron, so it reads as a sign
+    // *over* the arrow). Unlike the crossed chevrons it does NOT spin or billboard —
+    // it is a real sign fixed in world space, facing +Z (away from the origin, toward
+    // the home camera spot); flying around it, you see it swing through 3D like any
+    // other object.
+    val label = CSS3DObject(buildBeaconBanner(chrome, BEACON_LABEL_TEXT, BEACON_LABEL_FONT_PX))
+    label.position.set(0.0, BEACON_Y + BEACON_LABEL_RISE, homeZ)
+    scene.add(label)
+    spikeBeaconLabel = label
+}
+
+/**
+ * Builds one glowing text-banner plane for a beacon: [text] split on its single space
+ * into two stacked lines, drawn in the theme accent with the same neon bloom (layered
+ * text-shadows) and breathing pulse as the chevrons, so the sign reads as part of the
+ * beacon rather than a bolted-on caption. Shared by the home ([buildHomeBeacon]) and
+ * stash ([buildStashBeacon]) beacons.
+ *
+ * @param chrome the theme colours ([SpikeChrome.accent] fills and glows the text).
+ * @param text the banner words; a single embedded space becomes the line break.
+ * @param fontPx the per-line font size in px (world units at scale 1).
+ * @return the banner wrapper `<div>`, carrying the `spike-beacon-label` class so
+ *   [restyleWorldChrome] can recolour it on a live theme change.
+ * @see buildHomeBeacon
+ */
+internal fun buildBeaconBanner(chrome: SpikeChrome, text: String, fontPx: Int): HTMLElement {
+    val wrapper = document.createElement("div") as HTMLElement
+    // Class lets [restyleWorldChrome] find and recolour the banner on a live theme
+    // change, alongside the accent-stroked chevron glyphs.
+    wrapper.className = "spike-beacon-label"
+    // Auto-sized to the text; the CSS3D renderer centres each plane on its object
+    // position (translate(-50%,-50%)), so the banner hangs symmetrically above the
+    // beacon regardless of the word lengths — no manual offset needed.
+    wrapper.style.cssText =
+        "pointer-events:none;white-space:nowrap;text-align:center;" +
+            "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;" +
+            "font-weight:800;letter-spacing:0.08em;line-height:1.05;" +
+            "font-size:${fontPx}px;color:${chrome.accent};" +
+            "text-shadow:0 0 24px ${chrome.accent},0 0 72px ${chrome.accent};" +
+            "animation:spike-beacon-pulse ${BEACON_PULSE_S}s ease-in-out infinite;"
+    // Two stacked lines read as a squarer, sign-like block above the beacon; fall back
+    // to the whole phrase on one line if it has no space to split on.
+    val parts = text.split(' ', limit = 2)
+    wrapper.innerHTML = parts.joinToString("<br>") { it }
+    return wrapper
 }
 
 /**
@@ -124,4 +171,5 @@ private fun buildBeaconChevron(chrome: SpikeChrome, withPulseKeyframes: Boolean)
 internal fun clearHomeBeacon() {
     spikeBeaconSpin = null
     spikeBeaconPhase = 0.0
+    spikeBeaconLabel = null
 }

@@ -67,6 +67,16 @@ internal fun buildStashBeacon(scene: Scene, chrome: SpikeChrome) {
     scene.add(spin)
     spikeStashBeaconSpin = spin
     spikeStashBeaconPhase = 0.0
+
+    // The "STASH" banner floats above the crystal, at the row's x-origin and the shelf's
+    // small +Z bias, facing +Z toward the stash-view landing pose (a plane's default
+    // normal is +Z, so no rotation) — a real sign fixed in world space, so flying around
+    // it turns in 3D like the crystal. The shelf-arrival flights ([shelfArrivalPose])
+    // frame the pane and this sign together so it greets you on touchdown.
+    val label = CSS3DObject(buildBeaconBanner(chrome, STASH_LABEL_TEXT, STASH_LABEL_FONT_PX))
+    label.position.set(0.0, STASH_SHELF_Y + STASH_LABEL_RISE, STASH_SHELF_Z)
+    scene.add(label)
+    spikeStashBeaconLabel = label
 }
 
 /**
@@ -118,4 +128,5 @@ private fun buildStashDiamond(chrome: SpikeChrome, withPulseKeyframes: Boolean):
 internal fun clearStashBeacon() {
     spikeStashBeaconSpin = null
     spikeStashBeaconPhase = 0.0
+    spikeStashBeaconLabel = null
 }

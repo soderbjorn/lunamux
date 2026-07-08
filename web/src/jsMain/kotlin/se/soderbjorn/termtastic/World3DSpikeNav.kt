@@ -366,7 +366,11 @@ internal fun confirmRemove() {
     if (fi >= 0) {
         val p = spikePanes[fi]
         leaveFrontPane()
-        p.dying = true // optimistic shrink-out; the config round-trip confirms it
+        // Under the phaser-fire feature flag the pane isn't shrunk out at once: it
+        // lingers at the front getting shot for several seconds, then [tickPhaser] sets
+        // it dying. Otherwise it's the classic optimistic shrink-out; either way the
+        // config round-trip confirms the close.
+        if (PHASER_CLOSE_ENABLED) startPhaserDeath(p) else p.dying = true
         launchCmd(WindowCommand.Close(p.paneId))
         return
     }

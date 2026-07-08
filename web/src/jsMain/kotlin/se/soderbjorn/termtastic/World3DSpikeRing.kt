@@ -140,6 +140,18 @@ internal fun restyleWorldChrome() {
                 "drop-shadow(0 0 26px ${chrome.accent}) drop-shadow(0 0 90px ${chrome.accent})"
         }
     }
+    // The "COMMAND CENTER" banner (see [buildHomeBeacon]) is accent-coloured text with
+    // a layered neon glow; recolour both in place so it tracks a live theme change.
+    spikeOverlay?.querySelectorAll(".spike-beacon-label")?.let { labels ->
+        for (i in 0 until labels.length) {
+            val el = labels.item(i) as? HTMLElement ?: continue
+            el.style.color = chrome.accent
+            el.style.setProperty(
+                "text-shadow",
+                "0 0 24px ${chrome.accent},0 0 72px ${chrome.accent}",
+            )
+        }
+    }
 }
 
 /**
@@ -461,17 +473,22 @@ internal fun reconcileRing() {
     // marked dying on an `x` press can't be re-added as a duplicate before its Close lands.
     val specIds = specs.map { it.paneId }.toSet()
     var added = false
+    val newBornIds = mutableListOf<String>()
     for (spec in specs) {
         val existing = spikePanes.firstOrNull { it.paneId == spec.paneId }
         if (existing == null) {
             buildRingPane(spec, spikePanes.size, scene, chrome, birth = 0.0)
             added = true
+            newBornIds.add(spec.paneId)
         } else if (!existing.dying) {
             existing.tabOrd = spec.tabOrd
             existing.paneOrdInTab = spec.paneOrdInTab
         }
     }
-    for (p in spikePanes) if (!p.dying && p.paneId !in specIds) p.dying = true
+    // A pane mid phaser-fire close (phaserPhase >= 0) has already left the config but
+    // must keep burning at the front for the full barrage — [tickPhaser] marks it dying
+    // when it completes, so don't shrink it out here the instant its Close lands.
+    for (p in spikePanes) if (!p.dying && p.phaserPhase < 0.0 && p.paneId !in specIds) p.dying = true
 
     // --- Empty-tab cards: a non-hidden tab with no kept panes gets one card. ---
     val paneTabIds = specs.map { it.tabId }.toSet()
@@ -515,6 +532,13 @@ internal fun reconcileRing() {
 
     // Freshly-built panes need one formatting pass so they don't come up blank.
     if (added) spikeNeedsInitialLayout = true
+
+    // Wormhole spawn: a *lone* newborn (created interactively, not part of a burst) is
+    // born through a vortex off to the side while the camera is idle — otherwise it just
+    // grows in. Armed last, once selection/focus above have settled. @see armWormholeSpawn
+    if (wormholeSpawnEligible(newBornIds.size)) {
+        spikePanes.firstOrNull { it.paneId == newBornIds[0] }?.let { armWormholeSpawn(it) }
+    }
 }
 
 /**

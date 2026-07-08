@@ -630,6 +630,13 @@ internal fun closeWorld3dSpike() {
     clearHomeBeacon()
     clearStashBeacon()
     clearCosmos()
+    // Phaser-fire close: the canvas is a child of the overlay (removed wholesale below),
+    // so just drop the references and any bolts still in flight.
+    spikePhaserBolts.clear()
+    spikePhaserCanvas = null
+    // Wormhole spawn: the portals are children of the CSS3D layer (removed wholesale
+    // below), so just drop the registry (any mid-birth pane dies with the pane sweep above).
+    clearWormholes()
     spikeChromeColors = null
     spikeFilterDefs = null
     spikeBulgeMapUri = null

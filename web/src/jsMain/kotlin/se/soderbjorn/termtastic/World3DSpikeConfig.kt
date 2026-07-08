@@ -199,6 +199,30 @@ internal const val REFORMAT_JIGGLE_MS = 160
 internal const val SCALE_EASE = 0.16
 
 /**
+ * DEBUG (wormhole size-bang hunt): a pane's projected on-screen width must change by more
+ * than this fraction frame-over-frame for `[wh-panesize]` to log it — filters sub-pixel
+ * eased drift while still catching a fast-but-gradual grow (a 2× spread over ~0.5s is only
+ * ~2.5%/frame, so the threshold is deliberately low). Remove with the other `[wh-*]` probes.
+ */
+internal const val FRONT_SIZE_LOG_FRAC = 0.02
+
+/**
+ * DEBUG (wormhole size-bang hunt): a size change must ALSO exceed this many pixels to log,
+ * on top of [FRONT_SIZE_LOG_FRAC]. Kills the flood from tiny far/edge-on side panes (whose
+ * few-px projected width wobbles >2% on a 1px bob) while still catching a real grow. Remove
+ * with the other `[wh-*]` probes.
+ */
+internal const val DBG_SIZE_MIN_PX = 15.0
+
+/**
+ * DEBUG (wormhole size-bang hunt): a single-frame camera move above this many world
+ * units is treated as a *snap* (discontinuity) and logged by `[wh-cammove]`. Well above
+ * the per-frame velocity of any eased flight, so normal tours stay quiet. Remove with
+ * the other `[wh-*]` probes once fixed.
+ */
+internal const val CAM_SNAP_LOG_STEP = 120.0
+
+/**
  * Much slower per-frame lerp used **only while a zoom preset glides** (⇧+ fit /
  * ⇧− floor / `0` 1:1 reset, gated by [spikeZoomGlide]). A preset moves the target
  * a long way in one jump — up to [ZOOM_MIN]↔fit — and at [SCALE_EASE] the exponential ease
@@ -463,6 +487,17 @@ internal const val PANE_TOUR_ROLL = 0.3
 internal const val CAM_TOUR_LOOK_BLEND = 0.35
 
 /**
+ * Fraction of a camera tour's *tail* over which the aim **eases from the in-flight look
+ * point to a separate arrival look point** ([flyCamTo]'s `endLook`). The mirror of
+ * [CAM_TOUR_LOOK_BLEND] at the other end of the journey: it lets a flight *watch one
+ * thing on the way* (e.g. a pane sailing up to the shelf, tracked via `followPaneId`)
+ * and then **swing the gaze to frame the destination sign** just as it lands — the home
+ * / stash beacon banners are the point of the arrival, not the pane. `0.0` disables the
+ * tail ease (aim holds the in-flight look right to touchdown). @see flyCamTo
+ */
+internal const val CAM_TOUR_END_BLEND = 0.32
+
+/**
  * Frame length of a **shelf browse** glide (~[SHELF_BROWSE_FRAMES]/60 s) — the short
  * hop ←/→ makes between adjacent shelf slots while the camera is up at the stash shelf
  * ([shelfBrowse]). Deliberately quick and flat (straight line, no pullout/sway/roll):
@@ -484,6 +519,9 @@ internal const val SHELF_BROWSE_FRAMES = 65.0
  * - [BEACON_W]/[BEACON_H] pixel size of each chevron plane (world units at scale 1).
  * - [BEACON_SPIN_SPEED] radians/frame of the spin about the arrow's own axis.
  * - [BEACON_PULSE_S] seconds per glow-pulse breath (pure-CSS keyframe animation).
+ * - [BEACON_LABEL_TEXT] the banner words floating above the chevron.
+ * - [BEACON_LABEL_RISE] world-units the banner floats above the beacon anchor.
+ * - [BEACON_LABEL_FONT_PX] font size (px) of each banner line.
  * @see buildHomeBeacon
  */
 internal const val BEACON_Y = 650.0
@@ -491,6 +529,9 @@ internal const val BEACON_W = 640
 internal const val BEACON_H = 900
 internal const val BEACON_SPIN_SPEED = 0.003 // rad/frame → ~1 revolution / 35 s
 internal const val BEACON_PULSE_S = 2.4
+internal const val BEACON_LABEL_TEXT = "COMMAND CENTER"
+internal const val BEACON_LABEL_RISE = 760.0
+internal const val BEACON_LABEL_FONT_PX = 190
 
 /**
  * The **stash beacon** — the home beacon's sibling landmark at the stash shelf: two
@@ -505,12 +546,35 @@ internal const val BEACON_PULSE_S = 2.4
  * - [STASH_BEACON_S] pixel size (square) of each diamond plane.
  * - [STASH_BEACON_SPIN_SPEED] radians/frame of the spin — negative: counter to the home beacon.
  * - [STASH_BEACON_PULSE_S] seconds per glow-pulse breath (pure-CSS keyframes).
+ * - [STASH_LABEL_TEXT] the banner word floating above the crystal.
+ * - [STASH_LABEL_RISE] world-units the banner floats above the shelf row (above the crystal).
+ * - [STASH_LABEL_FONT_PX] font size (px) of the banner.
  * @see buildStashBeacon
  */
 internal const val STASH_BEACON_RISE = 820.0
 internal const val STASH_BEACON_S = 640
 internal const val STASH_BEACON_SPIN_SPEED = -0.005 // rad/frame → ~1 revolution / 21 s
 internal const val STASH_BEACON_PULSE_S = 3.6
+internal const val STASH_LABEL_TEXT = "STASH"
+internal const val STASH_LABEL_RISE = 1280.0
+internal const val STASH_LABEL_FONT_PX = 200
+
+/**
+ * **Sign-reveal arrival framing** — how the shelf-arrival flights ([stashFront],
+ * [toggleStashView], [shelfBrowse]) frame the destination so its beacon **sign** is in
+ * view on touchdown, not cropped above the pane. The arrival pose is computed from the
+ * vertical span between the shelved pane's bottom and the sign's top (see
+ * [shelfArrivalPose]): the camera looks at the mid-point of that span and stands far
+ * enough back that the whole span fits the [SPIKE_FOV] frustum, plus [SIGN_REVEAL_MARGIN]
+ * of breathing room top and bottom. Because the distance is derived from the span (not a
+ * fixed dolly), it self-adjusts to variable pane sizes and window heights.
+ *
+ * - [SIGN_REVEAL_MARGIN] extra world-units of air kept above the sign and below the pane.
+ * - [SIGN_REVEAL_MIN_HALF] floor on the framed half-span, so a tiny/empty shelf still
+ *   parks at a sensible standoff instead of nose-to-the-sign.
+ */
+internal const val SIGN_REVEAL_MARGIN = 240.0
+internal const val SIGN_REVEAL_MIN_HALF = 900.0
 
 /**
  * **Feature flag** for the cosmos dressing — the decorative planets, nebulae and
@@ -544,6 +608,218 @@ internal const val WORKING_PULSE_COLOR = "#3b82f6"
 internal const val WORKING_PULSE_SPEED = 0.015 // rad/frame → ~7s per slow breath (kept)
 internal const val WORKING_PULSE_MIN = 0.07 // fuller colour journey, still never fully out…
 internal const val WORKING_PULSE_MAX = 0.30 // …travelling further before easing back
+
+/**
+ * **Feature flag** (no UI) for the **phaser-fire pane close** — a purely cosmetic
+ * alternative to the instant shrink-out of [confirmRemove]. When `true`, removing a
+ * pane in the 3D world does *not* immediately mark it dying; instead the camera pours
+ * a several-second burst of Star-Trek-style phaser fire at it — irregular bright bolts
+ * streaking from the viewer (the "camera") and converging on the pane, heating its
+ * background to a deepening, flickering red while the pane visibly **bulges more and
+ * more** (the same [FLEX_BULGE] fisheye the engage flex uses, but driven ever outward
+ * and jolted by each hit so the pane looks progressively wounded) — before it finally
+ * **implodes**, its bulge snapping inward as it collapses smoothly into its own centre
+ * and vanishes. When `false` the close is the classic instant shrink-out. Off by
+ * default; flip to `true` to arm the effect.
+ *
+ * The barrage runs [PHASER_TOTAL_FRAMES] frames (~60 fps), then a [PHASER_COLLAPSE_FRAMES]
+ * implosion. Bolts spawn at an irregular cadence between [PHASER_BOLT_INTERVAL_MIN] and
+ * [PHASER_BOLT_INTERVAL_MAX] frames apart (tightening as the barrage intensifies), each
+ * living [PHASER_BOLT_LIFE] frames as it flies. The pane's red heat veil ramps to
+ * [PHASER_TINT_MAX] opacity with a [PHASER_TINT_FLICKER] shimmer; each bolt's beam is a
+ * jagged [PHASER_BOLT_SEGS]-segment streak.
+ *
+ * The "wounded" deformation (applied in the render loop) grows the fisheye bulge from
+ * [PHASER_BULGE_START] to [PHASER_BULGE_MAX] × [FLEX_BULGE] over the barrage, on top of a
+ * constant [PHASER_HURT_TREMOR] shudder (at [PHASER_HURT_TREMOR_SPEED]) and a
+ * [PHASER_HURT_TILT] wobble, while the pane swells by [PHASER_SWELL]. Each landed bolt
+ * adds [PHASER_RECOIL_PER_HIT] of recoil (decaying by [PHASER_RECOIL_DECAY]/frame) that
+ * punches the bulge ([PHASER_RECOIL_BULGE]) and scale ([PHASER_RECOIL_SCALE]) for a jolt.
+ * The collapse eases the swollen scale to 0 while driving the bulge inward by
+ * [PHASER_IMPLODE] × [FLEX_BULGE], so the pane caves into its centre.
+ * @see startPhaserDeath @see tickPhaser
+ */
+internal const val PHASER_CLOSE_ENABLED = true
+internal const val PHASER_TOTAL_FRAMES = 240.0 // ~4 s of fire before the collapse
+internal const val PHASER_COLLAPSE_FRAMES = 52.0 // ~0.87 s smooth implosion into the centre
+internal const val PHASER_BOLT_INTERVAL_MIN = 6 // frames between bolt volleys (min) — slower fire
+internal const val PHASER_BOLT_INTERVAL_MAX = 17 // …and max, for irregular firing
+internal const val PHASER_BOLT_LIFE = 11.0 // frames a bolt streak stays lit
+internal const val PHASER_BOLT_SEGS = 7 // jagged segments per beam (the "fire" wobble)
+internal const val PHASER_TINT_MAX = 0.86 // peak red-heat veil opacity at collapse
+internal const val PHASER_TINT_FLICKER = 0.18 // per-frame opacity shimmer of the veil
+internal const val PHASER_BULGE_START = 0.25 // fisheye bulge at barrage start (× FLEX_BULGE)
+internal const val PHASER_BULGE_MAX = 1.85 // …swelling to this (× FLEX_BULGE) by the end
+internal const val PHASER_HURT_TREMOR = 22.0 // px of constant shuddering bulge tremor
+internal const val PHASER_HURT_TREMOR_SPEED = 0.55 // rad/frame of that shudder
+internal const val PHASER_HURT_TILT = 0.05 // rad of hurt wobble tilt
+internal const val PHASER_SWELL = 0.10 // fraction the pane swells (bloats) over the barrage
+internal const val PHASER_RECOIL_PER_HIT = 0.5 // recoil added per landed bolt
+internal const val PHASER_RECOIL_DECAY = 0.86 // per-frame recoil decay
+internal const val PHASER_RECOIL_BULGE = 46.0 // px of bulge punch per unit recoil
+internal const val PHASER_RECOIL_SCALE = 0.05 // scale punch per unit recoil
+internal const val PHASER_IMPLODE = 1.6 // inward bulge (× FLEX_BULGE) at full collapse
+
+/**
+ * **Feature flag** (no UI) for the **wormhole pane spawn** — the birth-effect
+ * counterpart to the [PHASER_CLOSE_ENABLED] phaser-fire close. When `true`, a pane
+ * created while the 3D world is open does *not* simply grow in at its ring slot;
+ * instead the camera swings off to a patch of open space to the **side**, a swirling
+ * Babylon-5 / Star-Trek **wormhole spirals open** there, and the new pane **emerges
+ * out of it** — pushed toward the viewer in a flash of light, tumbling, then flying to
+ * its ring slot while the vortex collapses shut behind it and the camera follows it
+ * home. When `false` the spawn is the classic instant grow-in. Off would be safest for
+ * a demo of many panes, but a single interactive create is the target; the effect only
+ * arms for a **lone** newborn while the camera is idle (see [armWormholeSpawn]), so a
+ * workspace-restore burst falls back to the plain grow-in.
+ *
+ * The sequence runs in frames (~60 fps): [WORMHOLE_FOCUS_FRAMES] of camera flight to
+ * frame the spawn point, [WORMHOLE_OPEN_FRAMES] for the vortex to spiral open, then
+ * [WORMHOLE_EMERGE_FRAMES] for the pane to push out and sail to its slot (the vortex
+ * begins collapsing over the tail [WORMHOLE_CLOSE_TAIL] of that leg). The camera flies
+ * back over [WORMHOLE_RETURN_FRAMES], tracking the emerging pane the whole way.
+ * @see armWormholeSpawn @see tickWormhole @see reconcileRing
+ */
+internal const val WORMHOLE_SPAWN_ENABLED = true
+
+/**
+ * Frames of the opening camera flight to frame the spawn point (~2.8 s). "Frames" here
+ * are **60fps-equivalent** — [tickWormhole] advances the phase by the wall-clock delta
+ * normalised to a 60Hz step ([spikeDtFrames]), so the duration is the same on a 60Hz or
+ * a 144Hz+ display. @see spikeDtFrames
+ */
+internal const val WORMHOLE_FOCUS_FRAMES = 170.0
+
+/** 60fps-equivalent frames for the vortex to spiral fully open (~2.3 s), after the camera lands. */
+internal const val WORMHOLE_OPEN_FRAMES = 140.0
+
+/** 60fps-equivalent frames for the pane to emerge and sail from the vortex to its ring slot (~3.7 s). */
+internal const val WORMHOLE_EMERGE_FRAMES = 220.0
+
+/**
+ * Frames of the camera's follow-the-pane flight back home. **Must equal**
+ * [WORMHOLE_EMERGE_FRAMES] (both legs start together at the open-end), so the camera
+ * lands home the *same* frame the pane docks. If the return outlasts the emerge, the
+ * camera keeps pulling in — shedding its arc's pull-back — after the pane has already
+ * settled, ballooning the docked pane (a size "jump after settle"). @see tickWormhole
+ */
+internal const val WORMHOLE_RETURN_FRAMES = 220.0
+
+/**
+ * The return arc's apex pull-back / rise — kept at **0** (a straight pull home). A
+ * non-zero pull-back pushes the camera's mid-flight apex *behind* the home pose, so the
+ * docked pane shrinks below its final size and then snaps back up as the apex collapses
+ * on landing — read as a sudden "grow after settle". The outbound focus flight keeps its
+ * cinematic swing ([WORMHOLE_FOCUS_PULLOUT]); only the return must stay flat. @see tickWormhole
+ */
+internal const val WORMHOLE_RETURN_PULLOUT = 0.0
+internal const val WORMHOLE_RETURN_RISE = 0.0
+
+/**
+ * Fraction of the emerge leg over which the vortex **collapses shut** behind the pane
+ * — it stays fully open while the pane is coming through, then caves in over this tail
+ * so it has vanished by the time the pane reaches its slot. @see tickWormhole
+ */
+internal const val WORMHOLE_CLOSE_TAIL = 0.42
+
+/**
+ * Where the vortex opens in world space — off to the **right** of the pane sphere,
+ * lifted a touch and set forward of centre so it sits in open sky the camera can frame
+ * against the void rather than against the ring. Relative to the sphere ([RING_R] ≈
+ * 1150): a comfortable ring-and-a-half out to the side. @see armWormholeSpawn
+ */
+internal const val WORMHOLE_POS_X = 1780.0
+internal const val WORMHOLE_POS_Y = 230.0
+internal const val WORMHOLE_POS_Z = 640.0
+
+/**
+ * The camera's **spawn-viewing pose**, derived from the vortex position each open so it
+ * self-adjusts to the window's [perspDistance]:
+ * - [WORMHOLE_CAM_BACK] × perspDistance is how far the camera parks back on +Z from the
+ *   vortex, so the portal frames at a comfortable size (a plane at `d × perspDistance`
+ *   reads at `1/d` of 1:1, so 1.25 lands the funnel mouth at ~80% of the view).
+ * - [WORMHOLE_CAM_SIDE] / [WORMHOLE_CAM_LIFT] nudge the camera off-axis (a slight
+ *   three-quarter angle and a gentle look-down) so the emergence reads with depth
+ *   rather than dead-on flat. @see armWormholeSpawn
+ */
+internal const val WORMHOLE_CAM_BACK = 1.25
+internal const val WORMHOLE_CAM_SIDE = 300.0
+internal const val WORMHOLE_CAM_LIFT = 170.0
+
+/** Bézier apex shaping of the focus flight to the spawn point (see [flyCamTo]). */
+internal const val WORMHOLE_FOCUS_PULLOUT = 700.0
+internal const val WORMHOLE_FOCUS_RISE = 320.0
+
+/**
+ * The **vortex disc** — a whirlpool of turbulent blue cloud (SVG `feTurbulence`) on a
+ * flat plane with a *dark hole* at its centre, tilted off the view axis so it
+ * foreshortens to an ellipse like the classic Star-Trek / Babylon-5 rift viewed at an
+ * angle. Two counter-rotating cloud layers churn the gas; the pane is born out of the
+ * dark eye. @see buildWormholeVortex
+ *
+ * - [WORMHOLE_DIAMETER] world-units — the disc diameter.
+ * - [WORMHOLE_TILT_X]/[WORMHOLE_TILT_Y] radians the disc is canted after billboarding, so
+ *   the round disc reads as a tilted ellipse (big X cant ≈ the shallow reference angle).
+ */
+internal const val WORMHOLE_DIAMETER = 1320.0
+internal const val WORMHOLE_TILT_X = 0.92
+internal const val WORMHOLE_TILT_Y = 0.16
+
+/**
+ * Radians/frame the vortex's primary cloud layer drifts at rest, and the extra spin it
+ * gains while the pane emerges. Deliberately slow — a majestic subspace churn, not a
+ * spinning disc. The finer wisp layer counter-rotates a touch faster (see [tickWormhole]).
+ */
+internal const val WORMHOLE_SPIN_SPEED = 0.011
+internal const val WORMHOLE_SPIN_EMERGE = 0.016
+
+/**
+ * Peak **elastic overshoot** of the vortex as it snaps open — a fraction past 1.0 at
+ * the crest of the open ease before it settles, so the portal punches into existence
+ * rather than fading in. @see tickWormhole
+ */
+internal const val WORMHOLE_OPEN_OVERSHOOT = 0.18
+
+/**
+ * The emerging pane's scale **overshoot** — it pops out slightly larger than its final
+ * ring size (a fraction past 1.0) mid-flight, then settles to 1:1 as it docks, so the
+ * emergence has a lunge toward the viewer. @see tickWormhole
+ */
+internal const val WORMHOLE_PANE_OVERSHOOT = 0.14
+
+/** Radians of in-plane **tumble** the pane spins through as it emerges, decaying to 0 on arrival. */
+internal const val WORMHOLE_PANE_TUMBLE = 0.55
+
+/**
+ * World-units the pane's emergence path is pushed **toward the camera** from the vortex
+ * centre, so the pane plane stays clearly *in front of* the tilted vortex disc and never
+ * intersects it. Without this the pane spawns coplanar with the vortex and the CSS-3D
+ * renderer splits the two intersecting planes along their seam — a hard diagonal clip
+ * across the terminal. Must exceed the vortex's half-depth
+ * (`WORMHOLE_DIAMETER/2 × sin(tilt)`) so the whole disc is cleared. @see tickWormhole
+ */
+internal const val WORMHOLE_PANE_FRONT = 620.0
+
+/**
+ * Fraction of the emerge leg's *tail* over which the pane's wormhole overrides ease back
+ * into the render loop's own ring-slot transform, so the hand-off at arrival is
+ * continuous (no scale/opacity snap). @see tickWormhole
+ */
+internal const val WORMHOLE_HANDOFF = 0.22
+
+/**
+ * The vortex palette. The swirl is built from soft **blue** cloud bands (heavily
+ * blurred into wisps, not hard spokes — see [buildWormholePortal]); the theme accent
+ * ([SpikeChrome.accent]) is woven in so the rift keys to the active theme. The **core**
+ * is a hot glowing eye — the warm orange/pink centre of the classic Star-Trek rift —
+ * built from [WORMHOLE_CORE_HOT] fading out through [WORMHOLE_CORE_WARM]. Colours are
+ * 6-digit hex; per-stop alpha is appended as an 8th/9th `#rrggbbaa` pair at build time.
+ * @see buildWormholePortal
+ */
+internal const val WORMHOLE_SWIRL_A = "#7fb4ff" // soft blue cloud band
+internal const val WORMHOLE_SWIRL_B = "#bcdcff" // pale blue cloud band
+internal const val WORMHOLE_CORE_HOT = "#fff2dc" // white-hot centre of the eye
+internal const val WORMHOLE_CORE_WARM = "#ff9a5a" // warm orange the eye falls off through
 
 /**
  * **Feature flag** for how a *working* (agent-running) pane signals itself:

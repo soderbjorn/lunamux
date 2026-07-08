@@ -252,6 +252,15 @@ internal var spikeBeaconSpin: se.soderbjorn.termtastic.three.Group? = null
 internal var spikeBeaconPhase = 0.0
 
 /**
+ * The home beacon's **"COMMAND CENTER" banner** — a flat text plane floating above
+ * the chevron, or `null` when closed. Unlike the spun chevrons it is **billboarded**
+ * to the camera every frame (its own orientation is meaningless), so the words stay
+ * upright and readable from any free-fly angle. Built by [buildHomeBeacon]; faced to
+ * the camera by the render loop; cleared by [clearHomeBeacon]. @see spikeBeaconSpin
+ */
+internal var spikeBeaconLabel: se.soderbjorn.termtastic.three.CSS3DObject? = null
+
+/**
  * The stash beacon's inner **spin group** (its `rotation.y` is the spin about the
  * vertical axis), or `null` when closed. Built by [buildStashBeacon]; counter-spun each
  * frame by the render loop via [spikeStashBeaconPhase]; cleared by [clearStashBeacon].
@@ -263,12 +272,28 @@ internal var spikeStashBeaconSpin: se.soderbjorn.termtastic.three.Group? = null
 internal var spikeStashBeaconPhase = 0.0
 
 /**
+ * The stash beacon's **"STASH" banner** — a flat text plane fixed in world space above
+ * the crystal, or `null` when closed. Like the home banner it neither spins nor
+ * billboards: it faces +Z toward the stash-view landing pose and turns in 3D as you
+ * fly. Built by [buildStashBeacon]; cleared by [clearStashBeacon]. @see spikeBeaconLabel
+ */
+internal var spikeStashBeaconLabel: se.soderbjorn.termtastic.three.CSS3DObject? = null
+
+/**
  * The decorative celestial bodies (planets, moons, nebulae, star clusters) dressing
  * the sky, in build order. Filled by [buildCosmos] once per open; billboarded and
  * drifted every frame by [tickCosmos]; cleared by [clearCosmos] on close (the DOM
  * goes down with the overlay). @see SpikeCosmosBody
  */
 internal val spikeCosmos: MutableList<SpikeCosmosBody> = mutableListOf()
+
+/**
+ * The **wormhole spawns** currently in flight — normally empty, or holding a single
+ * [WormholeSpawn] while a newly-created pane is being born through a vortex. Armed by
+ * [armWormholeSpawn], advanced/drawn each frame by [tickWormhole], and cleared by
+ * [clearWormholes] on close (the portal DOM goes down with the overlay). @see WormholeSpawn
+ */
+internal val spikeWormholes: MutableList<WormholeSpawn> = mutableListOf()
 
 /**
  * The **shelf browse index** — which shelf slot the camera is parked in front of while
@@ -444,6 +469,21 @@ internal var spikeCamTourLookY = 0.0
 internal var spikeCamTourLookZ = 0.0
 internal var spikeCamTourLandPristine = true
 
+/**
+ * Optional **arrival look point** the tour's aim eases toward over its final
+ * [CAM_TOUR_END_BLEND] — the tail mirror of the launch-aim blend. When
+ * [spikeCamTourHasEndLook] is set, the camera watches its in-flight look (the fixed
+ * point, or a [spikeCamTourFollowPaneId] pane) for most of the journey and then swings
+ * to frame [spikeCamTourEndLookX]/Y/Z as it lands — used to reveal the destination
+ * beacon sign (home / stash banner) on touchdown while still tracking the pane en route.
+ * Cleared (flag false) for plain tours that hold one look the whole way.
+ * @see flyCamTo @see CAM_TOUR_END_BLEND
+ */
+internal var spikeCamTourHasEndLook = false
+internal var spikeCamTourEndLookX = 0.0
+internal var spikeCamTourEndLookY = 0.0
+internal var spikeCamTourEndLookZ = 0.0
+
 /** Frame length of the in-flight tour; the tracer advances `spikeCamReturnT` by `1/this`. */
 internal var spikeCamTourFrames = CAM_RETURN_FRAMES
 
@@ -527,6 +567,40 @@ internal val spikeWaitingOverride = mutableMapOf<String, Boolean>()
 
 /** `requestAnimationFrame` handle for the render loop. */
 internal var spikeRaf: Int? = null
+
+/**
+ * Wall-clock length of one 60Hz frame in ms — the reference step the per-frame clocks are
+ * normalised against, so a "frame" in the animation constants means 1/60 s of real time
+ * regardless of the display's actual refresh rate. @see spikeDtFrames
+ */
+internal const val SPIKE_FRAME_MS = 1000.0 / 60.0
+
+/**
+ * Upper clamp (in 60fps-frames) on a single [spikeDtFrames] step, so a long stall — a
+ * backgrounded tab, a GC pause — makes the clocks resume smoothly instead of teleporting
+ * the animation forward by the whole gap. @see spikeDtFrames
+ */
+internal const val SPIKE_DT_MAX_FRAMES = 4.0
+
+/**
+ * `performance.now()` (ms) of the previous rendered frame, or `NaN` before the first —
+ * the baseline the render loop differences against to derive [spikeDtFrames]. Reset to
+ * `NaN` whenever the loop (re)starts so the first frame steps by exactly one frame.
+ * @see spikeDtFrames
+ */
+internal var spikeLastFrameMs = Double.NaN
+
+/**
+ * How many **60fps-equivalent frames** of real time elapsed since the previous rendered
+ * frame — i.e. `(now - lastFrame) / SPIKE_FRAME_MS`, clamped to [SPIKE_DT_MAX_FRAMES] and
+ * `1.0` on the first frame. The render loop recomputes it once at the top of every frame;
+ * the time-based animation clocks (the wormhole phase in [tickWormhole], the phaser bolts
+ * in [tickPhaser], and the cinematic camera return) advance by *this* rather than a flat
+ * `1.0`, so their wall-clock duration is identical on a 60Hz and a 144Hz+ display. On a
+ * 60Hz display this is ~1.0 (unchanged behaviour); at 144Hz it is ~0.42, so ~2.4× as many
+ * frames elapse over the same real duration. @see SPIKE_FRAME_MS
+ */
+internal var spikeDtFrames = 1.0
 
 /** Resize listener, detached on close. */
 internal var spikeResize: ((Event) -> Unit)? = null

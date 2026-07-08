@@ -285,6 +285,60 @@ internal fun toggleStash() {
 }
 
 /**
+ * One camera pose: the world position to stand at and the point to look at. Returned by
+ * [shelfArrivalPose] so the shelf flights ([stashFront], [toggleStashView], [shelfBrowse])
+ * share one framing rule.
+ *
+ * @property cx/cy/cz where the camera parks.
+ * @property lx/ly/lz what it looks at from there.
+ */
+internal class CamPose(
+    val cx: Double, val cy: Double, val cz: Double,
+    val lx: Double, val ly: Double, val lz: Double,
+)
+
+/**
+ * A shelved pane's **world half-height** at rest on the shelf — the same
+ * `(content + titlebar) · ½ · scale` the render loop uses for its occlusion bound
+ * ([World3DSpikeRender]), read from the pane's *live* CSS3D scale so it is correct for
+ * whatever size that particular pane is (panes differ: side-normalization, per-pane
+ * zoom). Used by [shelfArrivalPose] to know how much room the pane needs below the sign.
+ *
+ * @param p the pane to measure.
+ * @return its world half-height (world units), or a nominal default if scale is unreadable.
+ * @see shelfArrivalPose
+ */
+internal fun paneShelfHalfH(p: RingPane): Double {
+    val scale = (p.obj.scale.y as? Double) ?: 1.0
+    return (p.baseCh + TITLE_H) * 0.5 * scale
+}
+
+/**
+ * The **sign-revealing arrival pose** for landing at shelf [slot]: stands the camera back
+ * on the shelf's +Z side, looking horizontally at the mid-point of the vertical span from
+ * the shelved pane's bottom up to the [STASH_LABEL_TEXT] sign's top, far enough that the
+ * whole span (plus [SIGN_REVEAL_MARGIN]) fits the [SPIKE_FOV] frustum — so the pane sits
+ * in the lower frame and the sign crowns it, instead of the sign being cropped off the top
+ * (the old close "pane fills the view" landing never showed the beacon). Deriving the
+ * standoff from the span makes it self-adjust to variable pane sizes and window heights.
+ *
+ * @param slot the shelf slot to frame.
+ * @param paneHalfH the shelved pane's world half-height ([paneShelfHalfH]); `0.0` for an
+ *   empty shelf (frame the sign and the bare shelf spot).
+ * @return the camera pose to fly to. @see stashFront @see toggleStashView @see shelfBrowse
+ */
+internal fun shelfArrivalPose(slot: Int, paneHalfH: Double): CamPose {
+    val (shx, shy, shz) = stashShelfPos(slot)
+    val signHalfH = STASH_LABEL_FONT_PX * 0.62 // one-line banner ≈ 1.24·font tall
+    val top = shy + STASH_LABEL_RISE + signHalfH
+    val bot = shy - paneHalfH
+    val lookY = (top + bot) * 0.5
+    val spanHalf = ((top - bot) * 0.5 + SIGN_REVEAL_MARGIN).coerceAtLeast(SIGN_REVEAL_MIN_HALF)
+    val d = spanHalf / tan(SPIKE_FOV * PI / 360.0)
+    return CamPose(shx, lookY, shz + d, shx, lookY, shz)
+}
+
+/**
  * The **camera-only** stash-view toggle — a hotkey that flies you up to the shelf
  * (or back home if you are already there) **without stashing or unstashing anything**.
  * Lands close on the row's centre slot, then ←/→ browses along the row and Space
@@ -301,11 +355,17 @@ internal fun toggleStashView() {
     // view on arrival and ←/→ then browses its neighbours from equal footing. With
     // nothing stashed yet this simply visits the (empty) shelf under its beacon.
     val centerSlot = if (spikeStashed.isEmpty()) 0 else (spikeStashed.size - 1) / 2
-    val (shx, shy, shz) = stashShelfPos(centerSlot)
     spikeShelfIndex = centerSlot // seed ←/→ browsing from the framed centre
+    // Frame the centre slot's pane *and* the STASH sign above it (empty shelf → just the
+    // sign over the bare spot). No pane to track here, so the fixed look is the reveal
+    // look — the sign is in view the whole approach.
+    val centerPane = spikeStashed.getOrNull(centerSlot)
+        ?.let { id -> spikePanes.firstOrNull { it.paneId == id } }
+    val paneHalfH = centerPane?.let { paneShelfHalfH(it) } ?: 0.0
+    val pose = shelfArrivalPose(centerSlot, paneHalfH)
     flyCamTo(
-        shx, shy - STASH_CAM_LAND_DROP, shz + perspDistance(window.innerHeight) * STASH_CAM_LAND_DIST,
-        shx, shy, shz,
+        pose.cx, pose.cy, pose.cz,
+        pose.lx, pose.ly, pose.lz,
         landPristine = false, frames = STASH_CAM_FRAMES,
         pullout = STASH_CAM_PULLOUT, rise = STASH_CAM_RISE,
         sway = STASH_CAM_SWAY, roll = STASH_CAM_ROLL,
@@ -345,15 +405,20 @@ internal fun stashFront() {
     // you watch it sail across the air. Sway bows the climb into a sweeping lateral
     // curve and roll banks into it, so the long haul plays as a flight, not an elevator
     // ride. Tunable.
-    val (shx, shy, shz) = stashShelfPos(slot)
     spikeShelfIndex = slot // arrive browsing the slot the pane lands on
+    // Track the pane the whole climb (watch it sail up), then over the final stretch swing
+    // the gaze to the reveal pose so the STASH sign crowns the just-parked pane on arrival
+    // (endLook). The camera stands back far enough to frame both — this pane's own size is
+    // measured, so a tall/short pane is framed correctly.
+    val pose = shelfArrivalPose(slot, paneShelfHalfH(p))
     flyCamTo(
-        shx, shy - STASH_CAM_LAND_DROP, shz + perspDistance(window.innerHeight) * STASH_CAM_LAND_DIST,
-        shx, shy, shz,
+        pose.cx, pose.cy, pose.cz,
+        pose.lx, pose.ly, pose.lz,
         landPristine = false, frames = STASH_CAM_FRAMES,
         pullout = STASH_CAM_PULLOUT, rise = STASH_CAM_RISE,
         followPaneId = p.paneId,
         sway = STASH_CAM_SWAY, roll = STASH_CAM_ROLL,
+        endLook = Triple(pose.lx, pose.ly, pose.lz),
     )
     spikeSettledIndex = -1
     showNavLabel()
@@ -401,15 +466,20 @@ internal fun unstashNearest() {
 
     spikeSettledIndex = -1
     spikeShelfIndex = -1 // slots shift after removal and we're leaving — drop the browse cursor
-    // Fly home while the pane sails back down to its ring slot, tracking the pane the
-    // whole way (followPaneId) so you watch it fly back — the reverse of the stash trip,
-    // swaying out the *other* side (negative sway) so the return isn't a mirrored replay.
+    // Fly home the reverse of the stash trip (negative sway, so the return isn't a mirrored
+    // replay). The gaze rides the COMMAND CENTER sign over the home beacon through the
+    // descent — so you're flying *into* the command center with its banner leading you in —
+    // then eases down to the ring (endLook = origin) to settle into the clean home view,
+    // landing pristine fronted on the pane, which sails back to its ring slot in-world and
+    // slides into the lower frame as the aim drops. (A gaze can only hold one subject: the
+    // sign reveal takes the descent; the pane's return is watched in-world, not centre-locked.)
     flyCamTo(
-        0.0, 0.0, homeZ, 0.0, 0.0, 0.0,
+        0.0, 0.0, homeZ,
+        0.0, BEACON_Y + BEACON_LABEL_RISE, homeZ,
         landPristine = true, frames = STASH_CAM_FRAMES,
         pullout = STASH_CAM_PULLOUT, rise = STASH_CAM_RISE,
-        followPaneId = id,
         sway = -STASH_CAM_SWAY, roll = -STASH_CAM_ROLL,
+        endLook = Triple(0.0, 0.0, 0.0),
     )
     showNavLabel()
 }
@@ -463,10 +533,13 @@ internal fun shelfBrowse(delta: Int) {
     val next = (cur + delta).coerceIn(0, spikeStashed.size - 1)
     if (next == cur && spikeShelfIndex in spikeStashed.indices) return // already parked at the row's end
     spikeShelfIndex = next
-    val (shx, shy, shz) = stashShelfPos(next)
+    // Slide to the browsed slot's reveal pose (its own pane's size measured), so the
+    // STASH sign stays framed above the pane as you walk the row.
+    val browsedPane = spikeStashed.getOrNull(next)?.let { id -> spikePanes.firstOrNull { it.paneId == id } }
+    val pose = shelfArrivalPose(next, browsedPane?.let { paneShelfHalfH(it) } ?: 0.0)
     flyCamTo(
-        shx, shy - STASH_CAM_LAND_DROP, shz + perspDistance(window.innerHeight) * STASH_CAM_LAND_DIST,
-        shx, shy, shz,
+        pose.cx, pose.cy, pose.cz,
+        pose.lx, pose.ly, pose.lz,
         landPristine = false, frames = SHELF_BROWSE_FRAMES,
         pullout = 0.0, rise = 0.0,
     )

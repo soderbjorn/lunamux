@@ -257,6 +257,7 @@ internal fun presentPaneToGrid(p: RingPane, animate: Boolean = false) {
     // eases to 1:1 (see the render loop's targetScale), so PTY truth is preserved
     // exactly where you read and type. @see RingPane.normScale
     p.normScale = minOf(1.0, spikeScreenW.toDouble() / gw, spikeScreenH.toDouble() / gh)
+    kotlinx.browser.window.asDynamic().console.warn("[wh-present] ${p.paneId} -> ${gw}x$gh norm=${p.normScale} animate=$animate spawn=${p.spawnPhase}")
     val ease = "width ${GRID_ANIM_MS}ms ease, height ${GRID_ANIM_MS}ms ease"
     p.wrapper.style.setProperty("transition", if (animate) ease else "none")
     p.wrapper.style.setProperty("width", "${gw}px")
