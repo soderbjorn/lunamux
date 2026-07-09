@@ -9,7 +9,11 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>se.soderbjorn.darkness</groupId>
   <artifactId>toolkit-web</artifactId>
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-web/0.2.25/toolkit-web-0.2.25.pom
   <version>0.2.25</version>
+========
+  <version>0.2.24</version>
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-web/0.2.24/toolkit-web-0.2.24.pom
   <dependencies>
     <dependency>
       <groupId>org.jetbrains.kotlin</groupId>

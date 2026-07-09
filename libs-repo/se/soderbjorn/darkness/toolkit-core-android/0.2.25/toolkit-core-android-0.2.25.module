@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module
     "url": "../../toolkit-core/0.2.25/toolkit-core-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-core",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-core/0.2.24/toolkit-core-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -42,12 +49,21 @@
       "files": [
         {
           "name": "toolkit-core-release.aar",
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module
           "url": "toolkit-core-android-0.2.25.aar",
           "size": 86331,
           "sha512": "e012ac1e98161bf02bf3f8de62b919eb6b0aadd57da8a7c744b828c880381b57c31fd8ff54e180539a11d1190e58100a2bd5141140fa57d17b04f16f4f5f3a63",
           "sha256": "c5c5e7fba52b4050ba64d2b61fd98348617af2ac2a7b95b40ab6b2c57003fd93",
           "sha1": "8cc11ff814f88c046740eb802154cb86a7d52814",
           "md5": "3127112f3bf40d266de039f960283721"
+========
+          "url": "toolkit-core-android-0.2.24.aar",
+          "size": 86322,
+          "sha512": "466eebdad2a756a7d30a5f4db4d24d1a3022f257e19dc11db8f72d87ecf390cd1ba1273b8dcd44a0e8c07a292f96aaf6c2deade5d4a42c29c0fc844180fe8f54",
+          "sha256": "4d84098e6a4d30c2e894902f2bf3aea64523baab1b1e9ef4fd65c8cb96da5a71",
+          "sha1": "e26f80dd69d0d581b2c841977ea9caf51a742886",
+          "md5": "3cabaac332c2b016756066454bd76a12"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module
         }
       ]
     },
@@ -127,12 +143,21 @@
       "files": [
         {
           "name": "toolkit-core-release.aar",
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module
           "url": "toolkit-core-android-0.2.25.aar",
           "size": 86331,
           "sha512": "e012ac1e98161bf02bf3f8de62b919eb6b0aadd57da8a7c744b828c880381b57c31fd8ff54e180539a11d1190e58100a2bd5141140fa57d17b04f16f4f5f3a63",
           "sha256": "c5c5e7fba52b4050ba64d2b61fd98348617af2ac2a7b95b40ab6b2c57003fd93",
           "sha1": "8cc11ff814f88c046740eb802154cb86a7d52814",
           "md5": "3127112f3bf40d266de039f960283721"
+========
+          "url": "toolkit-core-android-0.2.24.aar",
+          "size": 86322,
+          "sha512": "466eebdad2a756a7d30a5f4db4d24d1a3022f257e19dc11db8f72d87ecf390cd1ba1273b8dcd44a0e8c07a292f96aaf6c2deade5d4a42c29c0fc844180fe8f54",
+          "sha256": "4d84098e6a4d30c2e894902f2bf3aea64523baab1b1e9ef4fd65c8cb96da5a71",
+          "sha1": "e26f80dd69d0d581b2c841977ea9caf51a742886",
+          "md5": "3cabaac332c2b016756066454bd76a12"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module
         }
       ]
     },
@@ -149,6 +174,7 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module
           "name": "toolkit-core-android-0.2.25-sources.jar",
           "url": "toolkit-core-android-0.2.25-sources.jar",
           "size": 36687,
@@ -156,6 +182,15 @@
           "sha256": "61fe5b2d88d4b63eb498abd1589c3a2ef2d280554e643d9e24d0c85490886f87",
           "sha1": "e5308b513acc975ff779cc2d8a42f1bb57d5c8d8",
           "md5": "6fa9ae9c307739a5110be2efcd9279c3"
+========
+          "name": "toolkit-core-android-0.2.24-sources.jar",
+          "url": "toolkit-core-android-0.2.24-sources.jar",
+          "size": 36681,
+          "sha512": "99f5e9f7c4490058e63f89895a4ef2bc168c1902718980d189a1c3a30c7f9fbbc5222e55440fd265bfa86208cce0a48f0e151072aed7a036e039b909e97e40b5",
+          "sha256": "c3cffb76afc4156f7ad07936f95d8d4d95b6e0267ecf4eee7e55d10a641c7d53",
+          "sha1": "bec60e1217a0586d832840be78812acaffd166d0",
+          "md5": "8ed338690b20b9a2452708a8a81e5a9d"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module
         }
       ]
     }

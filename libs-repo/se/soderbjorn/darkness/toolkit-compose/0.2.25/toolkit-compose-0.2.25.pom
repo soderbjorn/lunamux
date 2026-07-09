@@ -9,12 +9,20 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>se.soderbjorn.darkness</groupId>
   <artifactId>toolkit-compose</artifactId>
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.pom
   <version>0.2.25</version>
+========
+  <version>0.2.24</version>
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.pom
   <dependencies>
     <dependency>
       <groupId>se.soderbjorn.darkness</groupId>
       <artifactId>toolkit-core</artifactId>
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.pom
       <version>0.2.25</version>
+========
+      <version>0.2.24</version>
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.pom
       <scope>runtime</scope>
     </dependency>
     <dependency>

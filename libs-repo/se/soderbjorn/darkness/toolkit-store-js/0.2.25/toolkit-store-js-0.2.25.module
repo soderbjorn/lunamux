@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.25/toolkit-store-js-0.2.25.module
     "url": "../../toolkit-store/0.2.25/toolkit-store-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-store",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-store/0.2.24/toolkit-store-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-store",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.24/toolkit-store-js-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -36,7 +43,11 @@
           "group": "se.soderbjorn.darkness",
           "module": "toolkit-core",
           "version": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.25/toolkit-store-js-0.2.25.module
             "requires": "0.2.25"
+========
+            "requires": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.24/toolkit-store-js-0.2.24.module
           }
         },
         {
@@ -49,6 +60,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.25/toolkit-store-js-0.2.25.module
           "name": "toolkit-store-js-0.2.25.klib",
           "url": "toolkit-store-js-0.2.25.klib",
           "size": 40529,
@@ -56,6 +68,15 @@
           "sha256": "127da9c9c19ff93f16cbe6117a3fa0f48d9b07f4c180ba0f82e5ac9d716a6766",
           "sha1": "23a21470b20486eeb55140c11b34ba71e9c27b84",
           "md5": "aff99cdfdf4d888614d96341e24ca10d"
+========
+          "name": "toolkit-store-js-0.2.24.klib",
+          "url": "toolkit-store-js-0.2.24.klib",
+          "size": 40524,
+          "sha512": "38f20bbb9056051f465b51c7280be02554356c54954647128ec607a24cb459cb86878e5586099d295e05071e25fc47ee8f0367dcce01fff45ac15d1b5bed32f6",
+          "sha256": "d8b0e7a7e3459d63dc4c73da59a3209f0166d1b4726b8e7c47938c8bd04c7a73",
+          "sha1": "5cd8ec99233e48cd7a7af0b187ecaa23ea7210fd",
+          "md5": "d20c73a1c3c8db6587b62c7d2f904514"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.24/toolkit-store-js-0.2.24.module
         }
       ]
     },
@@ -80,7 +101,11 @@
           "group": "se.soderbjorn.darkness",
           "module": "toolkit-core",
           "version": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.25/toolkit-store-js-0.2.25.module
             "requires": "0.2.25"
+========
+            "requires": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.24/toolkit-store-js-0.2.24.module
           }
         },
         {
@@ -93,6 +118,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.25/toolkit-store-js-0.2.25.module
           "name": "toolkit-store-js-0.2.25.klib",
           "url": "toolkit-store-js-0.2.25.klib",
           "size": 40529,
@@ -100,6 +126,15 @@
           "sha256": "127da9c9c19ff93f16cbe6117a3fa0f48d9b07f4c180ba0f82e5ac9d716a6766",
           "sha1": "23a21470b20486eeb55140c11b34ba71e9c27b84",
           "md5": "aff99cdfdf4d888614d96341e24ca10d"
+========
+          "name": "toolkit-store-js-0.2.24.klib",
+          "url": "toolkit-store-js-0.2.24.klib",
+          "size": 40524,
+          "sha512": "38f20bbb9056051f465b51c7280be02554356c54954647128ec607a24cb459cb86878e5586099d295e05071e25fc47ee8f0367dcce01fff45ac15d1b5bed32f6",
+          "sha256": "d8b0e7a7e3459d63dc4c73da59a3209f0166d1b4726b8e7c47938c8bd04c7a73",
+          "sha1": "5cd8ec99233e48cd7a7af0b187ecaa23ea7210fd",
+          "md5": "d20c73a1c3c8db6587b62c7d2f904514"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.24/toolkit-store-js-0.2.24.module
         }
       ]
     },
@@ -116,8 +151,13 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.25/toolkit-store-js-0.2.25.module
           "name": "toolkit-store-js-0.2.25-sources.jar",
           "url": "toolkit-store-js-0.2.25-sources.jar",
+========
+          "name": "toolkit-store-js-0.2.24-sources.jar",
+          "url": "toolkit-store-js-0.2.24-sources.jar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-js/0.2.24/toolkit-store-js-0.2.24.module
           "size": 13668,
           "sha512": "17721f9f570fcd6dcbffb2ea8787d8e0748acb5f4f40c3e5987b8c518a8bdf275e1791dfb11816f7960c60d8302469e5e3c7b2f438eedbc8dc2be98ed8936350",
           "sha256": "03fb39ec43618d4f9c995457546f2dcdc7af1a824dca8849ddb78fbeb246b1b2",

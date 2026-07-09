@@ -142,7 +142,9 @@ internal fun openWorld3dSpike() {
     overlay.appendChild(filterDefs)
     spikeFilterDefs = filterDefs
 
-    val camera = PerspectiveCamera(SPIKE_FOV, w.toDouble() / h.toDouble(), 1.0, 12000.0)
+    // Far plane is generous so the stash station — now far up above the ring
+    // ([STASH_SHELF_Y]) — still renders when glimpsed from the home view.
+    val camera = PerspectiveCamera(SPIKE_FOV, w.toDouble() / h.toDouble(), 1.0, 80000.0)
     camera.position.set(0.0, 0.0, RING_R + perspDistance(h))
     camera.lookAt(0.0, 0.0, 0.0)
     spikeCamera = camera
@@ -158,6 +160,9 @@ internal fun openWorld3dSpike() {
 
     val chrome = spikeChrome()
     spikeChromeColors = chrome
+    // The giant hangar wrapping the stash shelf — built first so its hull is the backmost
+    // DOM (the enclosure everything else sits inside). Feature-flagged; no-op when off.
+    buildStashStation(scene, chrome)
     // The free-fly landmark above the home camera spot — built unconditionally (it
     // is useful even in an all-empty world) and out of frame at the resting pose.
     buildHomeBeacon(scene, chrome)
@@ -210,6 +215,9 @@ internal fun openWorld3dSpike() {
     spikeCamFlown = false
     spikeFlyReveal = 0.0
     spikeCamReturning = false
+    spikeCamTourThen = null // no chained door-leg leaking in from a prior open
+    spikeStashChase = null // no chase leaking in from a prior open
+    spikeChaseFocus = 0.0
     spikeCamX = 0.0
     spikeCamY = 0.0
     spikeCamZ = 0.0
@@ -360,9 +368,11 @@ internal fun resolveZoomPresetCodes() {
  *    `,`/`.` grid width, `<`/`>` grid height (animated cell steps), ⌥⌘S selection, `w` cycle
  *    signal (off/working/needs-input), `g` working style (dots↔green pulse), `b` toggle bob,
  *    **Space** stash the front pane / unstash the nearest (a camera-proximity toggle), `v`
- *    fly up to the stash shelf and back with no stash — and while *up at the shelf*,
- *    ←/→ browse along the row of shelved panes ([shelfBrowse]) so Space unstashes the
- *    one you're parked at, `F` free-fly
+ *    fly up to the stash shelf and back with no stash — and while *up at the shelf*
+ *    ([cameraAtShelf]) the command-center keys fall away: only ←/→ browse the row
+ *    ([shelfBrowse]), Space unstashes the parked pane (or flies home on an empty
+ *    shelf), `v`/`c` fly back down, `F` free-fly, `k` hides the legend and Esc closes —
+ *    every other key is swallowed as a no-op (the legend trims to match). `F` free-fly
  *    camera, `j` slight camera tilt (toggle — angles the front pane),
  *    `c` fly camera home, `k` hide/show
  *    the shortcut legends (one shared flag for navigate *and* fly mode), Esc closes.
@@ -473,6 +483,30 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
     // included) just cancels the arm and does nothing else, so a stray keystroke can't
     // both dismiss the prompt and, say, rotate the ring.
     if (spikeRemoveArmed && !isRemoveKey(ke)) { cancelRemoveArm(); return@handler }
+    // **Up at the dock/stash shelf** the command-center actions (pane/tab navigation,
+    // zoom, grid, selection, reformat, new/remove, tilt, …) are meaningless — there is
+    // no fronted ring pane to act on. So while [cameraAtShelf], only the dock-relevant
+    // keys are honoured: ←/→ browse the docked windows, Space unstashes the browsed one
+    // (or flies home when the shelf is empty), `v` flies back down without unstashing,
+    // `F` drops into free-fly, `c` flies home, `k` hides the legend, Esc closes. Every
+    // other key is swallowed (consumed above) so nothing leaks or fires a no-op. The
+    // legend is trimmed to this same set by [updateLegendVisibility].
+    if (cameraAtShelf()) {
+        when {
+            ke.key == "ArrowLeft" -> { flashShortcut("shelf-browse"); shelfBrowse(-1) }
+            ke.key == "ArrowRight" -> { flashShortcut("shelf-browse"); shelfBrowse(1) }
+            ke.key == " " || ke.code == "Space" -> { flashShortcut("stash"); toggleStash() }
+            ke.key == "v" || ke.key == "V" -> { flashShortcut("stash-view"); toggleStashView() }
+            ke.code == "KeyF" -> { flashShortcut("fly"); toggleFlyMode() }
+            ke.key == "c" || ke.key == "C" -> { flashShortcut("cam-home"); resetCamera() }
+            ke.key == "k" || ke.key == "K" -> {
+                toggleLegend()
+                if (!spikeLegendHidden) flashShortcut("legend")
+            }
+            ke.key == "Escape" -> closeWorld3dSpike()
+        }
+        return@handler
+    }
     // Each branch flashes its legend row (flashShortcut) so an open shortcuts
     // panel visibly acknowledges the keypress.
     when {
@@ -627,8 +661,14 @@ internal fun closeWorld3dSpike() {
     spikeNavLabelTimer?.let { window.clearTimeout(it) }
     spikeNavLabelTimer = null
     spikeNavLabel = null
+    spikeLegendAtShelf = false
+    spikeShelfPanTargetX = null
     clearHomeBeacon()
     clearStashBeacon()
+    clearStashStation()
+    spikeCamTourThen = null // drop any mid-air chained door-leg
+    spikeStashChase = null // drop any mid-air chase
+    spikeChaseFocus = 0.0
     clearCosmos()
     // Phaser-fire close: the canvas is a child of the overlay (removed wholesale below),
     // so just drop the references and any bolts still in flight.

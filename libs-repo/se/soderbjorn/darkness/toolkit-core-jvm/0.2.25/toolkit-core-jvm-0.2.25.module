@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module
     "url": "../../toolkit-core/0.2.25/toolkit-core-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-core",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-core/0.2.24/toolkit-core-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -42,6 +49,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module
           "name": "toolkit-core-jvm-0.2.25.jar",
           "url": "toolkit-core-jvm-0.2.25.jar",
           "size": 90243,
@@ -49,6 +57,15 @@
           "sha256": "00a9e00ae8510505a2fcfa682f403ddbfffe88d1f0d800251bda1351699fc44d",
           "sha1": "77789f0f1a1185189735640d05f9e93f0c93e34f",
           "md5": "d521f0ed775943797f7ce46ffa04650f"
+========
+          "name": "toolkit-core-jvm-0.2.24.jar",
+          "url": "toolkit-core-jvm-0.2.24.jar",
+          "size": 90235,
+          "sha512": "a5194e6e3ad1a94277128ba8a8c764f8b1068cc9132c3fceb0298795173ce13e714904e70775d59de9cafd53cd174192e366a4dc2e5fd43e2ee41ae117b390f8",
+          "sha256": "1b37fa5650b514a9f601c73198ada669de429f057320c4e607d4415187c13dc3",
+          "sha1": "f7ccb252178896d535ac0c39351d2e85549a12be",
+          "md5": "edfc134f297dc30fd00cd71eb9cf7081"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module
         }
       ]
     },
@@ -86,6 +103,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module
           "name": "toolkit-core-jvm-0.2.25.jar",
           "url": "toolkit-core-jvm-0.2.25.jar",
           "size": 90243,
@@ -93,6 +111,15 @@
           "sha256": "00a9e00ae8510505a2fcfa682f403ddbfffe88d1f0d800251bda1351699fc44d",
           "sha1": "77789f0f1a1185189735640d05f9e93f0c93e34f",
           "md5": "d521f0ed775943797f7ce46ffa04650f"
+========
+          "name": "toolkit-core-jvm-0.2.24.jar",
+          "url": "toolkit-core-jvm-0.2.24.jar",
+          "size": 90235,
+          "sha512": "a5194e6e3ad1a94277128ba8a8c764f8b1068cc9132c3fceb0298795173ce13e714904e70775d59de9cafd53cd174192e366a4dc2e5fd43e2ee41ae117b390f8",
+          "sha256": "1b37fa5650b514a9f601c73198ada669de429f057320c4e607d4415187c13dc3",
+          "sha1": "f7ccb252178896d535ac0c39351d2e85549a12be",
+          "md5": "edfc134f297dc30fd00cd71eb9cf7081"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module
         }
       ]
     },
@@ -109,6 +136,7 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module
           "name": "toolkit-core-jvm-0.2.25-sources.jar",
           "url": "toolkit-core-jvm-0.2.25-sources.jar",
           "size": 36687,
@@ -116,6 +144,15 @@
           "sha256": "61fe5b2d88d4b63eb498abd1589c3a2ef2d280554e643d9e24d0c85490886f87",
           "sha1": "e5308b513acc975ff779cc2d8a42f1bb57d5c8d8",
           "md5": "6fa9ae9c307739a5110be2efcd9279c3"
+========
+          "name": "toolkit-core-jvm-0.2.24-sources.jar",
+          "url": "toolkit-core-jvm-0.2.24-sources.jar",
+          "size": 36681,
+          "sha512": "99f5e9f7c4490058e63f89895a4ef2bc168c1902718980d189a1c3a30c7f9fbbc5222e55440fd265bfa86208cce0a48f0e151072aed7a036e039b909e97e40b5",
+          "sha256": "c3cffb76afc4156f7ad07936f95d8d4d95b6e0267ecf4eee7e55d10a641c7d53",
+          "sha1": "bec60e1217a0586d832840be78812acaffd166d0",
+          "md5": "8ed338690b20b9a2452708a8a81e5a9d"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module
         }
       ]
     }

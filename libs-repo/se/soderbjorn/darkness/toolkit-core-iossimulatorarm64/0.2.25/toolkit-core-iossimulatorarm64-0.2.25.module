@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module
     "url": "../../toolkit-core/0.2.25/toolkit-core-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-core",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-core/0.2.24/toolkit-core-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -49,6 +56,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module
           "name": "toolkit-core-iosSimulatorArm64Main-0.2.25.klib",
           "url": "toolkit-core-iossimulatorarm64-0.2.25.klib",
           "size": 122135,
@@ -56,6 +64,15 @@
           "sha256": "18f7786ae186a2627620d84829228d204fba077795de5c32f80412955c94a8bc",
           "sha1": "5b60142559bb62ec052612a7470138bd6afb86a3",
           "md5": "c52b377574215a39c78b9e88cbd796fb"
+========
+          "name": "toolkit-core-iosSimulatorArm64Main-0.2.24.klib",
+          "url": "toolkit-core-iossimulatorarm64-0.2.24.klib",
+          "size": 122124,
+          "sha512": "88e0ada9ac2469f2387f2646b7f816d4bbf2042e8996326150aa72815417ebeda7514270bfd7fc2c6b76a120b2c3961875f072aae8882a2dcdae51d6f1f6eb0b",
+          "sha256": "bb53526a62a1960ce1b405af02e5fafc8057fcf1aaa0e81b7e4c0d73cf6eac41",
+          "sha1": "f35099a7aa49d350f936237610307a7852552535",
+          "md5": "9610ca60d0222450a40b5d54c2d5dd12"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module
         }
       ]
     },
@@ -72,6 +89,7 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module
           "name": "toolkit-core-iossimulatorarm64-0.2.25-sources.jar",
           "url": "toolkit-core-iossimulatorarm64-0.2.25-sources.jar",
           "size": 36687,
@@ -79,6 +97,15 @@
           "sha256": "61fe5b2d88d4b63eb498abd1589c3a2ef2d280554e643d9e24d0c85490886f87",
           "sha1": "e5308b513acc975ff779cc2d8a42f1bb57d5c8d8",
           "md5": "6fa9ae9c307739a5110be2efcd9279c3"
+========
+          "name": "toolkit-core-iossimulatorarm64-0.2.24-sources.jar",
+          "url": "toolkit-core-iossimulatorarm64-0.2.24-sources.jar",
+          "size": 36681,
+          "sha512": "99f5e9f7c4490058e63f89895a4ef2bc168c1902718980d189a1c3a30c7f9fbbc5222e55440fd265bfa86208cce0a48f0e151072aed7a036e039b909e97e40b5",
+          "sha256": "c3cffb76afc4156f7ad07936f95d8d4d95b6e0267ecf4eee7e55d10a641c7d53",
+          "sha1": "bec60e1217a0586d832840be78812acaffd166d0",
+          "md5": "8ed338690b20b9a2452708a8a81e5a9d"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module
         }
       ]
     },
@@ -116,6 +143,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module
           "name": "toolkit-core-iossimulatorarm64-0.2.25-metadata.jar",
           "url": "toolkit-core-iossimulatorarm64-0.2.25-metadata.jar",
           "size": 261,
@@ -123,6 +151,15 @@
           "sha256": "170b5a78e8987398c5fdbb0341abb68584ca1fe3a7eeba0aecba687a67360025",
           "sha1": "f97a3fc51f0f6d1d6d1d81556b78589479827493",
           "md5": "127d3f711b805f34a0ac5f817a26d52a"
+========
+          "name": "toolkit-core-iossimulatorarm64-0.2.24-metadata.jar",
+          "url": "toolkit-core-iossimulatorarm64-0.2.24-metadata.jar",
+          "size": 261,
+          "sha512": "265f5ad46b521f07f835a2dcd41cb4a0c0a7df3760e42bb2d8c5a4dac36466dbabb5ffd37cefcce5905d907fa3a1dda417eae0b3fbfa7b9a85f6911e91ce2e74",
+          "sha256": "d71c16acb5e395728830e7325ef44052694b5c8fde514ffc4582c25bc101d5e3",
+          "sha1": "4fd175e1fb012e9cd059c742aeb697e4668b8e1e",
+          "md5": "a40a89d5777295e86bdee3569a0de08e"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module
         }
       ]
     }

@@ -8,13 +8,21 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>se.soderbjorn.darkness</groupId>
   <artifactId>toolkit-store-android</artifactId>
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-android/0.2.25/toolkit-store-android-0.2.25.pom
   <version>0.2.25</version>
+========
+  <version>0.2.24</version>
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-android/0.2.24/toolkit-store-android-0.2.24.pom
   <packaging>aar</packaging>
   <dependencies>
     <dependency>
       <groupId>se.soderbjorn.darkness</groupId>
       <artifactId>toolkit-core-android</artifactId>
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-store-android/0.2.25/toolkit-store-android-0.2.25.pom
       <version>0.2.25</version>
+========
+      <version>0.2.24</version>
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-store-android/0.2.24/toolkit-store-android-0.2.24.pom
       <scope>compile</scope>
     </dependency>
     <dependency>

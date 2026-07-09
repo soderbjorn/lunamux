@@ -8,7 +8,11 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>se.soderbjorn.darkness</groupId>
   <artifactId>toolkit-core-iosarm64</artifactId>
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.pom
   <version>0.2.25</version>
+========
+  <version>0.2.24</version>
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.pom
   <packaging>klib</packaging>
   <dependencies>
     <dependency>

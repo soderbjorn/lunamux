@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module
     "url": "../../toolkit-core/0.2.25/toolkit-core-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-core",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-core/0.2.24/toolkit-core-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -49,6 +56,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module
           "name": "toolkit-core-iosArm64Main-0.2.25.klib",
           "url": "toolkit-core-iosarm64-0.2.25.klib",
           "size": 122069,
@@ -56,6 +64,15 @@
           "sha256": "d4903117860e72febf8abfd3f6941e97c9481a4578a7c6a88504abd19964321f",
           "sha1": "1c9284e1e9eae669bd6acf6e05cb8c02abca350a",
           "md5": "f4a1590dfdc7a8b09d7bf7a51b07c7d8"
+========
+          "name": "toolkit-core-iosArm64Main-0.2.24.klib",
+          "url": "toolkit-core-iosarm64-0.2.24.klib",
+          "size": 122058,
+          "sha512": "7ddaedbcf36be5ae0de8b3c18cc1bddf28c329cadb1af947e1c3d5f5e0b5aa0a5d87a1638702fda3f2de319ae4abb549cd3e699398b94f0d5d6cce3006b7dcb8",
+          "sha256": "d7c27c4094153cff3ff0f8e295faf6513eee4063ef5eb5c46b6ccdf8793c384c",
+          "sha1": "07611c3095f5a4cee48425768004f6d1f00aff6b",
+          "md5": "e419a47884cb1989a87334fc0abc5701"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module
         }
       ]
     },
@@ -72,6 +89,7 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module
           "name": "toolkit-core-iosarm64-0.2.25-sources.jar",
           "url": "toolkit-core-iosarm64-0.2.25-sources.jar",
           "size": 36687,
@@ -79,6 +97,15 @@
           "sha256": "61fe5b2d88d4b63eb498abd1589c3a2ef2d280554e643d9e24d0c85490886f87",
           "sha1": "e5308b513acc975ff779cc2d8a42f1bb57d5c8d8",
           "md5": "6fa9ae9c307739a5110be2efcd9279c3"
+========
+          "name": "toolkit-core-iosarm64-0.2.24-sources.jar",
+          "url": "toolkit-core-iosarm64-0.2.24-sources.jar",
+          "size": 36681,
+          "sha512": "99f5e9f7c4490058e63f89895a4ef2bc168c1902718980d189a1c3a30c7f9fbbc5222e55440fd265bfa86208cce0a48f0e151072aed7a036e039b909e97e40b5",
+          "sha256": "c3cffb76afc4156f7ad07936f95d8d4d95b6e0267ecf4eee7e55d10a641c7d53",
+          "sha1": "bec60e1217a0586d832840be78812acaffd166d0",
+          "md5": "8ed338690b20b9a2452708a8a81e5a9d"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module
         }
       ]
     },
@@ -116,6 +143,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module
           "name": "toolkit-core-iosarm64-0.2.25-metadata.jar",
           "url": "toolkit-core-iosarm64-0.2.25-metadata.jar",
           "size": 261,
@@ -123,6 +151,15 @@
           "sha256": "170b5a78e8987398c5fdbb0341abb68584ca1fe3a7eeba0aecba687a67360025",
           "sha1": "f97a3fc51f0f6d1d6d1d81556b78589479827493",
           "md5": "127d3f711b805f34a0ac5f817a26d52a"
+========
+          "name": "toolkit-core-iosarm64-0.2.24-metadata.jar",
+          "url": "toolkit-core-iosarm64-0.2.24-metadata.jar",
+          "size": 261,
+          "sha512": "265f5ad46b521f07f835a2dcd41cb4a0c0a7df3760e42bb2d8c5a4dac36466dbabb5ffd37cefcce5905d907fa3a1dda417eae0b3fbfa7b9a85f6911e91ce2e74",
+          "sha256": "d71c16acb5e395728830e7325ef44052694b5c8fde514ffc4582c25bc101d5e3",
+          "sha1": "4fd175e1fb012e9cd059c742aeb697e4668b8e1e",
+          "md5": "a40a89d5777295e86bdee3569a0de08e"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module
         }
       ]
     }

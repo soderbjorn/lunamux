@@ -49,6 +49,7 @@ import se.soderbjorn.lunamux.three.Scene
  * fixates the camera where it is and hands the arrows back to pane navigation.
  */
 internal fun toggleFlyMode() {
+    spikeStashChase = null // taking manual control cancels any stash chase
     if (spikeFlyMode) {
         spikeFlyMode = false
         spikeFlyKeys.clear()
@@ -97,6 +98,9 @@ internal fun toggleFlyMode() {
  *   [followPaneId] pane) toward this point over the final [CAM_TOUR_END_BLEND] of the
  *   flight — swinging the gaze to frame the destination sign on touchdown while still
  *   tracking the pane on the way. @see spikeCamTourHasEndLook
+ * @param then optional follow-on the render loop runs the frame this flight lands —
+ *   chains a second leg onto the journey (the fly-through-the-door stash flights use it
+ *   to sequence approach → transit → interior). @see spikeCamTourThen @see flyStationEnter
  */
 internal fun flyCamTo(
     tx: Double, ty: Double, tz: Double,
@@ -109,8 +113,10 @@ internal fun flyCamTo(
     sway: Double = 0.0,
     roll: Double = 0.0,
     endLook: Triple<Double, Double, Double>? = null,
+    then: (() -> Unit)? = null,
 ) {
     clearFlyVelocity()
+    spikeShelfPanTargetX = null // a scripted flight overrides any pending shelf dolly
 
     // If the camera is still at the pristine default (never flown), seed the flight
     // start from that pose so the arc launches from where it visually sits.
@@ -155,6 +161,8 @@ internal fun flyCamTo(
         spikeCamTourEndLookX = ex; spikeCamTourEndLookY = ey; spikeCamTourEndLookZ = ez
     }
 
+    spikeCamTourThen = then
+
     spikeCamReturnT = 0.0
     spikeCamReturning = true
 }
@@ -166,21 +174,52 @@ internal fun flyCamTo(
  * again rather than unstash. @see cameraAtShelf @see CAM_RETURN_FRAMES
  */
 internal fun resetCamera() {
+    spikeStashChase = null // `c` cancels a stash chase and flies home
     if (!spikeCamFlown) return
     spikeTilted = false // coming home always straightens a `j` tilt
     val homeZ = RING_R + perspDistance(window.innerHeight)
     if (cameraAtShelf()) {
-        // Returning home from up at the shelf: gaze at the COMMAND CENTER sign hanging
-        // over the home beacon through the long descent, then ease the aim down to the
-        // ring (origin) as we settle — so the journey home is crowned by the sign
-        // instead of just dropping onto the screens. The plain low `c` return skips this.
-        flyCamTo(
-            0.0, 0.0, homeZ,
-            0.0, BEACON_Y + BEACON_LABEL_RISE, homeZ,
-            landPristine = true, frames = STASH_CAM_FRAMES,
-            pullout = STASH_CAM_PULLOUT, rise = STASH_CAM_RISE,
-            endLook = Triple(0.0, 0.0, 0.0),
-        )
+        if (stationBuilt()) {
+            // No-pane hangar return — a "backing out of the hangar" descent. The camera
+            // keeps the whole glowing cargo ship framed the *entire* way: it noses out
+            // through the bay door while still looking back at the hangar (leg A — it backs
+            // out facing the door, which fills the screen), then descends home watching the
+            // ship recede grandly (leg B). Both legs aim at the ship because it is the only
+            // thing big enough to see on the long drop to the ring — the command center and
+            // ring are distant specks until the very end, and the cosmos is off, so aiming
+            // anywhere else gives a black void (the earlier "exit looking outward, then whip
+            // 180° to the ship" did exactly that: the outward look and the turn were ~6 s of
+            // empty space). Only the final stretch eases the aim down to the ring (origin)
+            // for the clean 1:1 landing.
+            val stage = stationStagingPose()
+            flyCamTo(
+                stage.cx, stage.cy, stage.cz,
+                STATION_CX, STATION_CY, STATION_CZ, // look back at the ship as we back out the door — no void, no whip
+                landPristine = false, frames = STATION_DOCK_TRANSIT_FRAMES,
+                pullout = STATION_ENTER_PULLOUT, rise = 0.0,
+                then = {
+                    flyCamTo(
+                        0.0, 0.0, homeZ,
+                        STATION_CX, STATION_CY, STATION_CZ, // keep watching the hangar recede on the way down
+                        landPristine = true, frames = STASH_CAM_FRAMES * STATION_RETURN_SPEED,
+                        pullout = 0.0, rise = 0.0, // straight descent; the shrinking ship is the shot, not an arc into void
+                        endLook = Triple(0.0, 0.0, 0.0), // swing down to the ring only at the end, for the landing
+                    )
+                },
+            )
+        } else {
+            // Open-sky shelf (no hangar): the classic single arc home, gazing at the
+            // COMMAND CENTER sign through the descent and easing to the ring to settle.
+            // Camera-only (no pane rides home from a bare shelf view), so it flies at the
+            // brisk stash-view cadence rather than the slow pane-lockstep one.
+            flyCamTo(
+                0.0, 0.0, homeZ,
+                0.0, BEACON_Y + BEACON_LABEL_RISE, homeZ,
+                landPristine = true, frames = STASH_VIEW_CAM_FRAMES,
+                pullout = STASH_CAM_PULLOUT, rise = STASH_CAM_RISE,
+                endLook = Triple(0.0, 0.0, 0.0),
+            )
+        }
         return
     }
     flyCamTo(0.0, 0.0, homeZ, 0.0, 0.0, 0.0, landPristine = true)
@@ -199,7 +238,7 @@ internal fun resetCamera() {
  * @see spikeTilted @see TILT_SIDE @see buildKeyHandler
  */
 internal fun toggleCameraTilt() {
-    if (spikeCamReturning) return
+    if (stashBusy()) return
     if (spikeTilted && spikeCamFlown) { spikeTilted = false; resetCamera(); return }
     val p = spikePanes.getOrNull(frontIndex()) ?: return
     val px = p.obj.position.x as Double

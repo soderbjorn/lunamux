@@ -357,7 +357,7 @@ internal const val TILT_FRAMES = 130.0
  *   [PANE_W] or neighbours overlap; the excess is the visible air between them.
  * @see stashShelfPos @see spikeStashed
  */
-internal const val STASH_SHELF_Y = 9600.0
+internal const val STASH_SHELF_Y = 26000.0
 internal const val STASH_SHELF_Z = 260.0
 internal const val STASH_ROW_X0 = -960.0
 internal const val STASH_ROW_GAP = 900.0
@@ -371,7 +371,17 @@ internal const val STASH_ROW_GAP = 900.0
  * than the pane arriving first. Deliberately long, so the trip is slow and cinematic.
  * @see flyCamTo @see stashFront @see startSpikeLoop
  */
-internal const val STASH_CAM_FRAMES = 520.0
+internal const val STASH_CAM_FRAMES = 820.0
+
+/**
+ * Frame length of a **stash-view (`v`) flight** — the camera-only trip up to the dock
+ * and back with no pane in tow ([toggleStashView], and the open-sky come-home leg of
+ * [resetCamera] when leaving the dock). Much quicker than [STASH_CAM_FRAMES]: that
+ * duration is deliberately slow so the camera stays in lockstep with a pane sailing to
+ * the shelf, but a `v` peek carries no pane, so there is nothing to wait for — a
+ * brisker flight just gets you there. @see toggleStashView @see resetCamera
+ */
+internal const val STASH_VIEW_CAM_FRAMES = 360.0
 
 /**
  * Arc shape of a **stash / unstash** camera flight — how far the journey's Bézier apex
@@ -382,8 +392,8 @@ internal const val STASH_CAM_FRAMES = 520.0
  * comfortable size and the sweep tasteful rather than flinging the camera to orbit.
  * @see flyCamTo @see stashFront
  */
-internal const val STASH_CAM_PULLOUT = 1500.0
-internal const val STASH_CAM_RISE = 1000.0
+internal const val STASH_CAM_PULLOUT = 3500.0
+internal const val STASH_CAM_RISE = 2600.0
 
 /**
  * Cinematic shaping of a **stash / unstash** camera flight, on top of the Bézier arc:
@@ -399,7 +409,7 @@ internal const val STASH_CAM_RISE = 1000.0
  * Both are passed by the stash flights only — the plain `c` return keeps the classic
  * straight-up-and-over arc. @see flyCamTo @see stashFront @see unstashNearest
  */
-internal const val STASH_CAM_SWAY = 2400.0
+internal const val STASH_CAM_SWAY = 5200.0
 internal const val STASH_CAM_ROLL = 0.45
 
 /**
@@ -483,6 +493,21 @@ internal const val CAM_TOUR_END_BLEND = 0.32
 internal const val SHELF_BROWSE_FRAMES = 65.0
 
 /**
+ * Per-frame exponential ease of the **shelf pan** — the lateral dolly ←/→ runs while
+ * up at the dock ([shelfBrowse]). The camera trucks straight sideways along the shelf
+ * (fixed height, depth and forward gaze), easing its x toward the browsed slot at this
+ * rate each frame. Matched to [PANE_EASE] so sliding between docked windows feels like
+ * the command center's pane switching. A plain dolly — not a [flyCamTo] tour — because
+ * a cinematic look-at-the-destination arc made the slide swing inward as it moved,
+ * which read as jerky; a fixed straight-ahead gaze slides cleanly along the row.
+ * @see shelfBrowse @see spikeShelfPanTargetX
+ */
+internal const val SHELF_PAN_EASE = 0.16
+
+/** Below this world-units gap to the target x, the shelf pan snaps home and ends. @see SHELF_PAN_EASE */
+internal const val SHELF_PAN_STOP_EPS = 0.5
+
+/**
  * The **home beacon** — the big neon double-chevron landmark hovering above the
  * default camera position, pointing at the pane sphere. Two chevron planes are
  * crossed at 90° and spun slowly about the pointing axis, so the arrow reads as a
@@ -531,8 +556,8 @@ internal const val STASH_BEACON_RISE = 820.0
 internal const val STASH_BEACON_S = 640
 internal const val STASH_BEACON_SPIN_SPEED = -0.005 // rad/frame → ~1 revolution / 21 s
 internal const val STASH_BEACON_PULSE_S = 3.6
-internal const val STASH_LABEL_TEXT = "STASH"
-internal const val STASH_LABEL_RISE = 1280.0
+internal const val STASH_LABEL_TEXT = "Window Dock"
+internal const val STASH_LABEL_RISE = 1800.0
 internal const val STASH_LABEL_FONT_PX = 200
 
 /**
@@ -551,6 +576,201 @@ internal const val STASH_LABEL_FONT_PX = 200
  */
 internal const val SIGN_REVEAL_MARGIN = 240.0
 internal const val SIGN_REVEAL_MIN_HALF = 900.0
+
+/**
+ * **Feature flag** for the **stash station** — the giant enclosing spaceship / space
+ * station hull that wraps the stash shelf ([buildStashStation]). When `true`, the shelf
+ * high above the sphere ([STASH_SHELF_Y]) is no longer bare sky: it sits inside a
+ * cavernous hangar with a huge **open bay door** on the front (+Z) face, and every
+ * shelf flight ([stashFront], [unstashNearest], [toggleStashView]) becomes a two-leg
+ * cinematic that flies *in through the door* to drop a terminal off and *out through the
+ * door* to pick one up. When `false` the shelf stays open-sky and the flights keep their
+ * original single-arc choreography — the station code is inert.
+ *
+ * The hull is pure CSS3D (real oriented DOM planes, like the beacons — **not**
+ * billboarded, so their transforms are static at rest and never re-rasterize, unlike
+ * the flicker-prone [buildCosmos] bodies), and each panel is built small and scaled up
+ * ([STATION_TEX_SCALE]) so the huge walls stay within the GPU tile budget. A pane rising
+ * from the ring to the shelf passes through the floor plane once mid-flight — a brief
+ * intersection traded for the grounded look. @see buildStashStation @see flyStationEnter
+ */
+internal const val SPIKE_STASH_STATION_ENABLED = true
+
+/**
+ * The stash station's **interior box** — centre and half-extents (world units). Centred
+ * on the shelf ([STATION_CZ] = [STASH_SHELF_Z]) and lifted to [STATION_CY] so the box
+ * encloses the shelved panes below (~[STASH_SHELF_Y]) up past the [STASH_LABEL_TEXT] sign
+ * above. The X centre is biased toward +X ([STATION_CX]) because the shelf row is
+ * left-anchored at [STASH_ROW_X0] and grows toward +X, so the occupied slots sit right of
+ * origin. Half-extents are generous so the hangar reads as *huge*:
+ * - [STATION_HW] half-width (X): spans several shelf slots plus air.
+ * - [STATION_HH] half-height (Y): floor line to ceiling, clearing panes and the sign.
+ * - [STATION_HD] half-depth (Z): back wall to the front door wall.
+ * The back wall sits at `STATION_CZ − STATION_HD`, the front (door) wall at
+ * `STATION_CZ + STATION_HD`. @see buildStashStation
+ */
+internal const val STATION_CX = 1200.0
+internal const val STATION_CY = STASH_SHELF_Y + 700.0
+internal const val STATION_CZ = STASH_SHELF_Z
+internal const val STATION_HW = 6600.0
+internal const val STATION_HH = 2250.0
+internal const val STATION_HD = 4800.0
+
+/**
+ * The **open bay door** cut into the station's front (+Z) wall — the mouth the camera
+ * flies through. [STATION_DOOR_W]×[STATION_DOOR_H] is the opening size; the door is
+ * centred on the front wall at ([STATION_DOOR_CX], [STATION_DOOR_CY]). The front wall is
+ * built as four hull pieces framing this hole (two jambs, a lintel, a sill) plus a
+ * glowing accent rim ([buildStationDoorRim]) around the opening. @see buildStationFront
+ */
+internal const val STATION_DOOR_W = 6000.0
+internal const val STATION_DOOR_H = 3600.0
+internal const val STATION_DOOR_CX = STATION_CX
+internal const val STATION_DOOR_CY = STATION_CY
+
+/**
+ * Cinematic shaping of the **fly-through-the-door** shelf journeys ([flyStationEnter] on
+ * the way in, [resetCamera]'s hangar return on the way out) — the two-leg replacement for
+ * the single stash arc when the station is enabled.
+ *
+ * - [STATION_APPROACH] world-units the outside **staging pose** parks beyond the front
+ *   door wall (`STATION_CZ + STATION_HD + STATION_APPROACH` on +Z), looking back through
+ *   the door at the shelf so the door mouth frames the destination on the approach.
+ * - [STATION_LEG_A_FRAC] fraction of the journey spent on leg A (fly to the staging pose
+ *   / fly out to it); the remainder is leg B (fly in through the door / fly on home).
+ * - [STATION_ENTER_PULLOUT] the small Bézier apex bulge of the door-transit leg — kept
+ *   modest so the fly-in reads as a straight punch through the doorway, not an orbit.
+ * - [STATION_INTERIOR_STANDOFF] caps the camera→shelf standoff of the **interior park**
+ *   pose ([shelfArrivalPose]'s derived distance is clamped to this) so the camera always
+ *   lands *inside* the front door wall (`STATION_CZ + STATION_INTERIOR_STANDOFF` stays
+ *   below the wall at `STATION_CZ + STATION_HD`) rather than poking back outside it.
+ * @see flyStationEnter @see resetCamera @see stationStagingPose
+ */
+internal const val STATION_APPROACH = 3150.0
+internal const val STATION_LEG_A_FRAC = 0.56
+internal const val STATION_ENTER_PULLOUT = 280.0
+internal const val STATION_INTERIOR_STANDOFF = 2450.0
+
+/**
+ * Frame length of the short **door ↔ dock transit** leg shared by the two camera-only dock
+ * flights: the settle *into* the dock (leg B of the [flyStationEnter] `v` visit, flying in
+ * through the bay door to the interior park) and the back-out *from* it (leg A of
+ * [resetCamera]'s return, reversing out through the door). This leg only covers the short
+ * door-to-shelf hop, so timing it like the long approach / descent legs made the camera
+ * *crawl* through the doorway — the smootherstep tracer's soft, near-zero-velocity ends
+ * stretched over a small distance, which read as the "camera settles slowly into the dock"
+ * (and, in reverse, the sluggish first moment leaving it). A short fixed budget keeps the
+ * near-dock motion crisp while the big approach / descent legs keep their stately pace.
+ * @see flyStationEnter @see resetCamera
+ */
+internal const val STATION_DOCK_TRANSIT_FRAMES = STASH_CAM_FRAMES * 0.18
+
+/**
+ * Pace of the no-pane hangar return's long **descent** leg ([resetCamera] leg B — the
+ * fly-home-watching-the-ship-recede) relative to a stash journey. Below `1.0` keeps the drop
+ * home brisk without touching the shared [STASH_CAM_FRAMES] (which times real stash / unstash
+ * pane flights and must stay locked to the pane). @see resetCamera
+ */
+internal const val STATION_RETURN_SPEED = 0.7
+
+/**
+ * The **stash chase cam** — how the camera trails a stashing / unstashing pane so you
+ * watch it fly the whole way up to (or down from) the station, instead of the camera
+ * doing its own scripted arc. Each frame the camera is parked at a fixed offset from the
+ * pane's live position ([tickStashChase]): mostly **below** it and a little in **front**
+ * of its face, looking up at it, so the terminal reads while the majestic ship looms beyond.
+ *
+ * The distance is a cinematic **zoom-out/in hump** over journey progress: close on the pane
+ * leaving the ring, pulling way back to [STASH_CHASE_FAR_DIST] at [STASH_CHASE_PEAK] — the
+ * mid-flight "see the whole cargo ship" wide shot as the pane approaches the door — then
+ * dollying back in to follow it through the doorway to its shelf. Symmetric for stash and
+ * unstash (progress runs from the origin end toward the station either way).
+ *
+ * - [STASH_CHASE_NEAR_DIST] camera→pane distance at the ends (pane fills frame).
+ * - [STASH_CHASE_FAR_DIST] the pulled-back distance at the hump's peak (whole ship in view).
+ * - [STASH_CHASE_PEAK] journey fraction (0..1) the pull-back peaks at — placed late so the
+ *   wide shot lands as the pane nears / enters the door.
+ * - [STASH_CHASE_OFF_X]/[STASH_CHASE_OFF_Y]/[STASH_CHASE_OFF_Z] the *direction* of the
+ *   camera offset from the pane (normalized at use): +Z is in front of the pane's face
+ *   (the door side), −Y a gentle below bias, +X a slight side bias for depth. Kept mostly
+ *   **+Z (front)** and only slightly below so the camera stays on the door side of the hull
+ *   through the whole transit — trailing far below would put the solid floor and front wall
+ *   between the camera and the pane, hiding it for a few seconds as it enters/leaves.
+ * - [STASH_CHASE_LOOK_UP] world-units the aim rises above the pane at the peak, tilting the
+ *   ship up into frame on the reveal.
+ * - [STASH_CHASE_SETTLE_FRAMES] the short home-settle flight after an unstash chase reaches
+ *   the ring, easing the trailing pose onto the pristine 1:1 view instead of snapping.
+ * @see tickStashChase @see armStashChase
+ */
+internal const val STASH_CHASE_NEAR_DIST = 1150.0
+internal const val STASH_CHASE_FAR_DIST = 8000.0
+internal const val STASH_CHASE_PEAK = 0.5
+internal const val STASH_CHASE_OFF_X = 0.15
+internal const val STASH_CHASE_OFF_Y = -0.32
+internal const val STASH_CHASE_OFF_Z = 1.0
+internal const val STASH_CHASE_LOOK_UP = 1200.0
+internal const val STASH_CHASE_SETTLE_FRAMES = 150.0
+
+/**
+ * The **chase spotlight**: while a stash chase runs, every pane except the travelling one
+ * fades toward [STASH_CHASE_OTHER_OPACITY] so nothing occludes it — the ring's neighbour
+ * panes (especially the one that rotates to the front when you stash) sit right at the
+ * camera and were hiding the travelling pane for the first second or two of the trip (and
+ * again just before an unstash lands). The travelling pane is held lit. [STASH_CHASE_FOCUS_EASE]
+ * is the per-frame ease of the spotlight in/out — a quick dissolve of the world as you fly
+ * off with the pane, and back as you return. @see spikeChaseFocus @see tickStashChase
+ */
+internal const val STASH_CHASE_OTHER_OPACITY = 0.0
+internal const val STASH_CHASE_FOCUS_EASE = 0.14
+
+/** Frames over which the chase's trailing pose eases in from the camera's start pose (no frame-1 snap). */
+internal const val STASH_CHASE_EASE_IN = 45.0
+
+/**
+ * The station hull's **palette** (CSS colour strings). The walls are a dark metallic
+ * blue-grey so the neon panes, beacons and door rim read brightly against them; the
+ * door rim and interior trim glow in the live theme accent ([SpikeChrome.accent]) at
+ * build time, not from these constants. @see buildStationWall
+ */
+internal const val STATION_HULL_LIGHT = "#141b28"
+internal const val STATION_HULL_MID = "#0b1019"
+internal const val STATION_HULL_DARK = "#05070d"
+
+/** Seconds per glow-pulse breath of the door rim (pure-CSS keyframe, like the beacons). */
+internal const val STATION_DOOR_PULSE_S = 3.0
+
+/**
+ * **Texture down-scale** for the station hull. The walls are huge in world units (the
+ * ceiling spans `2·STATION_HW × 2·STATION_HD` ≈ 8800×6400), and a CSS3D plane that big is
+ * a giant DOM layer: browsers cap composited-layer / rasterization size (commonly 8–16k
+ * px), so an oversized plane **flickers and, past the cap, fails to paint at all — going
+ * transparent and letting the 2D UI beneath bleed through** (the same failure that shelved
+ * [buildCosmos]). So every hull panel is built at `worldSize / STATION_TEX_SCALE` pixels
+ * and the [CSS3DObject] is scaled back up by this factor: the DOM element stays small and
+ * cheap while occupying the full world size. Blur/border/radius are authored in the small
+ * build-pixel space, so they render this factor larger on screen. @see buildStationWall
+ */
+internal const val STATION_TEX_SCALE = 10.0
+
+/**
+ * World-units the glowing door rim is nudged out (+Z) from the front wall plane so it is
+ * **not coplanar** with the door-frame hull pieces — coplanar CSS3D planes z-fight and
+ * shimmer. Tiny relative to the standoffs, so the rim still reads as sitting in the
+ * doorway. @see buildStashStation
+ */
+internal const val STATION_RIM_Z_LIFT = 12.0
+
+/**
+ * The stashed **panes** enter and leave through the front bay door too (not a floor hatch —
+ * the deck is solid). A pane climbing from the ring far below routes up *outside* the front
+ * of the hull to [STATION_PANE_DOOR_OUT] beyond the door, then in through the doorway to its
+ * shelf ([stashPanePath]) — a two-leg path split at [STATION_PANE_LEG_A] (fraction on the
+ * outside climb; the rest is the door transit). Routing outside the front keeps the pane
+ * clear of the solid floor on the way up.
+ * @see stashPanePath
+ */
+internal const val STATION_PANE_DOOR_OUT = 1100.0
+internal const val STATION_PANE_LEG_A = 0.55
 
 /**
  * **Feature flag** for the cosmos dressing — the decorative planets, nebulae and

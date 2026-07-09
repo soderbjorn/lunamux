@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module
     "url": "../../toolkit-core/0.2.25/toolkit-core-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-core",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-core/0.2.24/toolkit-core-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-core",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -49,6 +56,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module
           "name": "toolkit-core-js-0.2.25.klib",
           "url": "toolkit-core-js-0.2.25.klib",
           "size": 107127,
@@ -56,6 +64,15 @@
           "sha256": "3f92c6c7fc3184ed449336f99eb9d1f830c5484cacb9a2b01840aaf104e98ee1",
           "sha1": "a1a797e97b38bf2e14a749b1c6f502c8f0a8cf6a",
           "md5": "28268196ba5ed85224c9356aceb6ed7d"
+========
+          "name": "toolkit-core-js-0.2.24.klib",
+          "url": "toolkit-core-js-0.2.24.klib",
+          "size": 107112,
+          "sha512": "bb301b190b464b0314562d2e778384147df4382d4180a1c5ad584b99fda2606afbad76bd14e7dcb304d477f69213462af0ece483a17b01238d066bd859388cb3",
+          "sha256": "ed87deba9a3792e92e0f9b0c7d2aca19fa49f1ed4df8ee8b465835c7ab73a11a",
+          "sha1": "836716ed3d1d8e2f444794a2ad5a816b096a47f9",
+          "md5": "d1a66c4042b843706de18bb62b2fd9af"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module
         }
       ]
     },
@@ -100,6 +117,7 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module
           "name": "toolkit-core-js-0.2.25.klib",
           "url": "toolkit-core-js-0.2.25.klib",
           "size": 107127,
@@ -107,6 +125,15 @@
           "sha256": "3f92c6c7fc3184ed449336f99eb9d1f830c5484cacb9a2b01840aaf104e98ee1",
           "sha1": "a1a797e97b38bf2e14a749b1c6f502c8f0a8cf6a",
           "md5": "28268196ba5ed85224c9356aceb6ed7d"
+========
+          "name": "toolkit-core-js-0.2.24.klib",
+          "url": "toolkit-core-js-0.2.24.klib",
+          "size": 107112,
+          "sha512": "bb301b190b464b0314562d2e778384147df4382d4180a1c5ad584b99fda2606afbad76bd14e7dcb304d477f69213462af0ece483a17b01238d066bd859388cb3",
+          "sha256": "ed87deba9a3792e92e0f9b0c7d2aca19fa49f1ed4df8ee8b465835c7ab73a11a",
+          "sha1": "836716ed3d1d8e2f444794a2ad5a816b096a47f9",
+          "md5": "d1a66c4042b843706de18bb62b2fd9af"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module
         }
       ]
     },
@@ -123,6 +150,7 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module
           "name": "toolkit-core-js-0.2.25-sources.jar",
           "url": "toolkit-core-js-0.2.25-sources.jar",
           "size": 36687,
@@ -130,6 +158,15 @@
           "sha256": "61fe5b2d88d4b63eb498abd1589c3a2ef2d280554e643d9e24d0c85490886f87",
           "sha1": "e5308b513acc975ff779cc2d8a42f1bb57d5c8d8",
           "md5": "6fa9ae9c307739a5110be2efcd9279c3"
+========
+          "name": "toolkit-core-js-0.2.24-sources.jar",
+          "url": "toolkit-core-js-0.2.24-sources.jar",
+          "size": 36681,
+          "sha512": "99f5e9f7c4490058e63f89895a4ef2bc168c1902718980d189a1c3a30c7f9fbbc5222e55440fd265bfa86208cce0a48f0e151072aed7a036e039b909e97e40b5",
+          "sha256": "c3cffb76afc4156f7ad07936f95d8d4d95b6e0267ecf4eee7e55d10a641c7d53",
+          "sha1": "bec60e1217a0586d832840be78812acaffd166d0",
+          "md5": "8ed338690b20b9a2452708a8a81e5a9d"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module
         }
       ]
     }

@@ -1,10 +1,17 @@
 {
   "formatVersion": "1.1",
   "component": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module
     "url": "../../toolkit-compose/0.2.25/toolkit-compose-0.2.25.module",
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-compose",
     "version": "0.2.25",
+========
+    "url": "../../toolkit-compose/0.2.24/toolkit-compose-0.2.24.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-compose",
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -28,7 +35,11 @@
           "group": "se.soderbjorn.darkness",
           "module": "toolkit-core",
           "version": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module
             "requires": "0.2.25"
+========
+            "requires": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module
           }
         },
         {
@@ -42,7 +53,11 @@
       "files": [
         {
           "name": "toolkit-compose-release.aar",
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module
           "url": "toolkit-compose-android-0.2.25.aar",
+========
+          "url": "toolkit-compose-android-0.2.24.aar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module
           "size": 3220,
           "sha512": "1cdd2b8303236304c3e5499f41abb581d62a1cd916e02241192835ce62a73f2d525e515cedca5ae000e1f566bacff60de255d3bd83d78a17a3917cea03a42e60",
           "sha256": "ba8c6ef63fa646a57603c27661ca7b80d44bf7ab4be8ba27cec896974b7fa26c",
@@ -64,7 +79,11 @@
           "group": "se.soderbjorn.darkness",
           "module": "toolkit-core",
           "version": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module
             "requires": "0.2.25"
+========
+            "requires": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module
           },
           "excludes": [
             {
@@ -190,7 +209,11 @@
       "files": [
         {
           "name": "toolkit-compose-release.aar",
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module
           "url": "toolkit-compose-android-0.2.25.aar",
+========
+          "url": "toolkit-compose-android-0.2.24.aar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module
           "size": 3220,
           "sha512": "1cdd2b8303236304c3e5499f41abb581d62a1cd916e02241192835ce62a73f2d525e515cedca5ae000e1f566bacff60de255d3bd83d78a17a3917cea03a42e60",
           "sha256": "ba8c6ef63fa646a57603c27661ca7b80d44bf7ab4be8ba27cec896974b7fa26c",
@@ -212,8 +235,13 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module
           "name": "toolkit-compose-android-0.2.25-sources.jar",
           "url": "toolkit-compose-android-0.2.25-sources.jar",
+========
+          "name": "toolkit-compose-android-0.2.24-sources.jar",
+          "url": "toolkit-compose-android-0.2.24-sources.jar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module
           "size": 1937,
           "sha512": "cf56103c015d2af0dc2607e9da994b2b3accf6cc83524babc96e9588a795a0901f62dc09ef0ae99034147972f96702c8d1d60c2f93484a128b66d7527b38bcdf",
           "sha256": "85be6d7729fefe0355968e891b874eb6dc0a7d5911b38ad1de8bae3d107a4166",

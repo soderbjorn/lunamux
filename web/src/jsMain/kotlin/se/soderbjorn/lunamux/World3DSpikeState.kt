@@ -288,6 +288,42 @@ internal var spikeStashBeaconLabel: se.soderbjorn.lunamux.three.CSS3DObject? = n
 internal val spikeCosmos: MutableList<SpikeCosmosBody> = mutableListOf()
 
 /**
+ * The **stash station** hull group (the enclosing hangar around the shelf), or `null`
+ * when closed or the feature is off. A [se.soderbjorn.lunamux.three.Group] holding every
+ * wall / door-frame [CSS3DObject]; built once per open by [buildStashStation] and cleared
+ * by [clearStashStation] (the DOM goes down with the overlay). Its presence also gates the
+ * fly-through-the-door cinematic ([stationBuilt]). @see buildStashStation
+ */
+internal var spikeStashStation: se.soderbjorn.lunamux.three.Group? = null
+
+/**
+ * Optional **follow-on flight** chained after the current cinematic tour lands — the
+ * mechanism behind the two-leg fly-through-the-door journeys ([flyStationEnter] in, and
+ * [resetCamera]'s hangar return out). Set by [flyCamTo]'s `then` parameter; the render loop invokes it the
+ * frame the tour completes (which typically arms the *next* [flyCamTo], continuing the
+ * chain) and clears it. `null` for an ordinary one-leg flight. @see flyCamTo @see startSpikeLoop
+ */
+internal var spikeCamTourThen: (() -> Unit)? = null
+
+/**
+ * The **active stash chase**, or `null` when no stash/unstash flight is under way. While
+ * set, the render loop drives the camera as a chase cam trailing the pane
+ * ([tickStashChase]) instead of running a scripted [flyCamTo] arc — so you watch the pane
+ * sail up to (or down from) the station the whole way. Armed by [armStashChase] from
+ * [stashFront] / [unstashNearest]; cleared when the pane reaches its destination.
+ * @see StashChase @see stationBuilt
+ */
+internal var spikeStashChase: StashChase? = null
+
+/**
+ * Eased 0..1 **chase spotlight** weight — rises toward 1 while a [spikeStashChase] runs and
+ * falls to 0 otherwise. The render loop fades every pane *except* the chased one by this
+ * amount, so the ring's neighbour panes (which sit right at the camera as it leaves or
+ * returns to the ring) can't occlude the travelling pane. @see STASH_CHASE_FOCUS_EASE
+ */
+internal var spikeChaseFocus = 0.0
+
+/**
  * The **wormhole spawns** currently in flight — normally empty, or holding a single
  * [WormholeSpawn] while a newly-created pane is being born through a vortex. Armed by
  * [armWormholeSpawn], advanced/drawn each frame by [tickWormhole], and cleared by
@@ -389,6 +425,24 @@ internal var spikeNavLabel: HTMLElement? = null
 
 /** Timer handle for the nav-label's auto fade-out (cancelled/restarted on each cycle). */
 internal var spikeNavLabelTimer: Int? = null
+
+/**
+ * Target world-x the **shelf pan** is easing the camera toward, or `null` when no pan
+ * is active. Set by [shelfBrowse] to the browsed slot's x; the render loop trucks
+ * [spikeCamX] toward it each frame (fixed y/z and straight-ahead gaze — a clean lateral
+ * dolly along the dock row) and clears it on arrival. Any cinematic flight ([flyCamTo])
+ * or station chase ([armStashChase]) clears it so a pending pan can't fight a journey.
+ * @see SHELF_PAN_EASE @see shelfBrowse
+ */
+internal var spikeShelfPanTargetX: Double? = null
+
+/**
+ * Last-seen `cameraAtShelf()` value the legend was rendered for — the render loop
+ * watches for a change and re-runs [updateLegendVisibility] when the camera crosses
+ * in/out of the dock, so the shortcuts table trims to (or restores from) the
+ * dock-only subset ([SHELF_SHORTCUT_IDS]) without polling the DOM every frame.
+ */
+internal var spikeLegendAtShelf: Boolean = false
 
 /**
  * **Free-fly camera** state — a true 6-DOF *spaceship* flight model. The pose is a

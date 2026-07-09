@@ -84,14 +84,27 @@ internal fun buildRingChrome(overlay: HTMLElement) {
 }
 
 /**
- * Flashes the current front pane's name in the big centre label: rebuilds its
- * content (pane title + tab name), fades it in, and schedules a quick fade-out —
- * a "now showing" cue as you cycle panes/tabs. Restarts the fade on every call so
- * rapid cycling always shows the latest.
+ * Flashes the current **front ring pane's** name in the big top-left label — the
+ * "now showing" cue at the command center. Thin wrapper over [showNavLabelFor].
  */
 internal fun showNavLabel() {
-    val label = spikeNavLabel ?: return
     val p = spikePanes.getOrNull(frontIndex()) ?: return
+    showNavLabelFor(p)
+}
+
+/**
+ * Flashes [p]'s name in the big top-left label: rebuilds its content (tab name +
+ * pane title), fades it in, and schedules a quick fade-out — a "now showing" cue.
+ * Restarts the fade on every call so rapid cycling always shows the latest. Used at
+ * the command center for the fronted ring pane ([showNavLabel]) *and* up at the dock
+ * for the browsed/stashed pane ([shelfBrowse]/[stashFront]/[toggleStashView]), so the
+ * dock names its focused window in the same white text the command center does.
+ *
+ * @param p the pane whose name to display.
+ * @see showNavLabel @see shelfBrowse
+ */
+internal fun showNavLabelFor(p: RingPane) {
+    val label = spikeNavLabel ?: return
     while (label.firstChild != null) label.removeChild(label.firstChild!!)
 
     // Show the **tab name** prominently (falling back to the pane title when there
@@ -384,16 +397,41 @@ private fun buildLegendPanel(
 }
 
 /**
+ * The subset of navigate-mode [SPIKE_SHORTCUTS] ids that stay live — and visible in
+ * the legend — while the camera is **up at the dock/stash shelf** ([cameraAtShelf]).
+ * Up here you can only browse the docked windows, unstash one, fly back down without
+ * a stash, drop into free-fly, hide the legend or close the world; the command-center
+ * actions (pane/tab navigation, zoom, grid, selection, reformat, new/remove, …) have
+ * no meaning at the dock, so [buildKeyHandler] ignores them and [updateLegendVisibility]
+ * hides their rows. @see cameraAtShelf @see buildKeyHandler
+ */
+internal val SHELF_SHORTCUT_IDS: Set<String> = setOf(
+    "shelf-browse", "stash", "stash-view", "fly", "cam-home", "legend", "close",
+)
+
+/**
  * Shows/hides the two legend panels: the navigate legend when not flying,
  * the fly legend while flying — and neither when the user hid shortcuts
- * with `k` ([spikeLegendHidden], one flag for both).
+ * with `k` ([spikeLegendHidden], one flag for both). While the navigate legend
+ * is up **and the camera is at the dock** ([cameraAtShelf]), it further trims the
+ * table to just the dock-relevant rows ([SHELF_SHORTCUT_IDS]) — the same actions
+ * [buildKeyHandler] still honours up there — so the legend never advertises a key
+ * that does nothing at the dock.
  *
- * Called by [buildShortcutsLegend] on build, [toggleLegend] on `k`, and
- * [toggleFlyMode] on every mode change.
+ * Called by [buildShortcutsLegend] on build, [toggleLegend] on `k`,
+ * [toggleFlyMode] on every mode change, and the render loop when the camera
+ * crosses in/out of the dock.
  */
 internal fun updateLegendVisibility() {
-    spikeLegendPanel?.style?.display = if (!spikeLegendHidden && !spikeFlyMode) "" else "none"
+    val navVisible = !spikeLegendHidden && !spikeFlyMode
+    spikeLegendPanel?.style?.display = if (navVisible) "" else "none"
     spikeFlyLegendPanel?.style?.display = if (!spikeLegendHidden && spikeFlyMode) "" else "none"
+    if (navVisible) {
+        val atShelf = cameraAtShelf()
+        for ((id, row) in spikeLegendRows) {
+            row.style.display = if (!atShelf || id in SHELF_SHORTCUT_IDS) "" else "none"
+        }
+    }
 }
 
 /**

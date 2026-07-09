@@ -3,7 +3,11 @@
   "component": {
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-core",
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
     "version": "0.2.25",
+========
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -47,8 +51,13 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
           "name": "toolkit-core-metadata-0.2.25.jar",
           "url": "toolkit-core-0.2.25.jar",
+========
+          "name": "toolkit-core-metadata-0.2.24.jar",
+          "url": "toolkit-core-0.2.24.jar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
           "size": 11612,
           "sha512": "5a0ed343e501dbcb09fcec6c13febd1b3806ee43775de2ff3ae0ccbeed52c6cb31ad5db98c7cdacc48c711bb5a3e858ce3318f74a52e9e06d5f0fe36c80421e7",
           "sha256": "36319487b5f32f75fa1a3ca41553f7b2d7dbb30fa49f396925658ba232880b54",
@@ -69,6 +78,7 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
           "name": "toolkit-core-kotlin-0.2.25-sources.jar",
           "url": "toolkit-core-0.2.25-sources.jar",
           "size": 36687,
@@ -76,6 +86,15 @@
           "sha256": "61fe5b2d88d4b63eb498abd1589c3a2ef2d280554e643d9e24d0c85490886f87",
           "sha1": "e5308b513acc975ff779cc2d8a42f1bb57d5c8d8",
           "md5": "6fa9ae9c307739a5110be2efcd9279c3"
+========
+          "name": "toolkit-core-kotlin-0.2.24-sources.jar",
+          "url": "toolkit-core-0.2.24-sources.jar",
+          "size": 36681,
+          "sha512": "99f5e9f7c4490058e63f89895a4ef2bc168c1902718980d189a1c3a30c7f9fbbc5222e55440fd265bfa86208cce0a48f0e151072aed7a036e039b909e97e40b5",
+          "sha256": "c3cffb76afc4156f7ad07936f95d8d4d95b6e0267ecf4eee7e55d10a641c7d53",
+          "sha1": "bec60e1217a0586d832840be78812acaffd166d0",
+          "md5": "8ed338690b20b9a2452708a8a81e5a9d"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
         }
       ]
     },
@@ -88,10 +107,17 @@
         "org.jetbrains.kotlin.platform.type": "androidJvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-android",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-android",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -103,10 +129,17 @@
         "org.jetbrains.kotlin.platform.type": "androidJvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-android",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-android",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -121,10 +154,17 @@
         "org.jetbrains.kotlin.platform.type": "androidJvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-android/0.2.25/toolkit-core-android-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-android",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-android/0.2.24/toolkit-core-android-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-android",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -137,10 +177,17 @@
         "org.jetbrains.kotlin.platform.type": "native"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-iosarm64",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-iosarm64",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -155,10 +202,17 @@
         "org.jetbrains.kotlin.platform.type": "native"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-iosarm64",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-iosarm64",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -171,10 +225,17 @@
         "org.jetbrains.kotlin.platform.type": "native"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-iosarm64/0.2.25/toolkit-core-iosarm64-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-iosarm64",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-iosarm64/0.2.24/toolkit-core-iosarm64-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-iosarm64",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -187,10 +248,17 @@
         "org.jetbrains.kotlin.platform.type": "native"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-iossimulatorarm64",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-iossimulatorarm64",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -205,10 +273,17 @@
         "org.jetbrains.kotlin.platform.type": "native"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-iossimulatorarm64",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-iossimulatorarm64",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -221,10 +296,17 @@
         "org.jetbrains.kotlin.platform.type": "native"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-iossimulatorarm64/0.2.25/toolkit-core-iossimulatorarm64-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-iossimulatorarm64",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-iossimulatorarm64/0.2.24/toolkit-core-iossimulatorarm64-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-iossimulatorarm64",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -237,10 +319,17 @@
         "org.jetbrains.kotlin.platform.type": "js"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-js",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-js",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -253,10 +342,17 @@
         "org.jetbrains.kotlin.platform.type": "js"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-js",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-js",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -271,10 +367,17 @@
         "org.jetbrains.kotlin.platform.type": "js"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-js/0.2.25/toolkit-core-js-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-js",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-js/0.2.24/toolkit-core-js-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-js",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -287,10 +390,17 @@
         "org.jetbrains.kotlin.platform.type": "jvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-jvm",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-jvm",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -303,10 +413,17 @@
         "org.jetbrains.kotlin.platform.type": "jvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-jvm",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-jvm",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     },
     {
@@ -321,10 +438,17 @@
         "org.jetbrains.kotlin.platform.type": "jvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.25/toolkit-core-0.2.25.module
         "url": "../../toolkit-core-jvm/0.2.25/toolkit-core-jvm-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-core-jvm",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-core-jvm/0.2.24/toolkit-core-jvm-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-core-jvm",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-core/0.2.24/toolkit-core-0.2.24.module
       }
     }
   ]

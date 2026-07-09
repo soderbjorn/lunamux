@@ -193,6 +193,44 @@ internal fun startSpikeLoop() {
                 if (spikeCamTourLandPristine) {
                     spikeCamFlown = false
                 }
+                // Chain the next leg (the fly-through-the-door stash journeys sequence
+                // approach → door transit → interior this way). Capture and clear first,
+                // then invoke: the follow-on typically arms the next [flyCamTo], which
+                // sets [spikeCamReturning] true again so the tour continues next frame.
+                val next = spikeCamTourThen
+                spikeCamTourThen = null
+                next?.invoke()
+            }
+        }
+        // Stash chase cam: while a pane flies to/from the station, trail it (this writes
+        // the absolute pose the flown branch below applies). Skipped while a scripted tour
+        // is playing (e.g. the home-settle flight armed when an unstash chase completes).
+        if (spikeStashChase != null && !spikeCamReturning) tickStashChase()
+        // Chase spotlight weight: rise toward 1 while chasing (the world's other panes fade
+        // out below so none occludes the travelling one), fall back to 0 otherwise.
+        spikeChaseFocus += ((if (spikeStashChase != null) 1.0 else 0.0) - spikeChaseFocus) * STASH_CHASE_FOCUS_EASE
+        // Dock legend trim: when the camera crosses in/out of the dock, re-run the legend
+        // visibility so the shortcuts table drops to (or restores from) its dock-only
+        // subset. Edge-triggered off the cached flag so it touches the DOM only on the
+        // crossing, not every frame. @see updateLegendVisibility @see SHELF_SHORTCUT_IDS
+        val atShelfNow = cameraAtShelf()
+        if (atShelfNow != spikeLegendAtShelf) {
+            spikeLegendAtShelf = atShelfNow
+            updateLegendVisibility()
+        }
+        // Shelf dolly: while browsing the dock ←/→ ([shelfBrowse]), truck the camera
+        // straight sideways toward the browsed slot's x — fixed height, depth and
+        // forward gaze — so the row slides past cleanly instead of the camera swinging
+        // inward the way a look-at-destination tour did. Dormant during any tour/chase
+        // (those own the pose and clear the target) and in free-fly. @see spikeShelfPanTargetX
+        if (spikeShelfPanTargetX != null && !spikeCamReturning && !spikeFlyMode &&
+            spikeStashChase == null && spikeCamFlown
+        ) {
+            val tx = spikeShelfPanTargetX!!
+            spikeCamX += (tx - spikeCamX) * SHELF_PAN_EASE
+            if (abs(tx - spikeCamX) < SHELF_PAN_STOP_EPS) {
+                spikeCamX = tx
+                spikeShelfPanTargetX = null
             }
         }
         if (!spikeCamFlown) {
@@ -417,11 +455,23 @@ internal fun startSpikeLoop() {
                     pz = min(pz, RING_R - SIDE_NEAR_CLEARANCE - protrude)
                 }
                 var px = sin(theta) * RING_R
-                // Lerp the whole plane between its ring slot and its shelf slot, so a
+                // Move the whole plane between its ring slot and its shelf slot, so a
                 // stashing pane visibly flies up (and an unstashing one sails back down).
+                // With the station built the path routes up and *in through the bay door*
+                // ([stashPanePath]); off-station it is the plain ring→shelf lerp.
                 if (p.stashProg > 0.001) {
                     val (sx, sy, sz) = stashShelfPos(p.stashSlot)
-                    px += (sx - px) * stashE; py += (sy - py) * stashE; pz += (sz - pz) * stashE
+                    val (npx, npy, npz) = stashPanePath(px, py, pz, sx, sy, sz, p.stashProg)
+                    px = npx; py = npy; pz = npz
+                    // Docked panes bob too: the ring bob above is applied to the pre-lerp
+                    // ring-slot y and fades out as the pane climbs to the shelf, so add a
+                    // fresh idle bob around the *shelf* rest position, faded in by stashE
+                    // (full once parked, zero on the ring) and phase-staggered by shelf
+                    // slot so neighbours drift out of sync — the same gentle bob the ring
+                    // panes have, now on the dock. @see BOB_AMPLITUDE
+                    if (spikeBobEnabled) {
+                        py += sin(spikeBobPhase + p.stashSlot * BOB_STAGGER) * BOB_AMPLITUDE * stashE
+                    }
                 }
                 p.obj.position.set(px, py, pz)
                 // A shelved pane squarely faces the viewer (its sphere yaw/tilt eased to
@@ -453,7 +503,19 @@ internal fun startSpikeLoop() {
                 }
                 // A stashing pane sits far off the ring where the focus/fly fade would
                 // hide it, so lift its opacity toward full by its stash progress.
-                val vis = fade + (1.0 - fade) * stashE
+                var vis = fade + (1.0 - fade) * stashE
+                // Chase spotlight: while a stash chase runs, fade every pane except the
+                // travelling one so none of the ring's neighbour panes (which sit right at
+                // the camera as it leaves / returns to the ring) can occlude it. The chased
+                // pane is held lit. Eased by [spikeChaseFocus] so the world dissolves out and
+                // back rather than popping.
+                if (spikeChaseFocus > 0.001) {
+                    vis = if (spikeStashChase?.paneId == p.paneId) {
+                        maxOf(vis, spikeChaseFocus)
+                    } else {
+                        vis * (1.0 - spikeChaseFocus * (1.0 - STASH_CHASE_OTHER_OPACITY))
+                    }
+                }
                 p.wrapper.style.setProperty("opacity", vis.toString())
                 p.wrapper.style.setProperty("display", if (vis <= 0.01) "none" else "")
 

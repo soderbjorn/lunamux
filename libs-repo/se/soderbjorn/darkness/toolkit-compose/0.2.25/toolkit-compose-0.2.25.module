@@ -3,7 +3,11 @@
   "component": {
     "group": "se.soderbjorn.darkness",
     "module": "toolkit-compose",
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
     "version": "0.2.25",
+========
+    "version": "0.2.24",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
     "attributes": {
       "org.gradle.status": "release"
     }
@@ -27,7 +31,11 @@
           "group": "se.soderbjorn.darkness",
           "module": "toolkit-core",
           "version": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
             "requires": "0.2.25"
+========
+            "requires": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
           }
         },
         {
@@ -40,8 +48,13 @@
       ],
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
           "name": "toolkit-compose-metadata-0.2.25.jar",
           "url": "toolkit-compose-0.2.25.jar",
+========
+          "name": "toolkit-compose-metadata-0.2.24.jar",
+          "url": "toolkit-compose-0.2.24.jar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
           "size": 762,
           "sha512": "6e9cf83233f838a52f0fde57e0061644b8118693dac1377750c9b465b6afb238fdd93e3eb70afebb14e0e708d8410e53bb083acb680e2ace0cfc1c45e1ad29b2",
           "sha256": "318be4b86b8be76a3ed8db53200f4807f3e440e204bb74e2fbb4772825940f43",
@@ -62,8 +75,13 @@
       },
       "files": [
         {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
           "name": "toolkit-compose-kotlin-0.2.25-sources.jar",
           "url": "toolkit-compose-0.2.25-sources.jar",
+========
+          "name": "toolkit-compose-kotlin-0.2.24-sources.jar",
+          "url": "toolkit-compose-0.2.24-sources.jar",
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
           "size": 1937,
           "sha512": "cf56103c015d2af0dc2607e9da994b2b3accf6cc83524babc96e9588a795a0901f62dc09ef0ae99034147972f96702c8d1d60c2f93484a128b66d7527b38bcdf",
           "sha256": "85be6d7729fefe0355968e891b874eb6dc0a7d5911b38ad1de8bae3d107a4166",
@@ -81,10 +99,17 @@
         "org.jetbrains.kotlin.platform.type": "androidJvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
         "url": "../../toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-compose-android",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-android",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
       }
     },
     {
@@ -96,10 +121,17 @@
         "org.jetbrains.kotlin.platform.type": "androidJvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
         "url": "../../toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-compose-android",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-android",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
       }
     },
     {
@@ -114,10 +146,17 @@
         "org.jetbrains.kotlin.platform.type": "androidJvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
         "url": "../../toolkit-compose-android/0.2.25/toolkit-compose-android-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-compose-android",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-compose-android/0.2.24/toolkit-compose-android-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-android",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
       }
     },
     {
@@ -130,10 +169,17 @@
         "org.jetbrains.kotlin.platform.type": "jvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
         "url": "../../toolkit-compose-jvm/0.2.25/toolkit-compose-jvm-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-compose-jvm",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-compose-jvm/0.2.24/toolkit-compose-jvm-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-jvm",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
       }
     },
     {
@@ -146,10 +192,17 @@
         "org.jetbrains.kotlin.platform.type": "jvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
         "url": "../../toolkit-compose-jvm/0.2.25/toolkit-compose-jvm-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-compose-jvm",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-compose-jvm/0.2.24/toolkit-compose-jvm-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-jvm",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
       }
     },
     {
@@ -164,10 +217,17 @@
         "org.jetbrains.kotlin.platform.type": "jvm"
       },
       "available-at": {
+<<<<<<<< HEAD:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.25/toolkit-compose-0.2.25.module
         "url": "../../toolkit-compose-jvm/0.2.25/toolkit-compose-jvm-0.2.25.module",
         "group": "se.soderbjorn.darkness",
         "module": "toolkit-compose-jvm",
         "version": "0.2.25"
+========
+        "url": "../../toolkit-compose-jvm/0.2.24/toolkit-compose-jvm-0.2.24.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-jvm",
+        "version": "0.2.24"
+>>>>>>>> feature/more-3d-effects:libs-repo/se/soderbjorn/darkness/toolkit-compose/0.2.24/toolkit-compose-0.2.24.module
       }
     }
   ]

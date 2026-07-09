@@ -68,7 +68,7 @@ internal fun buildStashBeacon(scene: Scene, chrome: SpikeChrome) {
     spikeStashBeaconSpin = spin
     spikeStashBeaconPhase = 0.0
 
-    // The "STASH" banner floats above the crystal, at the row's x-origin and the shelf's
+    // The "Window Dock" banner floats above the crystal, at the row's x-origin and the shelf's
     // small +Z bias, facing +Z toward the stash-view landing pose (a plane's default
     // normal is +Z, so no rotation) — a real sign fixed in world space, so flying around
     // it turns in 3D like the crystal. The shelf-arrival flights ([shelfArrivalPose])
