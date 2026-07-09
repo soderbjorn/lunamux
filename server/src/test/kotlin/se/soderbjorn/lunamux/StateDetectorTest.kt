@@ -5,7 +5,9 @@
  * AI coding assistant states (working, waiting, idle) from rendered terminal
  * text. Tests cover Claude Code approval prompts (plan-mode, tool-approval,
  * boxed menus), the "esc to interrupt" / "esc to cancel" markers, idle-prompt
- * detection, and Gemini CLI's "esc to cancel," variant.
+ * detection, Gemini CLI's "esc to cancel," variant, and the structural gating
+ * of Gemini's confirmation overlay (so prose quoting "Apply this change?" is
+ * not misreported as waiting).
  *
  * @see StateDetector
  * @see SessionState
@@ -290,6 +292,105 @@ class StateDetectorTest {
             SessionState(cli = "claude", state = "working"),
             StateDetector.detectState(text),
         )
+    }
+
+    @Test
+    fun `gemini confirmation overlay with option list is gemini waiting`() {
+        // The genuine Gemini approval overlay: the prompt on its own line
+        // followed by the cursor-selected option list. This must still be
+        // detected as waiting after the structural gating change.
+        val text = """
+            Apply this change?
+            ❯ Allow once
+              Allow for this session
+              No, suggest changes (esc)
+        """.trimIndent()
+        assertEquals(
+            SessionState(cli = "gemini", state = "waiting"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `agent prose quoting apply this change is not waiting`() {
+        // Regression for the false-positive false "waiting" flag: an agent
+        // describing an approval UI it built printed the exact Gemini marker
+        // "Apply this change? [y/N]" as prose. Without the accompanying option
+        // list ("Allow once" + "Allow for this session" / "No, suggest changes")
+        // that prose must NOT be classified as a live Gemini confirmation. The
+        // pane is parked at its input prompt — i.e. idle.
+        val text = """
+            Verified through the real button path (agent asks → askInput):
+
+            - The hailing pane glows amber, leans out to the front, shows
+              ? Apply this change? [y/N], and fires a big sonar ping radiating
+              out across the sphere.
+            - A blue charging pane (server · api, mid-cargo build) sits alongside
+              for contrast — so at a glance: blue = working, amber = needs you.
+
+            ❯ add the awaiting input state to issue #117
+            ▶▶ auto mode on (shift+tab to cycle) · ← for agents
+        """.trimIndent()
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `bare allow once in prose is not waiting`() {
+        // "Allow once" is a generic phrase; on its own (no confirmation prompt,
+        // no second menu option) it must not trip the Gemini waiting branch.
+        val text = """
+            the permission dialog lets you Allow once or allow always
+            ❯
+        """.trimIndent()
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `codex approval overlay with prompt and option row is codex waiting`() {
+        // A Codex approval overlay reaching the Codex-specific branch: the
+        // "Would you like to …" prompt plus a cursor-selected option row, with
+        // no "esc to cancel" footer (which the earlier Claude branch would
+        // otherwise grab first). The option-row companion must confirm the
+        // live overlay after the structural gating change.
+        val text = """
+            Would you like to run the following command?
+                npm test
+            ❯ Yes, proceed
+              No, continue without running it
+        """.trimIndent()
+        assertEquals(
+            SessionState(cli = "codex", state = "waiting"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `codex overlay with esc to cancel footer is waiting`() {
+        // The full overlay (with the "Press enter to confirm or esc to cancel"
+        // footer) is caught by the earlier Claude "esc to cancel" branch: the
+        // CLI attribution is claude but the STATE — the thing clients act on —
+        // is correctly waiting. This documents that pre-existing interaction.
+        val text = """
+            Would you like to make the following edits?
+            ❯ Yes, proceed
+              No, continue without running it
+
+            Press enter to confirm or esc to cancel
+        """.trimIndent()
+        assertEquals("waiting", StateDetector.detectState(text)?.state)
+    }
+
+    @Test
+    fun `codex prompt phrase in prose without overlay is not waiting`() {
+        // An agent describing the Codex approval flow prints the prompt phrase
+        // as prose. Without a companion overlay element (footer or option row)
+        // it must not be classified as a live Codex overlay.
+        val text = """
+            Codex will pop an overlay asking "would you like to run the following
+            command" before executing anything, which you then approve.
+            ❯
+        """.trimIndent()
+        assertNull(StateDetector.detectState(text))
     }
 
     @Test

@@ -188,6 +188,56 @@ object StateDetector {
         """waiting for (?:\d+ )?background agents?""",
     )
 
+    // Gemini CLI's approval overlay renders its confirmation prompt on its own
+    // line followed by a fixed option list, the first row cursor-selected:
+    //
+    //   Apply this change?
+    //   > Allow once
+    //     Allow for this session
+    //     No, suggest changes (esc)
+    //
+    // This anchors on the "Allow once" option row (line-start, optionally
+    // prefixed by the selection cursor ">"/"❯" and whitespace). It exists
+    // so the Gemini "waiting" classification can be gated structurally on the
+    // presence of the live option list, the same way the Claude approval-menu
+    // detection requires numbered options. Without it, an agent merely *printing*
+    // the prose phrase "Apply this change?" (e.g. describing an approval UI it is
+    // building) would trip a bare substring match and be misreported as waiting.
+    private val GEMINI_MENU_ALLOW_ONCE = Regex(
+        """(?m)^[\s>❯]*allow once\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // Codex CLI's approval-overlay prompt lines. The overlay renders one of
+    // these "Would you like to …" questions at the top, an option list, and a
+    // "Press enter to confirm or esc to cancel" footer:
+    //
+    //   Would you like to run the following command?
+    //       npm test
+    //   > Yes, proceed
+    //     No, continue without running it
+    //
+    //   Press enter to confirm or esc to cancel
+    //
+    // Matched as the prompt half of a structurally-gated waiting classification
+    // (see [detectState]); on its own the phrase can appear in prose (an agent
+    // describing the Codex approval flow), so it is required to co-occur with a
+    // companion overlay element before it counts.
+    private val CODEX_CONFIRM_PROMPT = Regex(
+        """would you like to (?:run the following command|make the following edits|grant these permissions)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    // A Codex overlay option row — the cursor-selectable "Yes, proceed" /
+    // "No, continue without …" choices, line-anchored (optionally prefixed by
+    // the "❯"/">" selection cursor or a "│" box border). Used as one of the
+    // companion anchors that confirms a live Codex overlay rather than quoted
+    // prose.
+    private val CODEX_OPTION_ROW = Regex(
+        """(?m)^[\s│>❯]*(?:yes, proceed|no, continue without)""",
+        RegexOption.IGNORE_CASE,
+    )
+
     /**
      * Scan the given [text] (typically the tail of a PTY ring buffer, decoded
      * as UTF-8) for known CLI state indicators.
@@ -315,12 +365,19 @@ object StateDetector {
 
         // ── OpenAI Codex CLI ────────────────────────────────────────
         // Codex approval overlays show distinctive prompt text when waiting
-        // for the user to confirm an action.
-        if ("would you like to run the following command" in lower ||
-            "would you like to make the following edits" in lower ||
-            "would you like to grant these permissions" in lower ||
-            "press enter to confirm or esc to cancel" in lower
-        ) {
+        // for the user to confirm an action. As with the Gemini overlay below,
+        // gate structurally rather than on a bare substring: an agent describing
+        // the Codex approval flow can print these phrases into its own output,
+        // which a single-phrase match would misreport as waiting. Require the
+        // "Would you like to …" prompt to co-occur with a companion overlay
+        // element — the "Press enter to confirm or esc to cancel" footer or a
+        // cursor-selectable "Yes, proceed" / "No, continue without …" option
+        // row — before classifying the pane as waiting.
+        val codexPrompt = CODEX_CONFIRM_PROMPT.containsMatchIn(lower)
+        val codexCompanion =
+            "press enter to confirm or esc to cancel" in lower ||
+                CODEX_OPTION_ROW.containsMatchIn(text)
+        if (codexPrompt && codexCompanion) {
             return SessionState(cli = "codex", state = "waiting")
         }
 
@@ -330,11 +387,27 @@ object StateDetector {
         if ("thinking..." in lower || "working..." in lower) {
             return SessionState(cli = "gemini", state = "working")
         }
-        // Gemini confirmation prompts.
-        if ("apply this change?" in lower ||
-            "waiting for user confirmation" in lower ||
-            "allow once" in lower
-        ) {
+        // Gemini confirmation overlay. Unlike the status labels above, the
+        // approval prompt phrases here ("Apply this change?", "Allow once")
+        // are short and readily appear in normal prose — an agent describing
+        // or building an approval UI will print them into its own output. A
+        // bare substring match therefore yields false "waiting" positives, so
+        // gate structurally (mirroring the Claude approval-menu guard above):
+        // require BOTH the confirmation prompt / cursor-selected "Allow once"
+        // row AND a second, distinctive menu option ("Allow for this session"
+        // or "No, suggest changes") to co-occur — the shape of the live overlay,
+        // not just a quoted phrase.
+        val geminiPrompt =
+            "apply this change?" in lower || GEMINI_MENU_ALLOW_ONCE.containsMatchIn(text)
+        val geminiMenuOption =
+            "allow for this session" in lower || "no, suggest changes" in lower
+        if (geminiPrompt && geminiMenuOption) {
+            return SessionState(cli = "gemini", state = "waiting")
+        }
+        // Gemini's own "Waiting for user confirmation…" status label is a
+        // distinctive full phrase (not a generic prose fragment), so it stands
+        // on its own as a waiting signal.
+        if ("waiting for user confirmation" in lower) {
             return SessionState(cli = "gemini", state = "waiting")
         }
 
