@@ -96,8 +96,9 @@ fun LunamuxApp(applicationContext: Context) {
             // branded "Lunamux Dark"/"Lunamux Light" slots — and provide it via
             // the same MaterialTheme + LocalUiSettings wrappers the rest of the
             // app uses. Without these wrappers LocalUiSettings.current is null and
-            // every Sidebar* accessor falls back to its hardcoded (green) constant
-            // instead of the on-brand cyan accent.
+            // every Sidebar* accessor falls back to its neutral hardcoded constant
+            // (and Material's green `secondary` can leak through) instead of the
+            // on-brand navy surface + cyan accent.
             val onboardingIsDark = isSystemInDarkTheme()
             val onboardingTheme = remember(onboardingIsDark) {
                 ThemeSnapshotV2().resolve(onboardingIsDark)
@@ -145,9 +146,17 @@ fun LunamuxApp(applicationContext: Context) {
     // Resolve the active slot for the current system appearance. Re-runs when
     // either the snapshot or the system dark-mode flag changes, so the provided
     // ResolvedTheme always reflects the correct light/dark theme slot.
+    //
+    // The hosts list is the NavHost start destination, so it renders before any
+    // server connection exists and themeSnapshot is still null. Fall back to the
+    // *default* ThemeSnapshotV2 — pinned to the branded "Lunamux Dark"/"Lunamux
+    // Light" slots — rather than leaving LocalUiSettings null. A null theme would
+    // make every Sidebar* accessor drop to its neutral hardcoded constant (and
+    // let Material's green `secondary` leak through) instead of the on-brand navy
+    // surface + cyan accent. This mirrors the onboarding path above.
     val systemIsDark = isSystemInDarkTheme()
     val theme = remember(themeSnapshot, systemIsDark) {
-        themeSnapshot?.resolve(systemIsDark)
+        (themeSnapshot ?: ThemeSnapshotV2()).resolve(systemIsDark)
     }
 
     // Drive the Material colour scheme from the *chosen* appearance (resolved
