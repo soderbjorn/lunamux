@@ -1,6 +1,6 @@
 {
   "name": "termtastic-electron",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Electron desktop wrapper for the Termtastic web app",
   "author": "Robert Söderbjörn",
   "main": "main.js",
