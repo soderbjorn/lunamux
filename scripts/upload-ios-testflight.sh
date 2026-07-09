@@ -3,7 +3,7 @@
 # internal TestFlight.
 #
 # Runs three steps with Apple's own tooling (no fastlane, no Ruby):
-#   1. xcodebuild archive        -> build/ios/Termtastic.xcarchive
+#   1. xcodebuild archive        -> build/ios/Lunamux.xcarchive
 #   2. xcodebuild -exportArchive -> uploads directly to App Store Connect
 #                                   (ExportOptions destination = upload)
 # Authentication uses an App Store Connect API key (.p8), so there is no
@@ -12,13 +12,13 @@
 # is no Beta App Review for internal testing.
 #
 # The API key path, Key ID and Issuer ID are read from local.properties
-# (keys termtasticAscKeyPath / termtasticAscKeyId / termtasticAscIssuerId),
+# (keys lunamuxAscKeyPath / lunamuxAscKeyId / lunamuxAscIssuerId),
 # mirroring how upload-android-appdistribution.sh reads its Firebase config.
 #
 # Required local.properties entries:
-#   termtasticAscKeyId=XXXXXXXXXX                 # 10-char Key ID
-#   termtasticAscIssuerId=xxxxxxxx-xxxx-xxxx-...  # Issuer ID (UUID)
-#   termtasticAscKeyPath=/path/to/key.p8          # optional; defaults below
+#   lunamuxAscKeyId=XXXXXXXXXX                 # 10-char Key ID
+#   lunamuxAscIssuerId=xxxxxxxx-xxxx-xxxx-...  # Issuer ID (UUID)
+#   lunamuxAscKeyPath=/path/to/key.p8          # optional; defaults below
 # All three appear in App Store Connect > Users and Access > Integrations.
 #
 # Optional args:
@@ -55,8 +55,8 @@ PROJECT="iosApp/iosApp.xcodeproj"
 SCHEME="iosApp"
 CONFIG="iosApp/Configuration/Config.xcconfig"
 EXPORT_OPTS="iosApp/Configuration/ExportOptions.plist"
-ARCHIVE="build/ios/Termtastic.xcarchive"
-DEFAULT_KEY_PATH="/Users/soderbjorn/.android/signing/termtastic-app-manager.p8"
+ARCHIVE="build/ios/Lunamux.xcarchive"
+DEFAULT_KEY_PATH="/Users/soderbjorn/.android/signing/lunamux-app-manager.p8"
 
 # --- Pre-flight: App Store Connect API config ------------------------------
 # Surface a clear error here rather than failing deep inside xcodebuild.
@@ -65,15 +65,15 @@ LOCAL_PROPS="local.properties"
 # exit that `set -e` would treat as fatal (before the friendly error below).
 prop() { grep -E "^$1=" "$LOCAL_PROPS" 2>/dev/null | head -1 | cut -d= -f2- || true; }
 
-KEY_ID="$(prop termtasticAscKeyId)"
-ISSUER_ID="$(prop termtasticAscIssuerId)"
-KEY_PATH="$(prop termtasticAscKeyPath)"
+KEY_ID="$(prop lunamuxAscKeyId)"
+ISSUER_ID="$(prop lunamuxAscIssuerId)"
+KEY_PATH="$(prop lunamuxAscKeyPath)"
 KEY_PATH="${KEY_PATH:-$DEFAULT_KEY_PATH}"
 
 CONFIG_MISSING=()
 [[ -f "$LOCAL_PROPS" ]] || CONFIG_MISSING+=("$LOCAL_PROPS file is absent")
-[[ -z "$KEY_ID"    ]] && CONFIG_MISSING+=("termtasticAscKeyId=<10-char Key ID> in $LOCAL_PROPS")
-[[ -z "$ISSUER_ID" ]] && CONFIG_MISSING+=("termtasticAscIssuerId=<issuer UUID> in $LOCAL_PROPS")
+[[ -z "$KEY_ID"    ]] && CONFIG_MISSING+=("lunamuxAscKeyId=<10-char Key ID> in $LOCAL_PROPS")
+[[ -z "$ISSUER_ID" ]] && CONFIG_MISSING+=("lunamuxAscIssuerId=<issuer UUID> in $LOCAL_PROPS")
 [[ -f "$KEY_PATH"  ]] || CONFIG_MISSING+=(".p8 API key not found at: $KEY_PATH")
 [[ -f "$EXPORT_OPTS" ]] || CONFIG_MISSING+=("export options plist missing: $EXPORT_OPTS")
 

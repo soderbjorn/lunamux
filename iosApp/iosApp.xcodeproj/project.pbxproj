@@ -11,7 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		FC485D06C25DE0404ED6D572 /* Termtastic.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Termtastic.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FC485D06C25DE0404ED6D572 /* Lunamux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lunamux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -55,7 +55,7 @@
 		81C51E99AA1CB5CBA9C05E57 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				FC485D06C25DE0404ED6D572 /* Termtastic.app */,
+				FC485D06C25DE0404ED6D572 /* Lunamux.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -93,7 +93,7 @@
 				A1B2C3D4E5F60001 /* SwiftTerm */,
 			);
 			productName = iosApp;
-			productReference = FC485D06C25DE0404ED6D572 /* Termtastic.app */;
+			productReference = FC485D06C25DE0404ED6D572 /* Lunamux.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -209,7 +209,7 @@
 					Client,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = se.soderbjorn.termtastic;
-				PRODUCT_NAME = Termtastic;
+				PRODUCT_NAME = Lunamux;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -314,7 +314,7 @@
 					Client,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = se.soderbjorn.termtastic;
-				PRODUCT_NAME = Termtastic;
+				PRODUCT_NAME = Lunamux;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

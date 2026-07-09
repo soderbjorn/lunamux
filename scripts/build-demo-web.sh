@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the Termtastic web client and deploy it as the embedded demo into the
-# marketing website (termtastic-web).
+# Build the Lunamux web client and deploy it as the embedded demo into the
+# marketing website (lunamux-web).
 #
 # The web client is a Kotlin/JS app; `:web:jsBrowserDistribution` runs the
 # production webpack build and assembles the bundle (web.js, the lazy 731.js
@@ -19,14 +19,14 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-WEBSITE_DIR="${1:-/Users/soderbjorn/repo/termtastic-web}"
+WEBSITE_DIR="${1:-/Users/soderbjorn/repo/lunamux-web}"
 DEST="$WEBSITE_DIR/demo-app"
 DIST="web/build/dist/js/productionExecutable"
 
 if [[ ! -d "$WEBSITE_DIR" ]]; then
     echo "error: website repo not found at: $WEBSITE_DIR" >&2
     echo "       pass the path as the first argument, e.g.:" >&2
-    echo "       $0 /path/to/termtastic-web" >&2
+    echo "       $0 /path/to/lunamux-web" >&2
     exit 1
 fi
 

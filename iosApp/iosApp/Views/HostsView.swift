@@ -295,7 +295,7 @@ private struct HostEditSheet: View {
         self.onSave = onSave
         _label = State(initialValue: initial?.label ?? "")
         _host = State(initialValue: initial?.host ?? "")
-        // New hosts default to the port every Termtastic server listens on.
+        // New hosts default to the port every Lunamux server listens on.
         _portText = State(initialValue: initial.map { String($0.port) }
             ?? String(ConstantsKt.SERVER_TLS_PORT))
     }
@@ -330,7 +330,7 @@ private struct HostEditSheet: View {
                         .onSubmit { focusedField = .port }
                         .foregroundStyle(Palette.textPrimary)
                 } footer: {
-                    Text("Hostname or IP address of your Mac running Termtastic.")
+                    Text("Hostname or IP address of your Mac running Lunamux.")
                         .foregroundStyle(Palette.textSecondary)
                 }
                 .listRowBackground(Palette.surface)
@@ -340,7 +340,7 @@ private struct HostEditSheet: View {
                         .keyboardType(.numberPad)
                         .foregroundStyle(Palette.textPrimary)
                 } footer: {
-                    Text("Termtastic servers listen on port \(String(ConstantsKt.SERVER_TLS_PORT)) by default.")
+                    Text("Lunamux servers listen on port \(String(ConstantsKt.SERVER_TLS_PORT)) by default.")
                         .foregroundStyle(Palette.textSecondary)
                 }
                 .listRowBackground(Palette.surface)

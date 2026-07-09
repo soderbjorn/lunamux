@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import Client
 
-/// Adaptive colour palette derived from the Termtastic semantic theme system.
+/// Adaptive colour palette derived from the Lunamux semantic theme system.
 ///
 /// Resolves colours from the user's selected theme via ``config``. When the
 /// config has not been loaded yet (e.g. before the first server fetch), falls
@@ -13,7 +13,7 @@ import Client
 /// ``config`` is set at connect time (in `HostsViewModel`) so that all views
 /// pick up the user's theme from the start.
 ///
-/// - SeeAlso: `Client.TermtasticThemeConfig.resolve(systemIsDark:)`
+/// - SeeAlso: `Client.LunamuxThemeConfig.resolve(systemIsDark:)`
 /// - SeeAlso: `Client.ResolvedTheme`
 enum Palette {
     /// The user's dual-slot theme config (light theme + dark theme) fetched
@@ -25,7 +25,7 @@ enum Palette {
     /// Backed by ``ThemeStore`` so an in-app theme/appearance change re-points
     /// every accessor *and* bumps the store's repaint generation. The setter is
     /// kept for `HostsViewModel`'s connect-time fetch.
-    static var config: Client.TermtasticThemeConfig? {
+    static var config: Client.LunamuxThemeConfig? {
         get { ThemeStore.shared.config }
         set { ThemeStore.shared.apply(newValue) }
     }

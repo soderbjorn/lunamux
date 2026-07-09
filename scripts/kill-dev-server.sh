@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Kill any Termtastic server listening on the dev TLS port (8444).
+# Kill any Lunamux server listening on the dev TLS port (8444).
 # The prod/packaged server runs on 8443 and is left alone.
 set -euo pipefail
 
-PORT="${TERMTASTIC_DEV_PORT:-8444}"
+PORT="${LUNAMUX_DEV_PORT:-8444}"
 
 pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN -n -P 2>/dev/null || true)"
 if [[ -z "$pids" ]]; then

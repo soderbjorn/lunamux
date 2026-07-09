@@ -13,11 +13,11 @@ plugins {
 // Resolve the signing-credentials properties file, which lives OUTSIDE the
 // repo so secrets never touch version control. The *path* to it comes from one
 // of the following, in precedence order:
-//   1. -PtermtasticKeystoreProps=/path/to/termtastic.properties (command line)
+//   1. -PlunamuxKeystoreProps=/path/to/termtastic.properties (command line)
 //      or the same key in ~/.gradle/gradle.properties (machine-global)
-//   2. `termtasticKeystoreProps` in the repo-root `local.properties`
+//   2. `lunamuxKeystoreProps` in the repo-root `local.properties`
 //      (project-local, gitignored — alongside sdk.dir)
-//   3. TERMTASTIC_KEYSTORE_PROPS environment variable (handy for CI)
+//   3. LUNAMUX_KEYSTORE_PROPS environment variable (handy for CI)
 // If none resolve to an existing file, debug uses the default debug key and
 // release stays unsigned, so a fresh checkout still builds.
 val localProps = Properties().apply {
@@ -25,9 +25,9 @@ val localProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val keystorePropsFile: File? =
-    ((findProperty("termtasticKeystoreProps") as String?)
-        ?: localProps.getProperty("termtasticKeystoreProps")
-        ?: System.getenv("TERMTASTIC_KEYSTORE_PROPS"))
+    ((findProperty("lunamuxKeystoreProps") as String?)
+        ?: localProps.getProperty("lunamuxKeystoreProps")
+        ?: System.getenv("LUNAMUX_KEYSTORE_PROPS"))
         ?.let { File(it) }
         ?.takeIf { it.exists() }
 val keystoreProps = Properties().apply {
@@ -39,23 +39,23 @@ val keystoreProps = Properties().apply {
 // OUTSIDE the repo and are read from the same external properties file as the
 // keystore (see above), or overridden via -P / env. Resolution order matches
 // the keystore's:
-//   1. -PtermtasticFirebaseAppId / -PtermtasticFirebaseCreds (command line)
-//   2. `termtasticFirebaseAppId` / `termtasticFirebaseCreds` in local.properties
+//   1. -PlunamuxFirebaseAppId / -PlunamuxFirebaseCreds (command line)
+//   2. `lunamuxFirebaseAppId` / `lunamuxFirebaseCreds` in local.properties
 //   3. `firebaseAppId` / `firebaseServiceCredentials` in the keystore props file
-//   4. TERMTASTIC_FIREBASE_APP_ID / TERMTASTIC_FIREBASE_CREDS env vars
+//   4. LUNAMUX_FIREBASE_APP_ID / LUNAMUX_FIREBASE_CREDS env vars
 // When unset, the plugin is still applied (so the upload task exists) but
 // normal builds are unaffected; the upload task only fails if actually invoked
 // without these values.
 val firebaseAppId: String? =
-    (findProperty("termtasticFirebaseAppId") as String?)
-        ?: localProps.getProperty("termtasticFirebaseAppId")
+    (findProperty("lunamuxFirebaseAppId") as String?)
+        ?: localProps.getProperty("lunamuxFirebaseAppId")
         ?: keystoreProps.getProperty("firebaseAppId")
-        ?: System.getenv("TERMTASTIC_FIREBASE_APP_ID")
+        ?: System.getenv("LUNAMUX_FIREBASE_APP_ID")
 val firebaseCredsFile: File? =
-    ((findProperty("termtasticFirebaseCreds") as String?)
-        ?: localProps.getProperty("termtasticFirebaseCreds")
+    ((findProperty("lunamuxFirebaseCreds") as String?)
+        ?: localProps.getProperty("lunamuxFirebaseCreds")
         ?: keystoreProps.getProperty("firebaseServiceCredentials")
-        ?: System.getenv("TERMTASTIC_FIREBASE_CREDS"))
+        ?: System.getenv("LUNAMUX_FIREBASE_CREDS"))
         ?.let { raw ->
             // Like `storeFile`, a relative path resolves against the props
             // file's own directory so the JSON can sit next to the keystore.
@@ -64,10 +64,13 @@ val firebaseCredsFile: File? =
         }
 
 android {
-    namespace = "se.soderbjorn.termtastic.android"
+    namespace = "se.soderbjorn.lunamux.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
+        // Permanent Play Store identity — must NEVER change across the
+        // Termtastic→Lunamux rename or existing installs orphan. Kept as the
+        // original id even though the namespace/packages moved to lunamux.
         applicationId = "se.soderbjorn.termtastic.android"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
@@ -94,7 +97,7 @@ android {
         // external properties file was found; otherwise debug uses the default
         // debug key and release stays unsigned.
         if (keystorePropsFile != null) {
-            create("termtastic") {
+            create("lunamux") {
                 // `storeFile` in the properties file may be absolute or relative;
                 // a relative path is resolved against the properties file's own
                 // directory, so the keystore can sit next to it outside the repo.
@@ -118,13 +121,13 @@ android {
     }
 
     buildTypes {
-        val termtasticSigning = signingConfigs.findByName("termtastic")
+        val lunamuxSigning = signingConfigs.findByName("lunamux")
         debug {
-            termtasticSigning?.let { signingConfig = it }
+            lunamuxSigning?.let { signingConfig = it }
         }
         release {
             isMinifyEnabled = false
-            termtasticSigning?.let { signingConfig = it }
+            lunamuxSigning?.let { signingConfig = it }
         }
     }
 }

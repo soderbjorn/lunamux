@@ -32,11 +32,11 @@ kotlin {
         // is the cleanest way to get strict TOFU pinning on iOS.
         iosTarget.compilations.getByName("main") {
             cinterops {
-                val termtasticTls by creating {
+                val lunamuxTls by creating {
                     definitionFile.set(
-                        project.file("src/nativeInterop/cinterop/termtasticTls.def")
+                        project.file("src/nativeInterop/cinterop/lunamuxTls.def")
                     )
-                    packageName("se.soderbjorn.termtastic.client.tlsinterop")
+                    packageName("se.soderbjorn.lunamux.client.tlsinterop")
                 }
             }
         }
@@ -82,7 +82,7 @@ kotlin {
 }
 
 android {
-    namespace = "se.soderbjorn.termtastic.client"
+    namespace = "se.soderbjorn.lunamux.client"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

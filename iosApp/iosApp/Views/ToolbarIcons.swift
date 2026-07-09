@@ -1,4 +1,4 @@
-/// Custom, hand-drawn toolbar glyphs shared across the termtastic clients.
+/// Custom, hand-drawn toolbar glyphs shared across the Lunamux clients.
 ///
 /// Both shapes here are drawn from scratch with SwiftUI `Path`s using the same
 /// 24-unit coordinate geometry as their Android (`LayoutGridIcon` / `PlusIcon`

@@ -7,4 +7,4 @@
  * resources/main/ by `copyMainBundle`. This file just `require()`s
  * the entry bundle so Electron's `main` field still points at a
  * standard CommonJS file. */
-require("./resources/main/Termtastic-electron-main.js");
+require("./resources/main/Lunamux-electron-main.js");

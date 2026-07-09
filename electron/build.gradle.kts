@@ -69,7 +69,7 @@ tasks.register<Exec>("run") {
     description = "Launch the Electron desktop shell pointing at the local server."
     dependsOn(npmInstall, copyMainBundle)
     workingDir = projectDir
-    environment("TERMTASTIC_URL", targetUrl)
+    environment("LUNAMUX_URL", targetUrl)
     commandLine(npmExec, "start")
 }
 
@@ -185,7 +185,7 @@ val signBundledJre by tasks.registering(Exec::class) {
         "bash",
         rootProject.file("scripts/sign-macho-tree.sh").absolutePath,
         jreDir.asFile.absolutePath,
-        layout.projectDirectory.file("build/entitlements.mac.plist").asFile.absolutePath,
+        layout.projectDirectory.file("entitlements.mac.plist").asFile.absolutePath,
     )
 }
 

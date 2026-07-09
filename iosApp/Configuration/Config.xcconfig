@@ -1,6 +1,6 @@
 TEAM_ID=
 
-PRODUCT_NAME=Termtastic
+PRODUCT_NAME=Lunamux
 PRODUCT_BUNDLE_IDENTIFIER=se.soderbjorn.termtastic.Termtastic$(TEAM_ID)
 
 CURRENT_PROJECT_VERSION=6

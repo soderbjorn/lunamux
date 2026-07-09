@@ -43,7 +43,7 @@ out/google-play/01-hero.jpg … 07-code.jpg    (upload to Play Console, phone)
 {
   "brand": {
     "eyebrow":    "// terminal · reimagined",       // small label above the headline
-    "url":        "https://termtastic.soderbjorn.se",
+    "url":        "https://lunamux.dev",
     "footerNote": "Requires the Termtastic app for Mac"
   },
   "screenshots": [

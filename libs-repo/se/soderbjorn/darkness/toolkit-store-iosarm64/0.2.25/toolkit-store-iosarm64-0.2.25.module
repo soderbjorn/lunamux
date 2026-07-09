@@ -1,0 +1,116 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../toolkit-store/0.2.25/toolkit-store-0.2.25.module",
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-store",
+    "version": "0.2.25",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "iosArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.25"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-iosArm64Main-0.2.25.klib",
+          "url": "toolkit-store-iosarm64-0.2.25.klib",
+          "size": 44815,
+          "sha512": "ef2414ec740a84012dfbfa1ee7ddec00928a86580f294276c8fbba9806a20d03ab9a92df6cc35317eb786824179c2165bc8e37c79af524a616ea73ecbe38d4da",
+          "sha256": "5cea65d41f36f9c4c379428ec17e046ade306e75dacb4a428bf327ae6d0b7ab8",
+          "sha1": "c982d69ac643b2cd307cb9f08d0cbc08a7f90e7c",
+          "md5": "3dd63c8a63ae4dccbab9b88b37eb1801"
+        }
+      ]
+    },
+    {
+      "name": "iosArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "files": [
+        {
+          "name": "toolkit-store-iosarm64-0.2.25-sources.jar",
+          "url": "toolkit-store-iosarm64-0.2.25-sources.jar",
+          "size": 13757,
+          "sha512": "787276d15fa9af841b1fa66b73895da3875289a6a037c7e408725edef7c3f80b49be1b569ec2943ca309347390c219c29b3103b47c68491eeae47ccb03499ced",
+          "sha256": "cd806bfef522f3138bab592e1c385d662e3bc90dbc34423a40f17163776cee88",
+          "sha1": "bbbfcef44773ae04d02753d4e48012260da71a78",
+          "md5": "e37a51a7ee22ecb62ea45dcb1fb8caf9"
+        }
+      ]
+    },
+    {
+      "name": "iosArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.25"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-iosarm64-0.2.25-metadata.jar",
+          "url": "toolkit-store-iosarm64-0.2.25-metadata.jar",
+          "size": 3865,
+          "sha512": "04b90be1fac4998be67ff1da2fe106314facb7b47c215cf9e19fe89ab20fda143978219de852d7a29826e1b6fdbccded8b8c580cb0724bafca815bf016128fa3",
+          "sha256": "b5ad73bbacc3cee6781b3230ed6d555a077b5c3d08d6dbd70a47553d1cb935d4",
+          "sha1": "81413065f19a1397160a8d670242827dcaf7041d",
+          "md5": "6e4e53f5c03d9d545bcff4a3f2660ca7"
+        }
+      ]
+    }
+  ]
+}

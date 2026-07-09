@@ -1,13 +1,13 @@
 import Foundation
 import Client
 
-/// Process-scoped singleton holding the live `TermtasticClient` and
+/// Process-scoped singleton holding the live `LunamuxClient` and
 /// `WindowSocket`. Mirrors the Android `ConnectionHolder` singleton.
 @Observable
 final class ConnectionHolder {
     static let shared = ConnectionHolder()
 
-    private(set) var client: Client.TermtasticClient?
+    private(set) var client: Client.LunamuxClient?
     private(set) var windowSocket: Client.WindowSocket?
 
     private init() {
@@ -59,7 +59,7 @@ final class ConnectionHolder {
             selfReportedIp: Self.firstNonLoopbackIPv4(),
             version: appVersion
         )
-        let fresh = Client.TermtasticClientKt.createTermtasticClient(
+        let fresh = Client.LunamuxClientKt.createLunamuxClient(
             serverUrl: serverUrl,
             authToken: authToken,
             identity: identity,

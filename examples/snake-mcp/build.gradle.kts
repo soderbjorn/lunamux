@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 /*
  * examples/snake-mcp — a standalone MCP client that plays Snake inside a
- * Termtastic agent-console pane, proving the Groups F+G tool surface end
+ * Lunamux agent-console pane, proving the Groups F+G tool surface end
  * to end (screen_draw/screen_present out, console_poll_input in).
  *
  * The main source set has NO dependency on the server — it talks to the
@@ -17,7 +17,7 @@ plugins {
     application
 }
 
-group = "se.soderbjorn.termtastic.examples"
+group = "se.soderbjorn.lunamux.examples"
 version = "1.0.0"
 
 // Match the server's Java 11 pin so the example builds in the same CI env.
@@ -32,7 +32,7 @@ java {
 }
 
 application {
-    mainClass.set("se.soderbjorn.termtastic.examples.snake.MainKt")
+    mainClass.set("se.soderbjorn.lunamux.examples.snake.MainKt")
 }
 
 dependencies {

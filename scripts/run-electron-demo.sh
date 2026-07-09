@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch the Termtastic Electron desktop shell in DEMO mode — a fully
+# Launch the Lunamux Electron desktop shell in DEMO mode — a fully
 # self-contained run that needs no backend server and no Java.
 #
 # How it works (see also client/.../demo/DemoServer.kt and
@@ -8,7 +8,7 @@
 #     `?demo` query param (also `/demo` path or `#demo` hash) makes it boot
 #     against the in-process `DemoServer` and its canned fixtures instead of
 #     opening real network sockets.
-#   - The Electron main process loads `TERMTASTIC_URL` when set, and in that
+#   - The Electron main process loads `LUNAMUX_URL` when set, and in that
 #     case skips its embedded-server bootstrap entirely (ElectronMain.kt).
 #   - Demo mode only stubs the *backend sockets*, so the HTML/JS bundle still
 #     has to be served from somewhere. This script builds the production web
@@ -37,7 +37,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 DIST="web/build/dist/js/productionExecutable"
 PREFERRED_PORT="${DEMO_PORT:-8088}"
 DO_BUILD=1
-HTTP_LOG="${TMPDIR:-/tmp}/termtastic-demo-http.log"
+HTTP_LOG="${TMPDIR:-/tmp}/lunamux-demo-http.log"
 
 # ── Parse arguments ─────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -112,9 +112,9 @@ done
 # ── Launch Electron against the demo URL (foreground; blocks until closed) ───
 echo "==> Launching Electron in demo mode (?demo)"
 cd electron
-# TERMTASTIC_DEMO=1 makes ElectronMain label the app "Termtastic Demo" and run
+# LUNAMUX_DEMO=1 makes ElectronMain label the app "Lunamux Demo" and run
 # from an isolated, wiped-on-startup userData dir under the OS temp dir. That
-# keeps its single-instance lock separate from a live prod (or dev) Termtastic
+# keeps its single-instance lock separate from a live prod (or dev) Lunamux
 # — so this won't quit on the lock collision — and persists nothing between
 # runs, with no exit-time cleanup to depend on.
-TERMTASTIC_DEMO=1 TERMTASTIC_URL="http://127.0.0.1:$PORT/?demo" npm start
+LUNAMUX_DEMO=1 LUNAMUX_URL="http://127.0.0.1:$PORT/?demo" npm start

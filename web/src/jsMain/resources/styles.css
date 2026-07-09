@@ -97,8 +97,8 @@
    applyAppearanceClass().  The legacy names (--background, --surface,
    etc.) are kept as aliases so existing CSS rules work unchanged. */
 :root {
-    --termtastic-orange: var(--t-accent, #F4B869);
-    --termtastic-orange-accent: var(--t-accent, #E89A3C);
+    --lunamux-orange: var(--t-accent, #F4B869);
+    --lunamux-orange-accent: var(--t-accent, #E89A3C);
     --background: var(--t-surface, #1C1C1E);
     --surface: var(--t-surface, #2C2C2E);
     --bg-elevated: var(--t-surface-alt, #3A3A3C);
@@ -541,7 +541,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 .scroll-to-bottom-btn.visible { display: inline-flex; }
 .scroll-to-bottom-btn .stb-arrow { font-size: 13px; line-height: 1; }
 .scroll-to-bottom-btn.has-new-output {
-    background: var(--t-accent, var(--termtastic-orange));
+    background: var(--t-accent, var(--lunamux-orange));
     color: var(--t-bg, #1C1C1E);
     border-color: transparent;
 }
@@ -574,7 +574,7 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
 /* Focus ring is owned by the toolkit's `.dt-pane.dt-pane-focused`
    outline. We previously also painted an outline on `.terminal-cell`
    with `outline-offset: 4px` so the ring sat at the chrome edge, but
-   that introduced a second focus signal driven by termtastic's own
+   that introduced a second focus signal driven by Lunamux's own
    `markPaneFocused` calls — which the sidebar pane-click path never
    invokes. The result: clicking a pane in the sidebar moved the
    toolkit's inner ring but left the prominent cell ring stuck on the
@@ -1020,7 +1020,7 @@ body.appearance-light .worktree-path-preview {
 
 /* ── About dialog ── */
 /* The quit-confirmation dialog (QuitConfirmationDialog.kt) reuses the toolkit's
-   `.dt-modal-backdrop`, which sits at z-index 10000. That is below termtastic's
+   `.dt-modal-backdrop`, which sits at z-index 10000. That is below Lunamux's
    own modal overlays — `.pane-modal-overlay` (About/News/Worktree) at 99998 and
    the theme/section menus at 100000. Quit is a top-level intent (Cmd-Q, menu,
    window close) and must appear above whatever is already on screen; without
@@ -1313,7 +1313,7 @@ body.appearance-light .about-link {
 }
 .news-card-close:hover {
     color: var(--text-primary, #d4d4d4);
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 16%, transparent);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 16%, transparent);
 }
 .news-card-date {
     display: block;
@@ -1345,16 +1345,16 @@ body.appearance-light .about-link {
 .news-card-link {
     margin-top: 10px;
     padding: 5px 12px;
-    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 40%, transparent);
+    border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 40%, transparent);
     border-radius: 6px;
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 12%, transparent);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 12%, transparent);
     color: var(--text-primary, #d4d4d4);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
 }
 .news-card-link:hover {
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 22%, transparent);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 22%, transparent);
 }
 
 /* Section heading inside the combined News & Updates dialog ("New update" /
@@ -1376,7 +1376,7 @@ body.appearance-light .about-link {
        a stronger accent border that marks it out as the primary item. */
     position: relative;
     background: var(--t-surface, var(--surface, #2C2C2E));
-    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 45%, transparent);
+    border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 45%, transparent);
     border-radius: 10px;
     /* Right padding leaves room for the close (×) button. */
     padding: 14px 36px 14px 14px;
@@ -1413,7 +1413,7 @@ body.appearance-light .about-link {
 }
 .news-update-close:hover {
     color: var(--text-primary, #d4d4d4);
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 16%, transparent);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 16%, transparent);
 }
 .news-update-text {
     font-size: 13px;
@@ -1427,14 +1427,14 @@ body.appearance-light .about-link {
     padding: 7px 16px;
     border: none;
     border-radius: 6px;
-    background: var(--termtastic-orange, #F4B869);
+    background: var(--lunamux-orange, #F4B869);
     color: #1b1b1b;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
 }
 .news-update-download:hover {
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 85%, #fff);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 85%, #fff);
 }
 
 /* Empty-state placeholder shown when there is no update and no news. The bell is
@@ -1465,16 +1465,16 @@ body.appearance-light .about-link {
    base as .news-card-link) that brings every dismissed item back. */
 .news-restore-btn {
     padding: 6px 14px;
-    border: 1px solid color-mix(in srgb, var(--termtastic-orange, #F4B869) 40%, transparent);
+    border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 40%, transparent);
     border-radius: 6px;
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 12%, transparent);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 12%, transparent);
     color: var(--text-primary, #d4d4d4);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
 }
 .news-restore-btn:hover {
-    background: color-mix(in srgb, var(--termtastic-orange, #F4B869) 22%, transparent);
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 22%, transparent);
 }
 
 /* ── Pane type modal ── */
@@ -1623,7 +1623,7 @@ body.appearance-light .link-picker-card:hover {
 }
 .git-list-item.active {
     background: rgba(244, 184, 105, 0.08);
-    color: var(--termtastic-orange);
+    color: var(--lunamux-orange);
 }
 .git-list-item-name {
     flex: 1;
@@ -1752,8 +1752,8 @@ body.appearance-light .link-picker-card:hover {
 }
 .git-mode-btn.active {
     background: rgba(244, 184, 105, 0.10);
-    border-color: var(--termtastic-orange, #f4b869);
-    color: var(--termtastic-orange, #f4b869);
+    border-color: var(--lunamux-orange, #f4b869);
+    color: var(--lunamux-orange, #f4b869);
 }
 .git-diff-content {
     flex: 1;
@@ -1972,7 +1972,7 @@ body.appearance-light .link-picker-card:hover {
     outline: none;
 }
 .git-search-input:focus {
-    border-color: var(--termtastic-orange, #f4b869);
+    border-color: var(--lunamux-orange, #f4b869);
 }
 .git-search-input::placeholder {
     color: var(--text-secondary, #888);
@@ -2074,8 +2074,8 @@ body.appearance-light .git-graphical-connector {
 
 
 /* Config silhouette CSS lives in the toolkit (.dt-config-silhouette /
-   .dt-cs-*) — termtastic delegates rendering via
-   TermtasticThemeManagerHost.renderConfigSilhouetteHtml. */
+   .dt-cs-*) — Lunamux delegates rendering via
+   LunamuxThemeManagerHost.renderConfigSilhouetteHtml. */
 
 
 /* Theme config save dialog */
@@ -2097,9 +2097,9 @@ body.appearance-light .git-graphical-connector {
 /* ─── App Settings sidebar body ──────────────────────────────────────
    Styles the body element produced by buildAppSettingsContent() in
    AppSettingsContent.kt. The toolkit owns the surrounding chrome; we
-   only style what's inside .termtastic-app-settings-body. */
+   only style what's inside .lunamux-app-settings-body. */
 
-.termtastic-app-settings-body {
+.lunamux-app-settings-body {
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -2111,13 +2111,13 @@ body.appearance-light .git-graphical-connector {
 
 /* Top navigation: a stack of full-width jump buttons (Themes / Appearance,
    plus the muted "Open server settings…" button on Electron). */
-.termtastic-app-settings-nav {
+.lunamux-app-settings-nav {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-.termtastic-app-settings-nav-button {
+.lunamux-app-settings-nav-button {
     display: inline-flex;
     align-items: center;
     gap: 10px;
@@ -2137,31 +2137,31 @@ body.appearance-light .git-graphical-connector {
     transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
 }
 
-.termtastic-app-settings-nav-button > svg {
+.lunamux-app-settings-nav-button > svg {
     flex: 0 0 auto;
 }
 
-.termtastic-app-settings-nav-label {
+.lunamux-app-settings-nav-label {
     flex: 1;
 }
 
-.termtastic-app-settings-nav-button:hover {
+.lunamux-app-settings-nav-button:hover {
     background: color-mix(in srgb, var(--t-accent) 14%, var(--t-surface));
     border-color: color-mix(in srgb, var(--t-accent) 40%, var(--t-border, var(--separator)));
 }
 
-.termtastic-app-settings-nav-button:active {
+.lunamux-app-settings-nav-button:active {
     transform: translateY(1px);
 }
 
-.termtastic-app-settings-nav-button:focus-visible {
+.lunamux-app-settings-nav-button:focus-visible {
     outline: 2px solid var(--t-accent);
     outline-offset: 2px;
 }
 
 /* Muted variant — the conditional "Open server settings…" jump, made
    deliberately less prominent than the Themes / Appearance buttons. */
-.termtastic-app-settings-nav-button--muted {
+.lunamux-app-settings-nav-button--muted {
     padding: 7px 12px;
     font-weight: 500;
     font-size: 12px;
@@ -2170,14 +2170,14 @@ body.appearance-light .git-graphical-connector {
     border-color: transparent;
 }
 
-.termtastic-app-settings-nav-button--muted:hover {
+.lunamux-app-settings-nav-button--muted:hover {
     color: var(--t-text, var(--text-primary));
     background: color-mix(in srgb, var(--t-surface) 60%, transparent);
     border-color: var(--t-border, var(--separator));
 }
 
 /* Grouped section card. */
-.termtastic-app-settings-section {
+.lunamux-app-settings-section {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -2188,7 +2188,7 @@ body.appearance-light .git-graphical-connector {
     border-radius: 10px;
 }
 
-.termtastic-app-settings-section-title {
+.lunamux-app-settings-section-title {
     margin: 4px 10px 8px;
     font-size: 11px;
     font-weight: 600;
@@ -2202,7 +2202,7 @@ body.appearance-light .git-graphical-connector {
    toolkit's appearance-modal pill rows. The buttons themselves are styled
    via the toolkit's `dt-settings-choice-btn` rule (selected state draws a
    coloured rectangle around the chosen option). */
-.termtastic-app-settings-toggle-row {
+.lunamux-app-settings-toggle-row {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -2214,13 +2214,13 @@ body.appearance-light .git-graphical-connector {
 
 /* Label header: the label text and (optionally) a trailing "?" help trigger
    share one baseline-aligned row so the icon reads as attached to the label. */
-.termtastic-app-settings-toggle-header {
+.lunamux-app-settings-toggle-header {
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
-.termtastic-app-settings-toggle-label {
+.lunamux-app-settings-toggle-label {
     font-size: 13px;
     line-height: 1.35;
     color: inherit;
@@ -2230,13 +2230,13 @@ body.appearance-light .git-graphical-connector {
    A small circular icon button next to a toggle label; clicking it reveals
    the setting's explanation in a popover (built by buildHelpPopover()). The
    explanation is no longer shown inline. */
-.termtastic-app-settings-help {
+.lunamux-app-settings-help {
     position: relative;
     display: inline-flex;
     align-items: center;
 }
 
-.termtastic-app-settings-help-trigger {
+.lunamux-app-settings-help-trigger {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2252,8 +2252,8 @@ body.appearance-light .git-graphical-connector {
     transition: opacity 0.12s ease, background 0.12s ease;
 }
 
-.termtastic-app-settings-help-trigger:hover,
-.termtastic-app-settings-help.is-open .termtastic-app-settings-help-trigger {
+.lunamux-app-settings-help-trigger:hover,
+.lunamux-app-settings-help.is-open .lunamux-app-settings-help-trigger {
     opacity: 1;
     background: rgba(127, 127, 127, 0.18);
 }
@@ -2261,7 +2261,7 @@ body.appearance-light .git-graphical-connector {
 /* Popover with the explanation text. Hidden until the wrapper is toggled
    open; anchored below the trigger and grown leftwards so it stays within
    the narrow sidebar. */
-.termtastic-app-settings-help-popover {
+.lunamux-app-settings-help-popover {
     display: none;
     position: absolute;
     top: calc(100% + 6px);
@@ -2281,33 +2281,33 @@ body.appearance-light .git-graphical-connector {
     white-space: normal;
 }
 
-.termtastic-app-settings-help.is-open .termtastic-app-settings-help-popover {
+.lunamux-app-settings-help.is-open .lunamux-app-settings-help-popover {
     display: block;
 }
 
-body.appearance-light .termtastic-app-settings-help-popover {
+body.appearance-light .lunamux-app-settings-help-popover {
     background: #ffffff;
     border-color: rgba(0, 0, 0, 0.14);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }
 
 /* Light-mode tweaks. */
-body.appearance-light .termtastic-app-settings-nav-button {
+body.appearance-light .lunamux-app-settings-nav-button {
     background: transparent;
     border-color: rgba(0, 0, 0, 0.10);
 }
 
-body.appearance-light .termtastic-app-settings-nav-button--muted {
+body.appearance-light .lunamux-app-settings-nav-button--muted {
     background: transparent;
     border-color: transparent;
 }
 
-body.appearance-light .termtastic-app-settings-section {
+body.appearance-light .lunamux-app-settings-section {
     background: transparent;
     border-color: rgba(0, 0, 0, 0.10);
 }
 
-body.appearance-light .termtastic-app-settings-toggle-row:hover {
+body.appearance-light .lunamux-app-settings-toggle-row:hover {
     background: rgba(0, 0, 0, 0.04);
 }
 
@@ -2315,9 +2315,9 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 /* ─── Hotkeys sidebar body ───────────────────────────────────────────
    Styles the body element produced by buildHotkeysSidebarContent() in
    HotkeysSidebarContent.kt. The toolkit owns the surrounding chrome; we
-   only style what's inside .termtastic-hotkeys-body. */
+   only style what's inside .lunamux-hotkeys-body. */
 
-.termtastic-hotkeys-body {
+.lunamux-hotkeys-body {
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -2327,19 +2327,19 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     line-height: 1.4;
 }
 
-.termtastic-hotkeys-intro {
+.lunamux-hotkeys-intro {
     margin: 0;
     font-size: 12px;
     color: var(--t-text-dim, var(--text-secondary));
 }
 
-.termtastic-hotkeys-group {
+.lunamux-hotkeys-group {
     display: flex;
     flex-direction: column;
     gap: 2px;
 }
 
-.termtastic-hotkeys-group-title {
+.lunamux-hotkeys-group-title {
     margin: 0 2px 6px;
     font-size: 11px;
     font-weight: 600;
@@ -2349,12 +2349,12 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     color: var(--t-text-dim, var(--text-secondary));
 }
 
-.termtastic-hotkeys-list {
+.lunamux-hotkeys-list {
     display: flex;
     flex-direction: column;
 }
 
-.termtastic-hotkeys-row {
+.lunamux-hotkeys-row {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -2363,11 +2363,11 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     border-bottom: 1px solid color-mix(in srgb, var(--t-border, var(--separator)) 55%, transparent);
 }
 
-.termtastic-hotkeys-row:last-child {
+.lunamux-hotkeys-row:last-child {
     border-bottom: none;
 }
 
-.termtastic-hotkeys-label {
+.lunamux-hotkeys-label {
     flex: 1;
     min-width: 0;
     padding-top: 3px;
@@ -2375,7 +2375,7 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 
 /* Right column: chord(s) + badge. Column so the split tab-switch row can
    stack its two runtime-tagged chord lines. */
-.termtastic-hotkeys-right {
+.lunamux-hotkeys-right {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -2385,7 +2385,7 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 
 /* The Mac + Web pill pair for a shortcut shared by both runtimes,
    kept side by side on one line beneath the chord. */
-.termtastic-hotkeys-badges {
+.lunamux-hotkeys-badges {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -2394,13 +2394,13 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 }
 
 /* One chord + its runtime tag on a single line (split rows). */
-.termtastic-hotkeys-tagged {
+.lunamux-hotkeys-tagged {
     display: inline-flex;
     align-items: center;
     gap: 8px;
 }
 
-.termtastic-hotkeys-chord {
+.lunamux-hotkeys-chord {
     display: inline-flex;
     gap: 4px;
     align-items: center;
@@ -2410,7 +2410,7 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 
 /* Keycap pill — mirrors the cheat-sheet modal's .dt-hotkeys-kbd look so the
    sidebar and modal read as the same family. */
-.termtastic-hotkeys-cap {
+.lunamux-hotkeys-cap {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2427,7 +2427,7 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
 }
 
 /* Availability badge (Mac / Web). */
-.termtastic-hotkeys-badge {
+.lunamux-hotkeys-badge {
     display: inline-flex;
     align-items: center;
     padding: 1px 7px;
@@ -2440,14 +2440,14 @@ body.appearance-light .termtastic-app-settings-toggle-row:hover {
     white-space: nowrap;
 }
 
-.termtastic-hotkeys-badge--desktop,
-.termtastic-hotkeys-badge--web {
+.lunamux-hotkeys-badge--desktop,
+.lunamux-hotkeys-badge--web {
     color: var(--t-text-dim, var(--text-secondary));
     background: transparent;
     border-color: color-mix(in srgb, var(--t-text, #e6e6e6) 22%, transparent);
 }
 
-body.appearance-light .termtastic-hotkeys-cap {
+body.appearance-light .lunamux-hotkeys-cap {
     background: rgba(0, 0, 0, 0.05);
     border-color: rgba(0, 0, 0, 0.16);
 }
@@ -2455,7 +2455,7 @@ body.appearance-light .termtastic-hotkeys-cap {
 /* Configurable rows (backed by a toolkit hotkey action) open the
    capture-based binding editor on click — give them a hover affordance
    so they read as interactive against the plain reference rows. */
-.termtastic-hotkeys-row--configurable {
+.lunamux-hotkeys-row--configurable {
     cursor: pointer;
     border-radius: 6px;
     margin: 0 -6px;
@@ -2463,7 +2463,7 @@ body.appearance-light .termtastic-hotkeys-cap {
     padding-right: 8px;
 }
 
-.termtastic-hotkeys-row--configurable:hover {
+.lunamux-hotkeys-row--configurable:hover {
     background: color-mix(in srgb, var(--t-text, #e6e6e6) 6%, transparent);
 }
 
@@ -2471,21 +2471,21 @@ body.appearance-light .termtastic-hotkeys-cap {
    itself (works in the bundled Electron app, not in a browser tab).
    Uses the theme's --t-warn token — same convention as the shell-death
    warning and usage bars — so it follows light/dark/custom themes. */
-.termtastic-hotkeys-badge--maconly {
+.lunamux-hotkeys-badge--maconly {
     color: var(--t-warn, #FFD60A);
     background: transparent;
     border-color: color-mix(in srgb, var(--t-warn, #FFD60A) 65%, transparent);
 }
 
 /* Small italic tag on rows whose bindings the user has customized. */
-.termtastic-hotkeys-edited {
+.lunamux-hotkeys-edited {
     font-size: 10px;
     font-style: italic;
     color: var(--t-text-dim, var(--text-secondary));
 }
 
 /* Placeholder shown when the user removed every chord from an action. */
-.termtastic-hotkeys-unbound {
+.lunamux-hotkeys-unbound {
     font-size: 11px;
     font-style: italic;
     color: var(--t-text-dim, var(--text-secondary));
@@ -2659,14 +2659,14 @@ body.appearance-light .termtastic-hotkeys-cap {
 .app-logo-wordmark {
     /* Monospaced wordmark, following the app's monospaced font setting
        (JetBrains Mono by default), so the brand reads as a terminal-style
-       lowercase "termtastic". */
+       lowercase "Lunamux". */
     font-family: var(--dt-font-mono, 'JetBrains Mono', ui-monospace, monospace);
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.3px;
     /* The toolkit's `.dt-sidebar-header` slot (which hosts this logo)
        forces `text-transform: uppercase` on its text; override it back so the
-       wordmark reads lowercase "termtastic", not "TERMTASTIC". */
+       wordmark reads lowercase "Lunamux", not "TERMTASTIC". */
     text-transform: none;
     /* Brand wordmark uses the theme's MAIN foreground text token so it adopts
        the appearance's primary text colour — e.g. the phosphor green-ish
@@ -2900,7 +2900,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 /* Hide the indicator entirely when idle (issue #43): an idle `.tt-status-dot`
    carries neither modifier class, so this removes it from sidebar rows, the tab
    strip, the sidebar tab-header slot, and pane headers — leaving the dot/triangle
-   visible only while a session is working or waiting. The aggregate `termtastic`
+   visible only while a session is working or waiting. The aggregate `Lunamux`
    logo dot (`.app-logo-dot`, a different class) is intentionally untouched and
    keeps its idle "nothing pending" bead. */
 .tt-status-dot:not(.state-working):not(.state-waiting) { display: none; }
@@ -2948,13 +2948,13 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 .dt-sidebar-section-trailing { margin-right: 6px; }
 /* Remove the quick-switch digit from the sidebar row only (kept in pane header).
    `!important` because the toolkit's own `.dt-sidebar-row-index { display:
-   inline-flex }` is injected into the document AFTER termtastic's stylesheet, so
+   inline-flex }` is injected into the document AFTER Lunamux's stylesheet, so
    an equal-specificity rule would lose the cascade. */
 .dt-sidebar-row-index  { display: none !important; }
 
 /* ── Pane header: status dot before the pane-type icon ────────────────────────
    The toolkit renders the header as `[type icon] [status dot] [title] …`, but
-   termtastic wants the status dot FIRST (matching the sidebar's dot-then-icon
+   Lunamux wants the status dot FIRST (matching the sidebar's dot-then-icon
    order). The header is display:flex and nothing else sets `order`, so floating
    the leading badge ahead of the icon is enough — no !important needed.
    Non-terminal panes have no leading badge, so this is a no-op there. */
@@ -3203,7 +3203,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 
 /* ===== 3D tab overview (Overview3D.kt) ================================== */
 /* Full-screen task-switcher overlay hosting the three.js canvas. Sits above
-   panes/chrome but below termtastic's modal overlays (.pane-modal-overlay at
+   panes/chrome but below Lunamux's modal overlays (.pane-modal-overlay at
    99998) and the quit dialog (100001), so a modal opened before the overview
    still wins. The WebGL canvas is transparent (alpha: true) so this gradient
    is the scene background — deliberately dark in both appearances: the

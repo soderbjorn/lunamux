@@ -2,7 +2,7 @@
 //  AboutMenu.swift
 //  iosApp
 //
-//  Top-bar "About & links" overflow menu for the Termtastic iOS app.
+//  Top-bar "About & links" overflow menu for the Lunamux iOS app.
 //
 //  Defines `AboutMenu`, the single info-button-plus-menu control shared by the
 //  Hosts and Sessions toolbars. It gathers the app's external links (community
@@ -12,6 +12,7 @@
 //
 
 import SwiftUI
+import Client
 
 /// An info-icon toolbar button that reveals the app's external links.
 ///
@@ -24,31 +25,34 @@ import SwiftUI
 /// Keeping this a single view (rather than inline per screen) means the two
 /// toolbars can never drift out of sync on which links they offer, and any new
 /// link is added in exactly one place. Mirrors the Android `AboutMenu`
-/// composable; the URLs mirror the shared Kotlin `TERMTASTIC_*_URL` constants.
+/// composable; the URLs are read from the shared Kotlin `LUNAMUX_*_URL`
+/// constants (in `client`'s `ExternalLinks.kt`) via the generated
+/// `ExternalLinksKt` accessor, so every platform points at one canonical
+/// source and no URL is hardcoded here.
 struct AboutMenu: View {
-    /// GitHub Discussions board used as the community support forum. Mirrors the
-    /// shared Kotlin `TERMTASTIC_DISCUSSIONS_URL` constant.
-    private let discussionsURL = URL(string: "https://github.com/soderbjorn/termtastic/discussions")!
+    /// GitHub Discussions board used as the community support forum. Read from
+    /// the shared Kotlin `LUNAMUX_DISCUSSIONS_URL` constant.
+    private let discussionsURL = URL(string: ExternalLinksKt.LUNAMUX_DISCUSSIONS_URL)!
 
-    /// Canonical marketing / download site. Mirrors the shared Kotlin
-    /// `TERMTASTIC_SITE_URL` constant.
-    private let siteURL = URL(string: "https://termtastic.soderbjorn.se")!
+    /// Canonical marketing / download site. Read from the shared Kotlin
+    /// `LUNAMUX_SITE_URL` constant.
+    private let siteURL = URL(string: ExternalLinksKt.LUNAMUX_SITE_URL)!
 
-    /// Public GitHub repository, offered as a "Star on GitHub" action. Mirrors
-    /// the shared Kotlin `TERMTASTIC_GITHUB_URL` constant.
-    private let gitHubURL = URL(string: "https://github.com/soderbjorn/termtastic")!
+    /// Public GitHub repository, offered as a "Star on GitHub" action. Read from
+    /// the shared Kotlin `LUNAMUX_GITHUB_URL` constant.
+    private let gitHubURL = URL(string: ExternalLinksKt.LUNAMUX_GITHUB_URL)!
 
     /// Apple App Store listing, offered as a "Rate on the App Store" action.
-    /// Mirrors the shared Kotlin `TERMTASTIC_APP_STORE_URL` constant.
-    private let appStoreURL = URL(string: "https://apps.apple.com/app/id6780234087")!
+    /// Read from the shared Kotlin `LUNAMUX_APP_STORE_URL` constant.
+    private let appStoreURL = URL(string: ExternalLinksKt.LUNAMUX_APP_STORE_URL)!
 
-    /// Published privacy policy page. Mirrors the shared Kotlin
-    /// `TERMTASTIC_PRIVACY_URL` constant.
-    private let privacyURL = URL(string: "https://termtastic.soderbjorn.se/privacy.html")!
+    /// Published privacy policy page. Read from the shared Kotlin
+    /// `LUNAMUX_PRIVACY_URL` constant.
+    private let privacyURL = URL(string: ExternalLinksKt.LUNAMUX_PRIVACY_URL)!
 
-    /// Published terms of service page. Mirrors the shared Kotlin
-    /// `TERMTASTIC_TERMS_URL` constant.
-    private let termsURL = URL(string: "https://termtastic.soderbjorn.se/terms.html")!
+    /// Published terms of service page. Read from the shared Kotlin
+    /// `LUNAMUX_TERMS_URL` constant.
+    private let termsURL = URL(string: ExternalLinksKt.LUNAMUX_TERMS_URL)!
 
     var body: some View {
         Menu {

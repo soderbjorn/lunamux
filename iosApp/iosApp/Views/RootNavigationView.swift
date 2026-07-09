@@ -40,7 +40,7 @@ final class OnboardingGate {
     }
 }
 
-/// Navigation destinations for the app, matching the Android `TermtasticApp`
+/// Navigation destinations for the app, matching the Android `LunamuxApp`
 /// NavHost routes.
 enum Destination: Hashable {
     case tree

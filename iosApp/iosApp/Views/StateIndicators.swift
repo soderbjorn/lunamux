@@ -1,5 +1,5 @@
 /**
- * Session state indicators for the Termtastic iOS app.
+ * Session state indicators for the Lunamux iOS app.
  *
  * Renders the per-session status shown next to titles in `TreeView` rows and
  * the `TerminalScreen` navigation bar, mirroring the web client's

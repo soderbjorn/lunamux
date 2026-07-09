@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an UNSIGNED, un-notarized release of the Termtastic Electron desktop app.
+# Build an UNSIGNED, un-notarized release of the Lunamux Electron desktop app.
 #
 # Same artifact as build-release-electron.sh minus all the Apple code-signing
 # and notarization round trips: useful for fast local/test builds where you just
@@ -43,5 +43,5 @@ CSC_IDENTITY_AUTO_DISCOVERY=false \
     -c.mac.identity=null \
     -c.mac.notarize=false
 
-DMG="$(ls -t dist/Termtastic-*.dmg | head -1)"
+DMG="$(ls -t dist/Lunamux-*.dmg | head -1)"
 echo "==> Done (unsigned, NOT notarized): electron/$DMG"

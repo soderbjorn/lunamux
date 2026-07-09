@@ -15,7 +15,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<!--
-		ATS configuration for Termtastic's self-signed TLS endpoints.
+		ATS configuration for Lunamux's self-signed TLS endpoints.
 
 		NSAllowsLocalNetworking lets the app reach Bonjour/.local/IP-based
 		hosts (the usual local-server scenario) without going through the

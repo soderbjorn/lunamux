@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Copy the production Termtastic SQLite database over the development one.
+# Copy the production Lunamux SQLite database over the development one.
 # Prod DB:  ~/Library/Application Support/Termtastic/termtastic.db
-# Dev DB:   ~/Library/Application Support/Termtastic/termtastic-dev.db
+# Dev DB:   ~/Library/Application Support/Termtastic/lunamux-dev.db
 #
 # The dev server must not be running while this script overwrites the file,
 # otherwise SQLite's WAL could leave the dev DB in an inconsistent state.
@@ -9,7 +9,7 @@ set -euo pipefail
 
 APP_DIR="$HOME/Library/Application Support/Termtastic"
 PROD_DB="$APP_DIR/termtastic.db"
-DEV_DB="$APP_DIR/termtastic-dev.db"
+DEV_DB="$APP_DIR/lunamux-dev.db"
 
 if [[ ! -f "$PROD_DB" ]]; then
     echo "Production database not found: $PROD_DB" >&2
@@ -18,7 +18,7 @@ fi
 
 # Refuse to run while something is listening on the dev port — a live server
 # holds the DB open and would race with the copy.
-DEV_PORT="${TERMTASTIC_DEV_PORT:-8444}"
+DEV_PORT="${LUNAMUX_DEV_PORT:-8444}"
 if lsof -tiTCP:"$DEV_PORT" -sTCP:LISTEN -n -P >/dev/null 2>&1; then
     echo "Dev server is running on port $DEV_PORT. Stop it first:" >&2
     echo "  scripts/kill-dev-server.sh" >&2

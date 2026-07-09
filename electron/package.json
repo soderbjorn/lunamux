@@ -1,7 +1,7 @@
 {
-  "name": "termtastic-electron",
+  "name": "lunamux-electron",
   "version": "1.6.0",
-  "description": "Electron desktop wrapper for the Termtastic web app",
+  "description": "Electron desktop wrapper for the Lunamux web app",
   "author": "Robert Söderbjörn",
   "main": "main.js",
   "private": true,
@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "se.soderbjorn.termtastic",
-    "productName": "Termtastic",
+    "productName": "Lunamux",
     "copyright": "Copyright © 2026 Robert Söderbjörn",
     "files": [
       "main.js",
@@ -45,8 +45,8 @@
       "identity": "Robert Söderbjörn (CCJP95ZXG4)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
       "notarize": {
         "teamId": "CCJP95ZXG4"
       }

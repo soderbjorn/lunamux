@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a signed + notarized release of the Termtastic Electron desktop app.
+# Build a signed + notarized release of the Lunamux Electron desktop app.
 #
 # Runs `./gradlew :electron:dist`, which signs the app with the personal
 # Developer ID cert, notarizes it via Apple, and staples the ticket. We then
@@ -20,7 +20,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ./gradlew --no-daemon :electron:dist
 
 IDENTITY="Developer ID Application: Robert Söderbjörn (CCJP95ZXG4)"
-DMG="$(ls -t electron/dist/Termtastic-*.dmg | head -1)"
+DMG="$(ls -t electron/dist/Lunamux-*.dmg | head -1)"
 echo "==> Built: $DMG"
 
 # electron-builder signs/notarizes/staples the .app but leaves the DMG

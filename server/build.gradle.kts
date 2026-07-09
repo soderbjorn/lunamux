@@ -10,7 +10,7 @@ plugins {
     application
 }
 
-group = "se.soderbjorn.termtastic"
+group = "se.soderbjorn.lunamux"
 version = "1.0.0"
 
 // Pin the server's bytecode to Java 11 so the shadow jar runs on the trimmed
@@ -51,12 +51,12 @@ val webDistTask = ":web:jsBrowserDevelopmentExecutableDistribution"
 val embeddedWebResourcesDir = layout.buildDirectory.dir("generated/web-resources")
 
 application {
-    mainClass.set("se.soderbjorn.termtastic.ApplicationKt")
+    mainClass.set("se.soderbjorn.lunamux.ApplicationKt")
 
     val isDevelopment: Boolean = project.ext.has("development")
     applicationDefaultJvmArgs = listOf(
         "-Dio.ktor.development=$isDevelopment",
-        "-Dtermtastic.webDist=${webDistDir.get().asFile.absolutePath}"
+        "-Dlunamux.webDist=${webDistDir.get().asFile.absolutePath}"
     )
 }
 
@@ -105,16 +105,16 @@ dependencies {
 
 sqldelight {
     databases {
-        create("TermtasticDatabase") {
-            packageName.set("se.soderbjorn.termtastic.db")
+        create("LunamuxDatabase") {
+            packageName.set("se.soderbjorn.lunamux.db")
         }
     }
 }
 
 // Ensure the web bundle exists before the server starts.
-// Dev server runs on a non-production port so a packaged Termtastic on
+// Dev server runs on a non-production port so a packaged Lunamux on
 // SERVER_TLS_PORT (8443) can keep running alongside developer iterations.
-// It also writes to its own SQLite database (`termtastic-dev.db` next to
+// It also writes to its own SQLite database (`lunamux-dev.db` next to
 // the production one) so a packaged build using stale code can't stomp on
 // the dev server's window config — both processes used to share the same
 // `termtastic.db` and the older one would silently strip fields it didn't
@@ -122,10 +122,10 @@ sqldelight {
 // variants like the markdown overview pane.
 tasks.named<JavaExec>("run") {
     dependsOn(webDistTask)
-    systemProperty("termtastic.port", "8444")
+    systemProperty("lunamux.port", "8444")
     val devDb = File(
         System.getProperty("user.home"),
-        "Library/Application Support/Termtastic/termtastic-dev.db",
+        "Library/Application Support/Termtastic/lunamux-dev.db",
     )
-    systemProperty("termtastic.dbPath", devDb.absolutePath)
+    systemProperty("lunamux.dbPath", devDb.absolutePath)
 }

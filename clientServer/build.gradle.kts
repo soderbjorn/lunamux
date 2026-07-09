@@ -55,7 +55,7 @@ kotlin {
 }
 
 android {
-    namespace = "se.soderbjorn.termtastic.clientserver"
+    namespace = "se.soderbjorn.lunamux.clientserver"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

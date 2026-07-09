@@ -1,5 +1,5 @@
 <configuration>
-    <property name="LOG_PORT" value="${termtastic.port:-8082}"/>
+    <property name="LOG_PORT" value="${lunamux.port:-8082}"/>
     <property name="LOG_DIR" value="${user.home}/.termtastic/logs"/>
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Kill any Termtastic server listening on the prod TLS port (8443).
+# Kill any Lunamux server listening on the prod TLS port (8443).
 # The dev server runs on 8444 (see server/build.gradle.kts) and is left alone.
 set -euo pipefail
 
-PORT="${TERMTASTIC_PROD_PORT:-8443}"
+PORT="${LUNAMUX_PROD_PORT:-8443}"
 
 pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN -n -P 2>/dev/null || true)"
 if [[ -z "$pids" ]]; then

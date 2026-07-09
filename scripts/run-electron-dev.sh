@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Launch the Termtastic Electron desktop shell in DEV mode — a real backend
+# Launch the Lunamux Electron desktop shell in DEV mode — a real backend
 # server, but fully isolated from a production install so the two can run
 # side by side.
 #
 # How dev mode differs from prod (see also ElectronMain.kt and AppPaths.kt):
 #   - Port: the dev server listens on the dev TLS port (8444) instead of the
 #     production port (8443), so it never contends with a running prod server.
-#   - Server state: the dev server is started with `-Dtermtastic.dbPath`
-#     pointing at `termtastic-dev.db`, so it keeps a separate SQLite database
-#     from prod's `termtastic.db` (matches scripts/delete-dev-config.sh). The
+#   - Server state: the dev server is started with `-Dlunamux.dbPath`
+#     pointing at `lunamux-dev.db`, so it keeps a separate SQLite database
+#     from prod's `termtastic.db`. The
 #     TLS keystore under `tls/` is shared — it's just the loopback cert.
-#   - Shell state: setting `TERMTASTIC_URL` makes ElectronMain treat this as a
-#     dev launch (IS_DEV_LAUNCH): the window/menu label becomes "Termtastic
+#   - Shell state: setting `LUNAMUX_URL` makes ElectronMain treat this as a
+#     dev launch (IS_DEV_LAUNCH): the window/menu label becomes "Lunamux
 #     Dev" and the renderer's userData dir + single-instance lock live under
-#     "Termtastic Dev", distinct from prod's "Termtastic". So a dev launch
+#     "Lunamux Dev", distinct from prod's "Lunamux". So a dev launch
 #     never steals prod's lock and never quits a running prod instance.
 #
 # This mirrors scripts/run-electron-demo.sh, but instead of an in-process fake
@@ -29,7 +29,7 @@
 #
 # Options:
 #   --port N     Dev TLS port for the server + shell (default 8444, or
-#                $TERMTASTIC_DEV_PORT).
+#                $LUNAMUX_DEV_PORT).
 #   --no-build   Skip the Gradle build of the Electron main bundle / npm deps
 #                and reuse what's already staged. The server is still built and
 #                started by Gradle's `:server:run` regardless.
@@ -38,14 +38,14 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-PORT="${TERMTASTIC_DEV_PORT:-8444}"
+PORT="${LUNAMUX_DEV_PORT:-8444}"
 DO_BUILD=1
-SERVER_LOG="${TMPDIR:-/tmp}/termtastic-dev-server.log"
+SERVER_LOG="${TMPDIR:-/tmp}/lunamux-dev-server.log"
 
 # Dev SQLite database, isolated from prod's termtastic.db. Kept under the same
 # macOS Application Support dir so the shared TLS keystore (tls/) is reused.
-# scripts/delete-dev-config.sh wipes exactly this file.
-DEV_DB="$HOME/Library/Application Support/Termtastic/termtastic-dev.db"
+# scripts/delete-all-config.sh wipes this (along with everything else).
+DEV_DB="$HOME/Library/Application Support/Termtastic/lunamux-dev.db"
 
 # ── Parse arguments ─────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -77,8 +77,8 @@ if port_is_free "$PORT"; then
     echo "==> Starting dev server on port $PORT (db: $DEV_DB)"
     echo "    Logs: $SERVER_LOG"
     ./gradlew :server:run \
-        -Dtermtastic.port="$PORT" \
-        -Dtermtastic.dbPath="$DEV_DB" \
+        -Dlunamux.port="$PORT" \
+        -Dlunamux.dbPath="$DEV_DB" \
         >"$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
     STARTED_SERVER=1
@@ -96,7 +96,7 @@ cleanup() {
         # The `application` plugin forks a JVM, so killing the Gradle wrapper
         # may leave the server bound. kill-dev-server.sh frees the port for
         # certain.
-        TERMTASTIC_DEV_PORT="$PORT" scripts/kill-dev-server.sh >/dev/null 2>&1 || true
+        LUNAMUX_DEV_PORT="$PORT" scripts/kill-dev-server.sh >/dev/null 2>&1 || true
     fi
 }
 trap cleanup EXIT INT TERM
@@ -137,9 +137,9 @@ if [[ ! -f "electron/resources/main/electron-main.js" ]] \
 fi
 
 # ── Launch Electron against the dev server (foreground; blocks until closed) ─
-echo "==> Launching Electron in dev mode (Termtastic Dev → https://127.0.0.1:$PORT)"
+echo "==> Launching Electron in dev mode (Lunamux Dev → https://127.0.0.1:$PORT)"
 cd electron
-# TERMTASTIC_URL makes ElectronMain treat this as a dev launch: separate
-# "Termtastic Dev" userData dir + single-instance lock, and the server port is
+# LUNAMUX_URL makes ElectronMain treat this as a dev launch: separate
+# "Lunamux Dev" userData dir + single-instance lock, and the server port is
 # parsed from this URL (so /admin/shutdown targets the dev server, not prod).
-TERMTASTIC_URL="https://127.0.0.1:$PORT" npm start
+LUNAMUX_URL="https://127.0.0.1:$PORT" npm start

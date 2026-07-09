@@ -1,6 +1,6 @@
 // ReformatIcon.swift
 //
-// The "reformat" toolbar glyph for the Termtastic iOS app.
+// The "reformat" toolbar glyph for the Lunamux iOS app.
 //
 // Draws the same icon the Electron/web client uses for its reformat-on-resize
 // action: a terminal rectangle with a chevron tucked against each side wall,

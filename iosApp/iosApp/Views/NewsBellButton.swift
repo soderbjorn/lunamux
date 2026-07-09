@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Pulsing "News & Updates" toolbar bell for the Termtastic iOS app.
+/// Pulsing "News & Updates" toolbar bell for the Lunamux iOS app.
 ///
 /// Shared by the Hosts and Sessions toolbars (see `HostsView` / `TreeView`). The
 /// bell is *always* shown so the "News & Updates" screen — and its Restore

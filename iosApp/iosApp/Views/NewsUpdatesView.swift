@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "News & Updates" screen for the Termtastic iOS app.
+/// "News & Updates" screen for the Lunamux iOS app.
 ///
 /// Reached from the always-visible bell icon in the Hosts/Sessions toolbars
 /// (muted when there is nothing new). Mirrors `TreeView`'s collapsing-title

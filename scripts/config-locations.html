@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Lunamux config locations & wipe map</title>
+<style>
+  :root {
+    --paper: #f5f6fb;
+    --card: #ffffff;
+    --ink: #1a1d29;
+    --ink-soft: #4a4f63;
+    --ink-faint: #767c93;
+    --line: #e3e5ef;
+    --line-soft: #eef0f7;
+    --accent: #5b63d6;      /* moonlit indigo */
+    --accent-soft: #eceef9;
+    --mono-bg: #eef0f8;
+    --mono-ink: #33384d;
+    /* semantic status */
+    --wipe: #128a6f;        /* teal-green: this script clears it */
+    --wipe-bg: #dff3ec;
+    --keep: #c0432f;        /* rust: left alone */
+    --keep-bg: #f8e4df;
+    --legacy: #a5702a;      /* amber: old Termtastic name */
+    --legacy-bg: #f6ecda;
+    --current: #4a53c9;     /* indigo: new Lunamux name */
+    --current-bg: #e7e9f8;
+    --pinned: #566074;      /* slate: deliberately kept */
+    --pinned-bg: #e7eaf0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0f1118;
+      --card: #171a24;
+      --ink: #e8eaf2;
+      --ink-soft: #b3b8cc;
+      --ink-faint: #838aa3;
+      --line: #262a38;
+      --line-soft: #1e222e;
+      --accent: #8b93f0;
+      --accent-soft: #1e2137;
+      --mono-bg: #1f2330;
+      --mono-ink: #c3c8dc;
+      --wipe: #3fc3a0;  --wipe-bg: #10281f;
+      --keep: #f08267;  --keep-bg: #2c1712;
+      --legacy: #d7a35a; --legacy-bg: #2a2110;
+      --current: #9aa2f5; --current-bg: #171a2e;
+      --pinned: #9aa4bb; --pinned-bg: #1b1f2a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0f1118; --card: #171a24; --ink: #e8eaf2; --ink-soft: #b3b8cc;
+    --ink-faint: #838aa3; --line: #262a38; --line-soft: #1e222e;
+    --accent: #8b93f0; --accent-soft: #1e2137; --mono-bg: #1f2330; --mono-ink: #c3c8dc;
+    --wipe: #3fc3a0; --wipe-bg: #10281f; --keep: #f08267; --keep-bg: #2c1712;
+    --legacy: #d7a35a; --legacy-bg: #2a2110; --current: #9aa2f5; --current-bg: #171a2e;
+    --pinned: #9aa4bb; --pinned-bg: #1b1f2a;
+  }
+  :root[data-theme="light"] {
+    --paper: #f5f6fb; --card: #ffffff; --ink: #1a1d29; --ink-soft: #4a4f63;
+    --ink-faint: #767c93; --line: #e3e5ef; --line-soft: #eef0f7;
+    --accent: #5b63d6; --accent-soft: #eceef9; --mono-bg: #eef0f8; --mono-ink: #33384d;
+    --wipe: #128a6f; --wipe-bg: #dff3ec; --keep: #c0432f; --keep-bg: #f8e4df;
+    --legacy: #a5702a; --legacy-bg: #f6ecda; --current: #4a53c9; --current-bg: #e7e9f8;
+    --pinned: #566074; --pinned-bg: #e7eaf0;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .wrap {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(1.25rem, 4vw, 3.5rem) clamp(1rem, 4vw, 2rem) 4rem;
+  }
+  .inner { max-width: 1040px; margin: 0 auto; }
+
+  code, .path, kbd {
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  /* ── header ── */
+  header { margin-bottom: 2rem; }
+  .eyebrow {
+    font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 0 0 0.6rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .eyebrow::before {
+    content: "◐"; font-size: 0.95rem; line-height: 1;
+  }
+  h1 {
+    font-size: clamp(1.6rem, 4vw, 2.4rem); line-height: 1.1; margin: 0 0 0.75rem;
+    letter-spacing: -0.02em; text-wrap: balance; font-weight: 680;
+  }
+  h1 .via { color: var(--ink-faint); font-weight: 400; }
+  .lede {
+    font-size: 1.02rem; color: var(--ink-soft); max-width: 68ch; margin: 0;
+    text-wrap: pretty;
+  }
+  .lede code { background: var(--mono-bg); color: var(--mono-ink); padding: 0.05em 0.35em; border-radius: 4px; font-size: 0.86em; }
+
+  /* ── key insight ── */
+  .keybox {
+    margin: 1.75rem 0 2.5rem; padding: 1.1rem 1.3rem; border-radius: 12px;
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    display: grid; gap: 0.4rem;
+  }
+  .keybox h2 { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; margin: 0; color: var(--accent); font-weight: 700; }
+  .keybox p { margin: 0; font-size: 0.95rem; color: var(--ink-soft); }
+  .keybox p strong { color: var(--ink); font-weight: 620; }
+  .keybox code { background: color-mix(in srgb, var(--accent) 12%, transparent); color: inherit; padding: 0.05em 0.35em; border-radius: 4px; font-size: 0.85em; }
+
+  /* bug-found / fixed callout */
+  .fixbox {
+    margin: 0 0 2.5rem; padding: 1.1rem 1.3rem; border-radius: 12px;
+    background: var(--wipe-bg); border: 1px solid color-mix(in srgb, var(--wipe) 34%, transparent);
+    border-left: 4px solid var(--wipe); display: grid; gap: 0.5rem;
+  }
+  .fixbox h2 { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; color: var(--wipe); font-weight: 700; display: flex; align-items: center; gap: 0.45rem; }
+  .fixbox h2::before { content: "✓"; font-weight: 800; }
+  .fixbox p { margin: 0; font-size: 0.93rem; color: var(--ink-soft); }
+  .fixbox p strong { color: var(--ink); font-weight: 620; }
+  .fixbox code { background: color-mix(in srgb, var(--wipe) 14%, transparent); color: inherit; padding: 0.05em 0.35em; border-radius: 4px; font-size: 0.85em; }
+  .fixbox .was { color: var(--keep); font-weight: 600; }
+
+  /* ── legend ── */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem; margin: 0 0 2.25rem;
+    font-size: 0.8rem; color: var(--ink-faint); align-items: center;
+  }
+  .legend .lg { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .swatch { width: 0.7rem; height: 0.7rem; border-radius: 3px; display: inline-block; }
+
+  /* ── section ── */
+  section { margin-bottom: 2.5rem; }
+  .sec-head { display: flex; align-items: baseline; gap: 0.6rem; margin: 0 0 0.35rem; }
+  .sec-num {
+    font-family: ui-monospace, monospace; font-size: 0.8rem; color: var(--accent);
+    font-weight: 600; background: var(--accent-soft); padding: 0.1rem 0.45rem; border-radius: 5px;
+  }
+  .sec-head h3 { font-size: 1.15rem; margin: 0; letter-spacing: -0.01em; font-weight: 640; }
+  .sec-loc { font-size: 0.82rem; color: var(--ink-faint); margin: 0 0 0.5rem; }
+  .sec-loc code { background: var(--mono-bg); color: var(--mono-ink); padding: 0.05em 0.35em; border-radius: 4px; }
+  .sec-desc { font-size: 0.9rem; color: var(--ink-soft); margin: 0 0 1rem; max-width: 74ch; }
+  .sec-desc b { color: var(--ink); font-weight: 600; }
+
+  /* ── table ── */
+  .tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 0.875rem; }
+  thead th {
+    text-align: left; font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--line);
+    background: var(--line-soft); white-space: nowrap;
+  }
+  tbody td { padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+  .path {
+    font-size: 0.82rem; color: var(--mono-ink); background: var(--mono-bg);
+    padding: 0.12rem 0.42rem; border-radius: 5px; white-space: nowrap; font-weight: 500;
+  }
+  td .note { display: block; margin-top: 0.3rem; font-size: 0.78rem; color: var(--ink-faint); white-space: normal; line-height: 1.4; }
+  .who { color: var(--ink-soft); font-size: 0.83rem; line-height: 1.4; }
+  .who b { color: var(--ink); font-weight: 600; }
+
+  /* ── chips ── */
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 600;
+    padding: 0.15rem 0.5rem; border-radius: 999px; white-space: nowrap; letter-spacing: 0.01em;
+  }
+  .chip.wipe { color: var(--wipe); background: var(--wipe-bg); }
+  .chip.keep { color: var(--keep); background: var(--keep-bg); }
+  .chip.legacy { color: var(--legacy); background: var(--legacy-bg); }
+  .chip.current { color: var(--current); background: var(--current-bg); }
+  .chip.pinned { color: var(--pinned); background: var(--pinned-bg); }
+  .chip.dot::before { content: "●"; font-size: 0.6em; }
+
+  /* left-alone section styling */
+  section.safe .tbl-scroll { border-color: color-mix(in srgb, var(--keep) 30%, var(--line)); }
+  section.safe .sec-num { color: var(--keep); background: var(--keep-bg); }
+
+  footer {
+    margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--line);
+    font-size: 0.82rem; color: var(--ink-faint); display: grid; gap: 0.5rem;
+  }
+  footer code { background: var(--mono-bg); color: var(--mono-ink); padding: 0.05em 0.35em; border-radius: 4px; }
+  footer b { color: var(--ink-soft); }
+
+  @media (max-width: 560px) {
+    .path { white-space: normal; }
+    table { min-width: 520px; }
+  }
+</style>
+
+<div class="wrap"><div class="inner">
+  <header>
+    <p class="eyebrow">Termtastic → Lunamux &nbsp;·&nbsp; macOS Electron app</p>
+    <h1>Where the config lives <span class="via">— and what the wipe script does with it</span></h1>
+    <p class="lede">Everything the desktop app has ever persisted, across three naming schemes, mapped to who reads/writes it and what <code>scripts/delete-all-config.sh</code> does to each. Run it to test a clean Termtastic install → Lunamux upgrade from a blank slate.</p>
+  </header>
+
+  <div class="keybox">
+    <h2>The one thing to understand</h2>
+    <p>The rename <strong>deliberately did not relocate existing installs</strong>. Prod keeps its userData dir, its SQLite dir, its bundle id (<code>se.soderbjorn.termtastic</code>), and its shared-settings filename (<code>termtastic.json</code>) pinned to the <em>old</em> names so an upgrade never orphans a user's data. Only dev launches, named instances, the demo, logs, and the <code>productName</code>/<code>package.json&nbsp;name</code>-derived defaults follow the new <strong>Lunamux</strong> name. That split is why config is scattered across ~a dozen directories.</p>
+  </div>
+
+  <div class="fixbox">
+    <h2>Bug found &amp; fixed during this audit</h2>
+    <p>The rename pinned prod's Electron userData to <span class="was">the wrong directory</span>. The old packaged app resolved <code>app.getName()</code> from the asar's <code>name</code> field (<code>termtastic-electron</code>, no <code>productName</code>) → its real client state (device token, cookies, <code>local_state.json</code>, dismissed news) lived in <code>…/termtastic-electron</code>. The rename pinned to <code>…/Termtastic</code> instead — a <strong>separate</strong> dir that only ever held the JVM server's SQLite DB — which <strong>orphaned every install's client state on upgrade</strong> (proof: the post-rename <code>Termtastic/local_state.json</code> is a blank 38-byte stub).</p>
+    <p><strong>Fix applied:</strong> prod now pins to <code>appData/termtastic-electron</code>, restoring the clean split (client → <code>termtastic-electron</code>, server DB → <code>Termtastic</code>). No migration needed — the original state is still there. <code>lunamux-electron</code> was always empty; nothing used it.</p>
+  </div>
+
+  <div class="legend">
+    <span class="lg"><span class="swatch" style="background:var(--wipe)"></span> cleared by the script</span>
+    <span class="lg"><span class="swatch" style="background:var(--keep)"></span> left alone (another app)</span>
+    <span class="lg"><span class="swatch" style="background:var(--legacy)"></span> legacy “Termtastic” name</span>
+    <span class="lg"><span class="swatch" style="background:var(--current)"></span> current “Lunamux” name</span>
+    <span class="lg"><span class="swatch" style="background:var(--pinned)"></span> pinned to old name on purpose</span>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h3>Electron userData directories</h3></div>
+    <p class="sec-loc"><code>~/Library/Application Support/</code></p>
+    <p class="sec-desc">The heavy hitters. Each holds the <b>SQLite databases</b>, the <b>device-auth token</b> (<code>local_state.json</code>), the <b>TLS keystore</b> (<code>tls/</code>), generated <code>shell-init/</code>, the <code>electron-*.json</code> window/session caches, and Chromium browser state. Written by the Electron main (path pinning), the bundled <b>JVM server</b> (SQLite + TLS + shell-init), the renderer's <code>LocalStore</code>, and Chromium. The script renames each whole dir to <code>&lt;name&gt;.bak.&lt;timestamp&gt;</code>.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Directory</th><th>What it is</th><th>Name</th><th>Script</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="path">Termtastic</span></td>
+          <td class="who"><b>Server data — current &amp; future.</b> The bundled JVM server's SQLite + TLS dir (<code>AppPaths.APP_DIR_NAME</code>). Holds <code>termtastic.db</code>, the dev DB <code>lunamux-dev.db</code> <i>and</i> the legacy <code>termtastic-dev.db</code>, plus <code>tls/</code>.<span class="note">The bundled server always defaults its SQLite here regardless of launch mode — dev just points <code>-Dlunamux.dbPath</code> at a sibling file in this same dir. This is <b>not</b> the Electron client userData — see the fix note above.</span></td>
+          <td><span class="chip pinned dot">pinned</span></td>
+          <td><span class="chip wipe">moved → .bak</span></td>
+        </tr>
+        <tr>
+          <td><span class="path">Termtastic Dev</span></td>
+          <td class="who">Legacy dev electron <b>client shell</b> state (news, Chromium). Server DB lived in <code>Termtastic/</code>, not here.</td>
+          <td><span class="chip legacy dot">legacy</span></td>
+          <td><span class="chip wipe">moved → .bak</span></td>
+        </tr>
+        <tr>
+          <td><span class="path">Lunamux Dev</span></td>
+          <td class="who">Current dev electron client shell (<code>run-electron-dev.sh</code>). Server DB still writes to <code>Termtastic/</code>.</td>
+          <td><span class="chip current dot">current</span></td>
+          <td><span class="chip wipe">moved → .bak</span></td>
+        </tr>
+        <tr>
+          <td><span class="path">Termtastic Test</span> · <span class="path">Termtastic 3D Dev</span></td>
+          <td class="who">Legacy named-instance client shells (<code>LUNAMUX_INSTANCE</code>).</td>
+          <td><span class="chip legacy dot">legacy</span></td>
+          <td><span class="chip wipe">moved → .bak</span></td>
+        </tr>
+        <tr>
+          <td><span class="path">Lunamux Test</span> · <span class="path">Lunamux 3D Dev</span> · <span class="path">Lunamux &lt;instance&gt;</span></td>
+          <td class="who">Current named-instance client shells. Matched by the <code>Lunamux *</code> glob.</td>
+          <td><span class="chip current dot">current</span></td>
+          <td><span class="chip wipe">moved → .bak</span></td>
+        </tr>
+        <tr>
+          <td><span class="path">Lunamux</span> · <span class="path">Lunamux Demo</span></td>
+          <td class="who"><code>productName</code>-derived default / demo label. Rarely materialise (prod is pinned; demo uses the temp dir) — caught defensively if present.</td>
+          <td><span class="chip current dot">current</span></td>
+          <td><span class="chip wipe">moved → .bak</span></td>
+        </tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h3>Package-name userData directories</h3></div>
+    <p class="sec-loc"><code>~/Library/Application Support/</code> — lowercase, hyphenated</p>
+    <p class="sec-desc"><code>appData/&lt;name&gt;</code> is Electron's <b>default</b> userData, where <code>name</code> is <code>electron/package.json</code>'s <b>name</b> field. The packaged prod app resolves here (no <code>productName</code> in the asar), so <code>termtastic-electron</code> holds the <b>real prod client state</b> — device token, cookies, IndexedDB, dismissed news. After the fix above, prod pins back to <code>termtastic-electron</code>; <code>lunamux-electron</code> stays empty. The old script missed all three entirely.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Directory</th><th>What it is</th><th>Name</th><th>Script</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">termtastic-electron</span></td><td class="who"><b>Real prod client userData</b> (packaged app's <code>getName()</code>). Fix re-pins prod here.</td><td><span class="chip pinned dot">pinned</span></td><td><span class="chip wipe">moved → .bak</span></td></tr>
+        <tr><td><span class="path">lunamux-electron</span></td><td class="who">New <code>package.json name</code> — created empty at startup, then userData is redirected away. <b>Never holds real state.</b></td><td><span class="chip current dot">current</span></td><td><span class="chip wipe">moved → .bak</span></td></tr>
+        <tr><td><span class="path">termtastic3d-electron</span></td><td class="who">The 3D-world spike's package name.</td><td><span class="chip legacy dot">legacy</span></td><td><span class="chip wipe">moved → .bak</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h3>Shared Darkness UI-settings</h3></div>
+    <p class="sec-loc"><code>~/Library/Application Support/Darkness/</code></p>
+    <p class="sec-desc">Written by darkness-toolkit's <code>toolkit-store</code> (JVM), via the server. This directory is <b>shared by every Darkness app</b>, so the script deletes only this app's files (each backed up first) and leaves the rest.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>File</th><th>What it is</th><th>Name</th><th>Script</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">termtastic.json</span></td><td class="who">This app's per-app UI settings (theme slots, fonts, toggles). <code>appName</code> is pinned to <code>"termtastic"</code>, so the file keeps the old stem.</td><td><span class="chip pinned dot">pinned</span></td><td><span class="chip wipe">deleted</span></td></tr>
+        <tr><td><span class="path">themes.json</span></td><td class="who">Cross-app theme/scheme <b>definitions</b>. Shared — deleting it also resets custom themes for other Darkness apps (they regenerate defaults).</td><td><span class="chip pinned dot">shared</span></td><td><span class="chip wipe">deleted</span></td></tr>
+        <tr><td><span class="path">ui-settings.json</span></td><td class="who">Legacy pre-split settings file.</td><td><span class="chip legacy dot">legacy</span></td><td><span class="chip wipe">deleted</span></td></tr>
+        <tr><td><span class="path">lunamux.json</span></td><td class="who">Defensive — only appears if <code>appName</code> ever follows the rename.</td><td><span class="chip current dot">current</span></td><td><span class="chip wipe">deleted</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h3>NSUserDefaults (Preferences)</h3></div>
+    <p class="sec-loc"><code>~/Library/Preferences/</code></p>
+    <p class="sec-desc">Backed up, then cleared with <code>defaults delete</code> (not just <code>rm</code>) so <code>cfprefsd</code>'s in-memory cache can't rewrite the file on the app's next exit.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>File</th><th>What it is</th><th>Name</th><th>Script</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">se.soderbjorn.termtastic.plist</span></td><td class="who">The app's NSUserDefaults. Bundle id is <b>pinned</b> to the old name, so this stays current &amp; future.</td><td><span class="chip pinned dot">pinned</span></td><td><span class="chip wipe">cleared</span></td></tr>
+        <tr><td><span class="path">se.soderbjorn.lunamux.plist</span></td><td class="who">Defensive — only if the bundle id ever changes.</td><td><span class="chip current dot">current</span></td><td><span class="chip wipe">cleared</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h3>Log directories</h3></div>
+    <p class="sec-loc"><code>~/Library/Logs/</code></p>
+    <p class="sec-desc">The Electron main writes <code>server.log</code> to <code>app.getPath('logs')</code> = <code>~/Library/Logs/&lt;APP_NAME&gt;</code>. Since <code>APP_NAME</code> is now <code>"Lunamux"</code>, current logs land under <b>Lunamux</b> while old runs left a <b>Termtastic</b> dir behind.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Directory</th><th>What it is</th><th>Name</th><th>Script</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">Logs/Termtastic</span></td><td class="who">Logs from before the rename.</td><td><span class="chip legacy dot">legacy</span></td><td><span class="chip wipe">moved → .bak</span></td></tr>
+        <tr><td><span class="path">Logs/Lunamux</span></td><td class="who">Current server + app logs.</td><td><span class="chip current dot">current</span></td><td><span class="chip wipe">moved → .bak</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h3>Demo scratch</h3></div>
+    <p class="sec-loc"><code>$TMPDIR</code> — per-user OS temp dir</p>
+    <p class="sec-desc">The demo runs an in-process fake server under the temp dir and <code>rm -rf</code>'s it on every launch, so it's throwaway — the script hard-deletes it with no backup.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Directory</th><th>What it is</th><th>Name</th><th>Script</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">lunamux-demo</span></td><td class="who">Current demo scratch.</td><td><span class="chip current dot">current</span></td><td><span class="chip wipe">deleted</span></td></tr>
+        <tr><td><span class="path">termtastic-demo</span></td><td class="who">Legacy demo scratch, if any.</td><td><span class="chip legacy dot">legacy</span></td><td><span class="chip wipe">deleted</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- safe -->
+  <section class="safe">
+    <div class="sec-head"><span class="sec-num">—</span><h3>Deliberately left alone</h3></div>
+    <p class="sec-desc">In scope of neither name. The script never touches these.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>Path</th><th>Why it's safe</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">Darkness/notegrow.json</span> · <span class="path">treefacts.json</span> · <span class="path">darkness-demo.json</span> · <span class="path">Notegrow/</span> · <span class="path">TreeFacts/</span> · <span class="path">DarknessDemo/</span></td><td class="who">Other Darkness apps' settings and userData.</td><td><span class="chip keep">left alone</span></td></tr>
+        <tr><td><span class="path">Application Support/DarknessDemo</span> · <span class="path">Notegrow</span> · <span class="path">DarknessIRC</span> · <span class="path">TreeFacts</span></td><td class="who">Separate apps entirely.</td><td><span class="chip keep">left alone</span></td></tr>
+        <tr><td><span class="path">Application Support/Electron</span></td><td class="who">Shared default dir for every unpackaged Electron dev app — too broad to touch.</td><td><span class="chip keep">left alone</span></td></tr>
+        <tr><td><span class="path">macOS Keychain</span></td><td class="who">Desktop stores its token in <code>local_state.json</code>, not the Keychain (that's iOS-only). Nothing to clear.</td><td><span class="chip keep">n/a</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <footer>
+    <div><b>Guard:</b> the script refuses to run while the prod (<code>8443</code>) or dev (<code>8444</code>) server is listening — quit the app first so a live SQLite WAL can't race the delete.</div>
+    <div><b>Recoverable:</b> whole dirs are renamed to <code>.bak.&lt;timestamp&gt;</code> (instant, not copied), individual files are copied before removal, and plists are backed up before <code>defaults delete</code>. Purge the safety nets with the <code>rm -rf … .bak.*</code> one-liner in the script header.</div>
+    <div><b>Run it:</b> <code>scripts/delete-all-config.sh</code> → then relaunch for a fresh first-run install.</div>
+  </footer>
+</div></div>
+
+</body>
+</html>

@@ -202,7 +202,7 @@ struct TerminalScreen: View {
 /// Android TerminalScreen's emulator + PtySocket wiring.
 final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     let ptySocket: Client.PtySocket
-    let client: Client.TermtasticClient
+    let client: Client.LunamuxClient
     let sessionId: String
 
     var terminalView: SwiftTerm.TerminalView?
@@ -262,7 +262,7 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
             ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
-    init(ptySocket: Client.PtySocket, client: Client.TermtasticClient, sessionId: String) {
+    init(ptySocket: Client.PtySocket, client: Client.LunamuxClient, sessionId: String) {
         self.ptySocket = ptySocket
         self.client = client
         self.sessionId = sessionId
@@ -289,7 +289,7 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         view.contentInsetAdjustmentBehavior = .never
 
         // TEMP diagnostic — remove once font load is confirmed working.
-        print("[Termtastic] JetBrainsMono-Regular loaded: \(UIFont(name: "JetBrainsMono-Regular", size: 12) != nil)")
+        print("[Lunamux] JetBrainsMono-Regular loaded: \(UIFont(name: "JetBrainsMono-Regular", size: 12) != nil)")
 
         // Flush any PTY output that arrived before the view was created
         for chunk in pendingOutput {

@@ -4,7 +4,7 @@
 # Always builds the release variant: runs `:androidApp:assembleRelease` then
 # `:androidApp:appDistributionUploadRelease`. The Firebase App ID and the
 # service-account credentials path are read by androidApp/build.gradle.kts from
-# local.properties (keys `termtasticFirebaseAppId` / `termtasticFirebaseCreds`),
+# local.properties (keys `lunamuxFirebaseAppId` / `lunamuxFirebaseCreds`),
 # so they are NOT passed here.
 #
 # No arguments are required: by default the build is distributed to the
@@ -63,10 +63,10 @@ prop() { grep -E "^$1=" "$LOCAL_PROPS" 2>/dev/null | head -1 | cut -d= -f2-; }
 
 CONFIG_MISSING=()
 [[ -f "$LOCAL_PROPS" ]] || CONFIG_MISSING+=("$LOCAL_PROPS file is absent")
-APP_ID="$(prop termtasticFirebaseAppId)"
-CREDS="$(prop termtasticFirebaseCreds)"
-[[ -z "$APP_ID" ]] && CONFIG_MISSING+=("termtasticFirebaseAppId=<1:NNN:android:XXX> in $LOCAL_PROPS")
-[[ -z "$CREDS"  ]] && CONFIG_MISSING+=("termtasticFirebaseCreds=<path/to/service-account.json> in $LOCAL_PROPS")
+APP_ID="$(prop lunamuxFirebaseAppId)"
+CREDS="$(prop lunamuxFirebaseCreds)"
+[[ -z "$APP_ID" ]] && CONFIG_MISSING+=("lunamuxFirebaseAppId=<1:NNN:android:XXX> in $LOCAL_PROPS")
+[[ -z "$CREDS"  ]] && CONFIG_MISSING+=("lunamuxFirebaseCreds=<path/to/service-account.json> in $LOCAL_PROPS")
 [[ -n "$CREDS" && ! -f "$CREDS" ]] && CONFIG_MISSING+=("service-account file not found at: $CREDS")
 
 if [[ ${#CONFIG_MISSING[@]} -gt 0 ]]; then

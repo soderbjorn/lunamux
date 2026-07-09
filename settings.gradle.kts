@@ -1,4 +1,4 @@
-rootProject.name = "Termtastic"
+rootProject.name = "Lunamux"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
@@ -34,7 +34,7 @@ dependencyResolutionManagement {
             }
         }
         // Committed file-Maven-repo holding darkness-toolkit artifacts. Lets
-        // termtastic build with no darkness-toolkit checkout on disk. Refresh
+        // Lunamux build with no darkness-toolkit checkout on disk. Refresh
         // from the toolkit checkout with `./gradlew publishAllToLibsRepo`.
         maven {
             name = "darknessLibsLocal"
@@ -44,7 +44,7 @@ dependencyResolutionManagement {
 }
 
 // Auto-detect a sibling darkness-toolkit checkout. When present, switch to a
-// Gradle composite build so toolkit edits flow into termtastic with no extra
+// Gradle composite build so toolkit edits flow into Lunamux with no extra
 // steps. Pass -Pdarkness.toolkit.useArtifacts=true to force resolution from
 // the committed libs-repo even when sources are present (verifies published
 // artifacts). Pass -Pdarkness.toolkit.path=… to point at an explicit checkout.

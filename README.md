@@ -1,8 +1,8 @@
-# Termtastic
+# Lunamux
 
-Termtastic is a terminal replacement suitable for the modern age of agentic software development.
+Lunamux (formerly Termtastic) is a terminal replacement suitable for the modern age of agentic software development.
 
-See: https://termtastic.soderbjorn.se/
+See: https://lunamux.dev/
 
 ## Features
 
@@ -84,6 +84,6 @@ An assortment of other more conventional dependencies are also used.
 
 ## License
 
-Termtastic is released under the [MIT License](LICENSE).
+Lunamux is released under the [MIT License](LICENSE).
 
 Third-party dependencies and vendored code are used under their respective licenses (Apache 2.0, LGPL 3.0, OFL 1.1, MIT, BSD).

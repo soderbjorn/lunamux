@@ -67,12 +67,12 @@ final class MiniTerminalRegistry {
         }
     }
 
-    private let client: Client.TermtasticClient
+    private let client: Client.LunamuxClient
     private var entries: [String: Entry] = [:]
     private var closed = false
 
     /// - Parameter client: the connected client used to open PTY sockets.
-    init(client: Client.TermtasticClient) {
+    init(client: Client.LunamuxClient) {
         self.client = client
     }
 

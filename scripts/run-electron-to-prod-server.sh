@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Launch a SECOND, independent Termtastic instance — this branch's web bundle in
+# Launch a SECOND, independent Lunamux instance — this branch's web bundle in
 # its own Electron shell — as a pure client against an already-running server
 # (by default your REAL production server).
 #
 # The point: try out whatever this branch changes (UI, client behavior, anything)
 # on top of your actual live sessions — the same tabs/panes/scrollback your
-# production Termtastic is driving — WITHOUT touching production. It works
+# production Lunamux is driving — WITHOUT touching production. It works
 # because the UI and the API are decoupled at the wire: the renderer only
 # derives its backend from the page origin, so we serve THIS branch's web
 # bundle from a throwaway static origin and tell it (via the `?backend=host:port`
@@ -16,14 +16,14 @@
 #     loopback port (loopback is a secure context in Chromium).
 #   - Electron loads `http://127.0.0.1:<port>/?backend=<BACKEND>`. The renderer
 #     reads `?backend=` and points ServerUrl + every pty/agent socket at it.
-#   - `TERMTASTIC_INSECURE_BACKEND=1` relaxes the BrowserWindow's same-origin
+#   - `LUNAMUX_INSECURE_BACKEND=1` relaxes the BrowserWindow's same-origin
 #     policy (webSecurity=false) so the cross-origin calls aren't blocked. The
 #     production server itself does no Origin/CORS check — it only gates on the
 #     connection being loopback — so this is purely a browser-side relaxation.
-#   - Setting `TERMTASTIC_URL` makes ElectronMain a *pure client* (it never
-#     spawns its own server), and `TERMTASTIC_INSTANCE=<name>` labels the app
-#     "Termtastic <name>" with its own isolated userData dir + single-instance
-#     lock. So it never fights your real Termtastic's lock and can't shut down
+#   - Setting `LUNAMUX_URL` makes ElectronMain a *pure client* (it never
+#     spawns its own server), and `LUNAMUX_INSTANCE=<name>` labels the app
+#     "Lunamux <name>" with its own isolated userData dir + single-instance
+#     lock. So it never fights your real Lunamux's lock and can't shut down
 #     the real server on quit (its shutdown target is the static UI port, not
 #     the backend port).
 #
@@ -40,7 +40,7 @@
 #
 # Options:
 #   --name NAME    Instance name (default "Test", or $INSTANCE_NAME). Shown in
-#                  the dock/menu as "Termtastic <NAME>" and keys the isolated
+#                  the dock/menu as "Lunamux <NAME>" and keys the isolated
 #                  userData dir + single-instance lock, so differently-named
 #                  instances (and production) all coexist.
 #   --backend H:P  Server authority to drive (default 127.0.0.1:8443, or $BACKEND).
@@ -82,7 +82,7 @@ done
 
 # Per-instance log file (instance name sanitized to a safe filename slug).
 LOG_SLUG=$(printf '%s' "$INSTANCE_NAME" | tr -c 'A-Za-z0-9._-' '-')
-HTTP_LOG="${TMPDIR:-/tmp}/termtastic-${LOG_SLUG}-http.log"
+HTTP_LOG="${TMPDIR:-/tmp}/lunamux-${LOG_SLUG}-http.log"
 
 # ── Build the web bundle (+ electron-main bundle + npm deps) ─────────────────
 if [[ "$DO_BUILD" -eq 1 ]]; then
@@ -113,7 +113,7 @@ while ! port_is_free "$PORT"; do
 done
 
 # ── Serve the bundle and tear the server down on exit ────────────────────────
-echo "==> Serving 'Termtastic $INSTANCE_NAME' bundle from $DIST on http://127.0.0.1:$PORT"
+echo "==> Serving 'Lunamux $INSTANCE_NAME' bundle from $DIST on http://127.0.0.1:$PORT"
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIST" \
     >"$HTTP_LOG" 2>&1 &
 HTTP_PID=$!
@@ -138,10 +138,10 @@ for _ in $(seq 1 50); do
 done
 
 # ── Launch Electron pointed at the static UI, driving the target backend ─────
-echo "==> Launching Termtastic $INSTANCE_NAME → backend $BACKEND"
+echo "==> Launching Lunamux $INSTANCE_NAME → backend $BACKEND"
 echo "    (a server must be listening on $BACKEND; approve the device once when prompted)"
 cd electron
-TERMTASTIC_INSECURE_BACKEND=1 \
-    TERMTASTIC_INSTANCE="$INSTANCE_NAME" \
-    TERMTASTIC_URL="http://127.0.0.1:$PORT/?backend=$BACKEND" \
+LUNAMUX_INSECURE_BACKEND=1 \
+    LUNAMUX_INSTANCE="$INSTANCE_NAME" \
+    LUNAMUX_URL="http://127.0.0.1:$PORT/?backend=$BACKEND" \
     npm start

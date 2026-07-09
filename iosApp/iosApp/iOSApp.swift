@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct TermtasticApp: App {
+struct LunamuxApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

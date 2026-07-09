@@ -23,6 +23,12 @@ kotlin {
     sourceSets {
         jsMain.dependencies {
             implementation(libs.kotlinx.coroutines.core)
+            // Pulled in solely for the shared external-link constants
+            // (LUNAMUX_*_URL in client's ExternalLinks.kt) surfaced in the Help
+            // menu, so the desktop menu bar can never drift from the mobile and
+            // renderer clients' canonical URLs. Kotlin/JS IR DCE strips the rest
+            // of the client module from the main-process bundle.
+            implementation(projects.client)
         }
     }
 }

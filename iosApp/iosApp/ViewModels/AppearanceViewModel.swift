@@ -22,7 +22,7 @@ final class ThemeStore {
 
     /// The active dual-slot theme config (or `nil` before the first fetch).
     /// Stored, not computed, so `Palette` reads a plain value off the main store.
-    var config: Client.TermtasticThemeConfig?
+    var config: Client.LunamuxThemeConfig?
 
     /// Bumped on every theme/appearance change. Views read it inside their body
     /// (e.g. via `.id`) so an explicit switch rebuilds them even though the
@@ -34,7 +34,7 @@ final class ThemeStore {
     /// Replace the active config and bump ``generation`` to trigger a repaint.
     ///
     /// - Parameter config: the new selection (from a server fetch or a local edit).
-    func apply(_ config: Client.TermtasticThemeConfig?) {
+    func apply(_ config: Client.LunamuxThemeConfig?) {
         self.config = config
         generation &+= 1
     }
@@ -103,7 +103,7 @@ final class AppearanceViewModel {
                 self.darkThemeName = snap.darkThemeName
                 self.lightThemeName = snap.lightThemeName
                 // Re-point Palette at the live selection and force a repaint.
-                ThemeStore.shared.apply(Client.TermtasticThemeConfig(studio: snap))
+                ThemeStore.shared.apply(Client.LunamuxThemeConfig(studio: snap))
             }
         }
         Task { try? await backing.load() }

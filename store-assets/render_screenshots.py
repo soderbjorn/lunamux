@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-render_screenshots.py — Termtastic store-screenshot generator.
+render_screenshots.py — Lunamux store-screenshot generator.
 
 Reads a JSON config describing a set of store screenshots and renders, for each
 entry, a compliant image for BOTH the Apple App Store (iPhone 17 Pro Max frame)
@@ -32,11 +32,12 @@ import os
 import sys
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 
-# --- brand palette (from the termtastic website styles.css) ---
-BG = (8, 11, 9)
-GREEN = (95, 221, 143)      # --green   : primary phosphor
-GHI = (124, 252, 158)       # --green-hi: bright accent (headline)
-GDIM = (47, 107, 69)        # --green-dim: secondary / comments
+# --- brand palette (from the Lunamux Dark theme in darkness-toolkit) ---
+# The signature "deep navy + cyan glow" look, replacing the old green phosphor.
+BG = (10, 20, 32)           # --bg #0a1420 : deep navy base
+GREEN = (77, 200, 245)      # accent #4dc8f5   : primary cyan (body / phosphor)
+GHI = (165, 216, 255)       # number #a5d8ff   : bright accent (headline)
+GDIM = (95, 117, 144)       # --text-dim #5f7590: secondary / comments
 MONO_CANDIDATES = [
     "/System/Library/Fonts/SFNSMono.ttf",
     "/System/Library/Fonts/Menlo.ttc",
@@ -126,7 +127,7 @@ def _radial(s, power):
 
 
 def build_background(W, H):
-    """Compose the branded dark-green background: base + radial glow + grid + vignette.
+    """Compose the branded deep-navy background: base + radial glow + grid + vignette.
 
     @param W,H canvas size.
     @return an RGB Image.
@@ -136,7 +137,7 @@ def build_background(W, H):
     tmp = Image.new("L", (W, H), 0)
     tmp.paste(glow, (W // 2 - glow.width // 2, int(H * 0.58) - glow.height // 2))
     contrib = Image.composite(
-        Image.new("RGB", (W, H), (26, 110, 64)),
+        Image.new("RGB", (W, H), (26, 104, 145)),
         Image.new("RGB", (W, H), (0, 0, 0)),
         tmp.point(lambda v: int(v * 0.55)),
     )
@@ -144,11 +145,11 @@ def build_background(W, H):
     gd = ImageDraw.Draw(bg)
     step = max(24, int(W * 0.045))
     for x in range(0, W, step):
-        gd.line([(x, 0), (x, H)], fill=(12, 18, 14))
+        gd.line([(x, 0), (x, H)], fill=(14, 28, 44))
     for y in range(0, H, step):
-        gd.line([(0, y), (W, y)], fill=(12, 18, 14))
+        gd.line([(0, y), (W, y)], fill=(14, 28, 44))
     vg = ImageChops.invert(_radial(256, 1.3).resize((W, H))).point(lambda v: int(v * 0.5))
-    bg = Image.composite(Image.new("RGB", (W, H), (4, 6, 5)), bg, vg)
+    bg = Image.composite(Image.new("RGB", (W, H), (4, 8, 14)), bg, vg)
     return bg
 
 
@@ -207,7 +208,7 @@ def draw_mac(out, img, cx, top, screen_w):
     x = int(cx - ow / 2)
     y = int(top)
     out = halo(out, (x - int(ow * 0.03), y - int(ow * 0.03), x + ow + int(ow * 0.03), y + oh + int(ow * 0.03)),
-               ow * 0.03, (20, 120, 72), ow * 0.06, 120)
+               ow * 0.03, (20, 116, 150), ow * 0.06, 120)
     out = shadow(out, (x, y, x + ow, y + oh), int(ow * 0.02), int(ow * 0.03), 180, (0, int(oh * 0.03)))
     bez = Image.new("RGB", (ow, oh), (12, 12, 14))
     out.paste(bez, (x, y), rrmask((ow, oh), ow * 0.018))
@@ -252,7 +253,7 @@ def draw_phone(out, img, kind, cx, top, screen_w):
     x, y = int(cx - ow / 2), int(top)
 
     out = halo(out, (x - int(ow * 0.05), y - int(ow * 0.05), x + ow + int(ow * 0.05), y + oh + int(ow * 0.05)),
-               r_out, (22, 130, 78), ow * 0.09, 135)
+               r_out, (24, 126, 162), ow * 0.09, 135)
     out = shadow(out, (x, y, x + ow, y + oh), r_out, int(ow * 0.05), 190, (0, int(oh * 0.02)))
     out.paste(vgrad(ow, oh, rail_c1, rail_c2), (x, y), rrmask((ow, oh), r_out))
     ImageDraw.Draw(out).rounded_rectangle([x, y, x + ow - 1, y + oh - 1], int(r_out), outline=rim, width=2)
