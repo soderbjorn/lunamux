@@ -733,10 +733,13 @@ private fun decorateWorld3dDemoTopbarButton(button: HTMLElement) {
     // Same attention treatment as the in-world tour button: a slow glow
     // swell that stops by itself after ~15 s. Keyframes ride in a
     // page-lifetime <style> (inline `style=` cannot declare @keyframes).
+    // Tinted with the active theme accent (the lunamux dark theme's blue by
+    // default) via `--t-accent`, matching the "NEW!" tag above — `color-mix`
+    // fades it to transparent for the swell, the same pattern styles.css uses.
     val glow = document.createElement("style") as HTMLElement
     glow.textContent = "@keyframes tt-world3d-demo-glow{" +
-        "0%,100%{box-shadow:0 0 0 rgba(75,208,139,0);}" +
-        "50%{box-shadow:0 0 12px rgba(75,208,139,0.55);}}"
+        "0%,100%{box-shadow:0 0 0 transparent;}" +
+        "50%{box-shadow:0 0 12px color-mix(in srgb, var(--t-accent, #4dc8f5) 55%, transparent);}}"
     document.head?.appendChild(glow)
     button.style.setProperty("animation", "tt-world3d-demo-glow 3s ease-in-out infinite")
     window.setTimeout({ button.style.removeProperty("animation") }, 15_000)

@@ -964,6 +964,11 @@ private fun beginRecorder(stream: dynamic) {
             Unit
         }
         recorder.start()
+        // Stamp frame 0 of the video and start a fresh narration log, so demo-movie
+        // beats played during this recording can be timestamped against it and
+        // written out as a timeline when recording stops.
+        spikeRecordingStartMs = window.performance.now()
+        spikeMovieNarrationLog = mutableListOf()
         spikeMediaRecorder = recorder
         spikeRecordingStream = stream
         spikeRecording = true
@@ -979,6 +984,7 @@ private fun beginRecorder(stream: dynamic) {
         spikeRecordingStream = null
         spikeRecordingChunks = null
         spikeRecordingMimeType = null
+        spikeRecordingStartMs = null
         spikeRecording = false
         showSpikeToast("Recording failed")
     }
@@ -1017,16 +1023,17 @@ private fun makeMediaRecorder(stream: dynamic): dynamic {
     }
     // The MediaRecorder default (~2.5 Mbps) blocks up badly on a full-window,
     // full-motion 3D scene. Scale a target bitrate to the capture's pixel area
-    // (~0.2 bits/px/frame at 60fps), clamped to an 8–32 Mbps band. The 32 Mbps
-    // ceiling is the sizing knob: 32 Mbps ≈ 4 MB/s ≈ 240 MB/min, so a
-    // near-fullscreen 16" M2 flight lands ~480 MB for a 2-minute clip (under
-    // 500 MB) while H.264 (or VP9) stays essentially artifact-free at that bitrate.
-    // Bitrate is codec-independent, so the size target holds whichever container
-    // makeMediaRecorder ends up choosing.
+    // (~0.1 bits/px/frame at 60fps), clamped to a 4–16 Mbps band. The 16 Mbps
+    // ceiling is the sizing knob: 16 Mbps ≈ 2 MB/s ≈ 120 MB/min, so a
+    // near-fullscreen 16" M2 flight lands ~240 MB for a 2-minute clip while H.264
+    // (or VP9) stays clean at that bitrate. Bitrate is codec-independent, so the
+    // size target holds whichever container makeMediaRecorder ends up choosing.
+    // (Frame rate doesn't change file size at a fixed bitrate — only the bitrate
+    // band does; halved here from the earlier 8–32 Mbps to shrink the files.)
     val dpr = (window.asDynamic().devicePixelRatio as? Number)?.toDouble() ?: 1.0
     val pixels = (window.innerWidth * dpr) * (window.innerHeight * dpr)
-    val target = (pixels * 60.0 * 0.2).toLong()
-    val bitsPerSecond = target.coerceIn(8_000_000L, 32_000_000L)
+    val target = (pixels * 60.0 * 0.1).toLong()
+    val bitsPerSecond = target.coerceIn(4_000_000L, 16_000_000L)
     return factory(stream, mime, bitsPerSecond.toDouble())
 }
 
@@ -1052,10 +1059,18 @@ internal fun stopWindowRecording() {
  * Desktop, and confirms with a [showSpikeToast] ("Recording saved to Desktop" or
  * "Recording failed"). Clears all recording state. Invoked from the recorder's
  * `onstop` (see [beginRecorder]).
+ *
+ * If any demo-movie narration beats played during this recording
+ * ([spikeMovieNarrationLog]), a decisecond-stamped timeline is written to a `.txt`
+ * next to the video once the video save resolves, so each beat can be located in the
+ * clip. @see writeDemoTimelineNextTo
  */
 private fun finalizeRecording() {
     val stream = spikeRecordingStream
     val chunks = spikeRecordingChunks
+    // Snapshot the narration beats logged during this recording before state is
+    // cleared; the timeline .txt is written next to the video once it saves.
+    val narration = spikeMovieNarrationLog.toList()
     // The container the recorder chose (MP4 or WebM) drives both the Blob type and
     // the saved file's extension; default to WebM if it was never captured.
     val mime = spikeRecordingMimeType ?: "video/webm"
@@ -1075,6 +1090,8 @@ private fun finalizeRecording() {
     spikeRecordingStream = null
     spikeRecordingChunks = null
     spikeRecordingMimeType = null
+    spikeRecordingStartMs = null
+    spikeMovieNarrationLog = mutableListOf()
     spikeRecording = false
 
     val api = window.asDynamic().electronApi
@@ -1095,9 +1112,54 @@ private fun finalizeRecording() {
         saveP.then({ result: dynamic ->
             val path = (result as? String) ?: ""
             if (path.startsWith("!")) showSpikeToast("Recording failed")
-            else showSpikeToast("Recording saved to Desktop")
+            else {
+                showSpikeToast("Recording saved to Desktop")
+                // Drop a matching timeline of demo-movie beats next to the video.
+                writeDemoTimelineNextTo(api, path, narration)
+            }
         })
         saveP.catch({ _: dynamic -> showSpikeToast("Recording failed") })
     })
     bufP.catch({ _: dynamic -> showSpikeToast("Recording failed") })
+}
+
+/**
+ * Writes a demo-movie timeline `.txt` alongside the just-saved recording, one row
+ * per narration beat: its offset into the video (decisecond precision, `M:SS.d`) then
+ * the caption that was displayed. A no-op when no beats were logged (no demo ran
+ * during the recording) or the timeline bridge is missing. The main process names
+ * the file after [videoPath] with a `.txt` extension so the pair share a stamp.
+ *
+ * @param api the `window.electronApi` bridge.
+ * @param videoPath absolute path of the saved recording (drives the `.txt` name).
+ * @param narration the (recording-relative ms → caption) beats, in play order.
+ * @see finalizeRecording @see formatDeciseconds
+ */
+private fun writeDemoTimelineNextTo(api: dynamic, videoPath: String, narration: List<Pair<Double, String>>) {
+    if (narration.isEmpty() || api.saveDemoTimeline == null) return
+    val sb = StringBuilder()
+    for ((ms, text) in narration) {
+        sb.append(formatDeciseconds(ms)).append('\t').append(text).append('\n')
+    }
+    try {
+        val p: dynamic = api.saveDemoTimeline(videoPath, sb.toString())
+        p?.then?.let { p.then({ _: dynamic -> Unit }); p.catch({ _: dynamic -> Unit }) }
+    } catch (_: Throwable) {}
+}
+
+/**
+ * Formats [ms] milliseconds as `M:SS.d` — minutes, zero-padded seconds, and a single
+ * decisecond digit (0.1 s precision), e.g. `1:07.4`. Used to stamp demo-movie beats
+ * against the recording in [writeDemoTimelineNextTo].
+ *
+ * @param ms elapsed milliseconds from the start of the recording.
+ * @return the `M:SS.d` timestamp string.
+ */
+private fun formatDeciseconds(ms: Double): String {
+    val totalDs = kotlin.math.round(ms / 100.0).toLong().coerceAtLeast(0)
+    val ds = totalDs % 10
+    val totalSec = totalDs / 10
+    val s = totalSec % 60
+    val m = totalSec / 60
+    return "$m:${s.toString().padStart(2, '0')}.$ds"
 }

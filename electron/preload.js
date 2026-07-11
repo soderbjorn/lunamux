@@ -149,6 +149,22 @@ contextBridge.exposeInMainWorld("electronApi", {
     ipcRenderer.invoke("save-window-recording", bytes, ext),
 
   /**
+   * Writes a demo-movie timeline text file to the Desktop, named after the
+   * just-saved recording so the pair share a stamp (the video's extension is
+   * swapped for `.txt`). Each line is a beat's offset into the video followed by
+   * the caption that was on screen. Called by the 3D world's recording finalizer
+   * when a demo tour played during the recording.
+   *
+   * @param {string} videoPath - Absolute path of the saved recording; the `.txt`
+   *   is written next to it with the same base name.
+   * @param {string} text - The full timeline body (one `M:SS.d\tcaption` per line).
+   * @returns {Promise<string>} Resolves to the saved absolute path on success, or a
+   *   string starting with `"!"` carrying an error message on failure.
+   */
+  saveDemoTimeline: (videoPath, text) =>
+    ipcRenderer.invoke("save-demo-timeline", videoPath, text),
+
+  /**
    * Reports this app's macOS Screen Recording (TCC) authorization status, so the
    * 3D world's record toggle can avoid silently saving a black recording when the
    * permission hasn't been granted. Serviced by the main process

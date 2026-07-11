@@ -96,27 +96,58 @@ internal fun zoomFrontTo(target: Double, glide: Boolean = false) {
 
 /**
  * Zooms the front pane to the **largest level at which it still fits entirely
- * on screen** (`⇧+`): the min of the viewport/plane ratios per axis, scaled by
- * [ZOOM_FIT_MARGIN] so the border/glow stays a hair inside the viewport rather
- * than spilling off the edges. The front pane renders 1:1 at zoom 1 (the camera is posed at
- * exactly the perspective distance), so screen pixels == plane pixels × zoom and
- * the ratio *is* the fit level. Clamped to [ZOOM_MAX] like every zoom, so a tiny
- * pane in a huge window tops out rather than blowing past the ceiling. Glides
- * at the slow [ZOOM_PRESET_EASE] rather than snapping ([spikeZoomGlide]).
- * No-op unless a front pane is settled (guard lives in [zoomFrontTo]).
+ * on screen** (`⇧+`), scaled by [ZOOM_FIT_MARGIN] so the border/glow stays a hair
+ * inside the viewport rather than spilling off the edges. Glides at the slow
+ * [ZOOM_PRESET_EASE] rather than snapping ([spikeZoomGlide]). No-op unless a front
+ * pane is settled (guard lives in [zoomFrontTo]).
+ *
+ * **Why measure instead of model.** An earlier version fitted the pane's *layout*
+ * box (`offsetWidth/Height`) against the viewport, trusting a theoretical
+ * "1 plane px == 1 screen px × zoom" identity and assuming the pane sits dead
+ * centre. In practice both drift: the CSS3D perspective projection isn't exactly
+ * 1:1 (title strip, glow, camera-distance rounding), and — more importantly — the
+ * pane's projected centre is usually a touch *above* screen centre, so a symmetric
+ * fit grows the pane until its **bottom rows clip off** the lower edge before the
+ * top ever reaches the ceiling. So instead we read the pane's *actual* rendered
+ * on-screen box ([getBoundingClientRect], which already bakes in the real CSS3D
+ * transform) and fit *that*, about the box's true centre.
+ *
+ * A pane magnifies about its own projected centre, so the span that has to fit on
+ * each axis is twice the distance from that centre to the *nearer* viewport edge —
+ * `2·min(c, size−c)`. Dividing that room by the box's current projected size gives
+ * the scale headroom, and multiplying the scale the box was measured at
+ * ([obj].scale, the value that produced this frame's rect) by that headroom yields
+ * the zoom that just fits. Self-correcting for both off-centre placement and any
+ * projection drift, so the bottom rows stay on screen. Clamped to [ZOOM_MAX] by
+ * [zoomFrontTo] like every zoom.
  *
  * @see zoomFrontTo @see zoomFront
  */
 internal fun zoomFrontFit() {
     val p = spikePanes.getOrNull(frontIndex()) ?: return
-    // The wrapper is the full CSS3D plane (title strip included) — its layout box
-    // is what the render loop scales, so it is the right box to fit.
-    val pw = p.wrapper.offsetWidth.toDouble()
-    val ph = p.wrapper.offsetHeight.toDouble()
-    if (pw <= 0.0 || ph <= 0.0) return
-    // Fit to a hair inside the viewport ([ZOOM_FIT_MARGIN]) rather than edge-to-edge, so the
-    // pane's border/glow stays on screen instead of spilling off the sides.
-    zoomFrontTo(min(window.innerWidth / pw, window.innerHeight / ph) * ZOOM_FIT_MARGIN, glide = true)
+    // The pane's true on-screen box under the live CSS3D perspective transform — not
+    // its flat layout box — so the fit reflects what the eye actually sees.
+    val rect = p.wrapper.getBoundingClientRect()
+    val projW = rect.width
+    val projH = rect.height
+    if (projW <= 0.0 || projH <= 0.0) return
+    // The scale that produced this rect (eased object scale ≈ visual zoom for a
+    // settled front pane). Guard a degenerate frame rather than dividing by zero.
+    val s0 = p.obj.scale.x as Double
+    if (s0 <= 0.0) return
+    // The pane grows about its projected centre, so what must fit is the larger
+    // half-span from that centre to the viewport edge on each axis. When the centre
+    // sits off-screen-centre (typically a hair high), the nearer edge binds first —
+    // this is what keeps the bottom rows from clipping.
+    val cx = rect.left + projW / 2.0
+    val cy = rect.top + projH / 2.0
+    val availW = 2.0 * min(cx, window.innerWidth - cx)
+    val availH = 2.0 * min(cy, window.innerHeight - cy)
+    if (availW <= 0.0 || availH <= 0.0) return
+    // Headroom on the tighter axis × [ZOOM_FIT_MARGIN] slack, applied to the scale
+    // the rect was measured at → the zoom that just fits inside the viewport.
+    val headroom = min(availW / projW, availH / projH) * ZOOM_FIT_MARGIN
+    zoomFrontTo(s0 * headroom, glide = true)
 }
 
 /**

@@ -169,6 +169,13 @@ private fun movieNarrate(text: String) {
     window.setTimeout({
         sub.textContent = text
         sub.style.opacity = "1"
+        // If we're recording, log this beat against the recording clock (measured at
+        // the moment the caption becomes visible) so finalizeRecording can write a
+        // timeline .txt whose stamps line up with the video.
+        val start = spikeRecordingStartMs
+        if (spikeRecording && start != null) {
+            spikeMovieNarrationLog.add((window.performance.now() - start) to text)
+        }
     }, 250)
 }
 
@@ -440,7 +447,7 @@ private suspend fun playFlyBehindAndType(text: String) {
         pullout = PANE_TOUR_PULLOUT, rise = PANE_TOUR_RISE,
     )
     movieAwaitCamera(); delay(1_000)
-    movieNarrate("behind a window — typing through the glass")
+    movieNarrate("Go behind a window — and type through the glass")
     moviePress("Enter", "Enter"); delay(900) // engages the centred pane (this one)
     movieTypeIntoFront(text)
     delay(500)
@@ -463,22 +470,20 @@ private suspend fun playFlyBehindAndType(text: String) {
  * Cancellation (⌥⌘M, Esc/close) lands in the caller's `finally`.
  */
 private suspend fun playDemoMovie() {
-    // ══ 1. Navigate: the windows of a tab (←/→) and the tabs themselves (↑/↓).
-    // ── Establish: rest on the live Claude pane, let it stream a moment.
-    movieNarrate("a Claude session, live at work")
+    // ══ 1. Navigate: the windows of a tab (←/→) and the tabs themselves (↑/↓) —
+    //       one continuous opening beat that moves across both, straight from the
+    //       first frame (no separate "establish" dwell; we open on the move).
+    // ── Fan across the Compo tab's windows, then drop down through the tab floors:
+    //    a single "moving around" section from the very start. Jittered pauses so
+    //    the walk reads human, not metronomic.
+    movieNarrate("Moving between tabs and windows")
     movieAwaitSettled()
-    delay(3_000)
-
-    // ── Fan across the Compo tab: the build shell, then the finished greets Claude.
-    //    Jittered pauses so the walk reads human, not metronomic.
-    movieNarrate("walk the windows of a tab")
     moviePress("ArrowRight", "ArrowRight"); movieAwaitSettled(); moviePause(1_300)
     moviePress("ArrowRight", "ArrowRight"); movieAwaitSettled(); moviePause(1_500)
 
     // ── Down through the tab floors: Trackmo, resting on the red waiting agent.
-    movieNarrate("move between tabs")
     moviePress("ArrowDown", "ArrowDown"); movieAwaitSettled(); moviePause(1_600)
-    movieNarrate("blue glow: working — yellow: needs input")
+    movieNarrate("Blue glow: agent is working — yellow: agent needs input")
     moviePress("ArrowRight", "ArrowRight"); movieAwaitSettled(); moviePause(2_400)
     // ── Peek at the single-viewer tabs (each now paired with a finished Claude).
     moviePress("ArrowDown", "ArrowDown"); movieAwaitSettled(); moviePause(1_500)
@@ -499,7 +504,7 @@ private suspend fun playDemoMovie() {
     //       it needs no such care.
     val plusCode = spikeZoomPlusCodes.firstOrNull { !it.startsWith("Numpad") } ?: "Equal"
     val minusCode = spikeZoomMinusCodes.firstOrNull { !it.startsWith("Numpad") } ?: "Minus"
-    movieNarrate("zoom into a window to read it — and back out")
+    movieNarrate("Zoom in and out of windows")
     moviePress("+", plusCode, shift = true); delay(2_400)  // ⇧+ → zoom-to-fit (max)
     moviePress("_", minusCode, shift = true); delay(1_700) // ⇧− → zoom floor (min)
     moviePress("0", "Digit0"); delay(1_100)                // 0 → back to 1:1
@@ -511,7 +516,7 @@ private suspend fun playDemoMovie() {
     //       GRID_ROWS_STEP taller than the small fixture default going into the
     //       tilt-and-type beat below: typing reads far better on a slightly
     //       roomier terminal than on the cramped original.
-    movieNarrate("resize its grid")
+    movieNarrate("Resize a window")
     moviePress(".", "Period"); delay(550)
     moviePress(".", "Period"); delay(550)
     moviePress(".", "Period"); delay(1_100)
@@ -526,7 +531,7 @@ private suspend fun playDemoMovie() {
     //       whole look), engage, send it the POKE (the fixture's funny wink), watch
     //       it pick the work back up, then straighten and step out. Only the
     //       *finished* greets pane is ever typed into — never the live or waiting one.
-    movieNarrate("talk to a finished Claude — at a tilt, because we can")
+    movieNarrate("Give instructions to an agent")
     moviePress("j", "KeyJ")
     movieAwaitCamera(); delay(500)
     moviePress("Enter", "Enter"); delay(900)
@@ -546,7 +551,7 @@ private suspend fun playDemoMovie() {
     //       type beat.
     movieNavigateToPane("demo-p6") // → the watch shell (Trackmo)
     delay(300)
-    movieNarrate("close a window — we shoot it out of the sky")
+    movieNarrate("Close a window: we shoot it out of the sky")
     moviePress("x", "KeyX", alt = true); delay(1_100) // arm
     moviePress("x", "KeyX", alt = true) // confirm → phaser fire
     delay(5_800) // ~4 s of fire + the implosion collapse
@@ -558,18 +563,17 @@ private suspend fun playDemoMovie() {
     //       camera home to the (now smaller) command center. The tab is left
     //       stashed — we do not revisit the shelf — so the remaining tab floors
     //       renumber under us, which is why the later beats navigate by live state.
-    movieNarrate("Hiding a tab: docks it in a spaceship")
+    movieNarrate("Hiding a tab: docks its windows in a spaceship")
     delay(3_000) // let the viewer read the caption before the tab shoots off into the sky
     moviePress(" ", "Space", ctrl = true) // stash the whole tab up
     movieAwaitBundleLanded() // hold until the stack has merged, flown and parked
     delay(700)
-    movieNarrate("…and bring the camera home")
     moviePress("c", "KeyC")
     movieAwaitCamera(); delay(1_100)
 
     // ══ 7. Grow a new window: `n` adds a pane to the fronted tab and it blinks in
     //       through its wormhole. Tab-agnostic — whichever floor we came home to.
-    movieNarrate("create new window - it arrives through a wormhole")
+    movieNarrate("Create a new window: it arrives through a wormhole")
     moviePress("n", "KeyN")
     movieAwaitWormhole(); delay(900) // hold through the whole vortex, then a beat to read it
 
@@ -580,11 +584,11 @@ private suspend fun playDemoMovie() {
     //       [playFlyBehindAndType] and the `Enter` engage resolve to it.
     movieNavigateToPane("demo-p2") // → ~/code/lastlight (shell)
     delay(500)
-    movieNarrate("frame the whole world at once")
+    movieNarrate("Go around to see all the windows")
     moviePress("m", "KeyM")
     movieAwaitCamera(); delay(2_600)
 
-    movieNarrate("free flight — the camera becomes a spaceship")
+    movieNarrate("Free flight: the camera becomes a spaceship")
     moviePress("f", "KeyF"); delay(800)
     playFlyBehindAndType("ls")
 

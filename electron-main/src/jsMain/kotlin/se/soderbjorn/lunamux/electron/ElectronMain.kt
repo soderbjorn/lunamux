@@ -1365,6 +1365,30 @@ fun main() {
         }
     }
 
+    // IPC: write a demo-movie timeline text file next to a just-saved recording.
+    // The renderer records, for each narration beat that played during the
+    // recording, its offset into the video and the caption shown, and hands us the
+    // saved video's path plus the assembled body. We name the `.txt` after the video
+    // (its extension swapped for `.txt`) so the pair share a stamp, falling back to a
+    // fresh stamped name if no video path was given. Returns the saved absolute path
+    // (or a "!"-prefixed error). Backing the `saveDemoTimeline` bridge.
+    ipcMain.handle("save-demo-timeline") { _, videoPath, text ->
+        try {
+            val vp = (videoPath as? String) ?: ""
+            val slash = maxOf(vp.lastIndexOf('/'), vp.lastIndexOf('\\'))
+            val dot = vp.lastIndexOf('.')
+            val txtPath = when {
+                vp.isEmpty() -> NodePath.join(app.getPath("desktop"), "Lunamux ${screenshotStamp()}.txt")
+                dot > slash -> vp.substring(0, dot) + ".txt"
+                else -> "$vp.txt"
+            }
+            NodeFs.asDynamic().writeFileSync(txtPath, (text as? String) ?: "")
+            txtPath
+        } catch (t: Throwable) {
+            "!${t.message ?: "could not save timeline"}"
+        }
+    }
+
     // IPC: report the macOS Screen Recording (TCC) authorization status for this
     // app, so the renderer can gate the record shortcut and avoid silently saving
     // a black recording. Returns one of "granted" / "denied" / "restricted" /

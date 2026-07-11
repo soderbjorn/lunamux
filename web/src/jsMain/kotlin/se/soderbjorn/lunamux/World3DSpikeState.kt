@@ -525,6 +525,25 @@ internal var spikeRecordingChunks: dynamic = null
  */
 internal var spikeRecordingMimeType: String? = null
 
+/**
+ * `performance.now()` captured the instant screen capture actually began (frame 0
+ * of the video), or `null` when not recording. Every demo-movie narration beat is
+ * timestamped relative to this so a timeline text file written on stop lines up
+ * with the recording. Set in [beginRecorder], cleared in [finalizeRecording].
+ * @see spikeMovieNarrationLog
+ */
+internal var spikeRecordingStartMs: Double? = null
+
+/**
+ * Demo-movie narration beats that played *while recording*, as
+ * (recording-relative milliseconds → displayed caption) pairs in play order.
+ * Appended by `movieNarrate` when a beat's caption becomes visible, cleared when a
+ * recording starts ([beginRecorder]); on stop [finalizeRecording] writes it to a
+ * `.txt` next to the video (decisecond-stamped) so each beat can be located in the
+ * clip. @see spikeRecordingStartMs
+ */
+internal var spikeMovieNarrationLog: MutableList<Pair<Double, String>> = mutableListOf()
+
 /** Whether a screen recording is currently in progress. Guards the `⇧R` toggle. @see toggleWindowRecording */
 internal var spikeRecording: Boolean = false
 
