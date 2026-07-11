@@ -94,6 +94,10 @@ internal fun toggleFlyMode() {
  *   the classic in-plane arc. @see STASH_CAM_SWAY
  * @param roll max bank (radians) about the camera's own nose, `sin 2πs` profile — leans
  *   into the journey, unwinds, counter-banks, lands level. @see STASH_CAM_ROLL
+ * @param landRoll a **permanent** bank (radians) the flight eases into and **holds** at
+ *   landing — unlike [roll] it does not unwind, so the parked pose stays tilted. `0.0`
+ *   lands level; the [flyOverview] hero shot sets it for the "slightly rotated" picture.
+ *   @see spikeCamTourLandRoll
  * @param endLook if non-null, the aim eases from the in-flight look (fixed point or
  *   [followPaneId] pane) toward this point over the final [CAM_TOUR_END_BLEND] of the
  *   flight — swinging the gaze to frame the destination sign on touchdown while still
@@ -112,6 +116,7 @@ internal fun flyCamTo(
     followPaneId: String? = null,
     sway: Double = 0.0,
     roll: Double = 0.0,
+    landRoll: Double = 0.0,
     endLook: Triple<Double, Double, Double>? = null,
     then: (() -> Unit)? = null,
 ) {
@@ -156,6 +161,7 @@ internal fun flyCamTo(
     spikeCamTourFollowPaneId = followPaneId
     spikeCamTourSway = sway
     spikeCamTourRoll = roll
+    spikeCamTourLandRoll = landRoll
     spikeCamTourHasEndLook = endLook != null
     endLook?.let { (ex, ey, ez) ->
         spikeCamTourEndLookX = ex; spikeCamTourEndLookY = ey; spikeCamTourEndLookZ = ez
@@ -175,8 +181,8 @@ internal fun flyCamTo(
  */
 internal fun resetCamera() {
     spikeStashChase = null // `c` cancels a stash chase and flies home
+    spikeShelfPanTargetX = null // …and cancels any pending dock dolly so nothing tugs it back
     if (!spikeCamFlown) return
-    spikeTilted = false // coming home always straightens a `j` tilt
     val homeZ = RING_R + perspDistance(window.innerHeight)
     if (cameraAtShelf()) {
         if (stationBuilt()) {
@@ -226,21 +232,22 @@ internal fun resetCamera() {
 }
 
 /**
- * Toggles the **slight camera tilt** (`j`): a quick [flyCamTo] that steps the camera
- * a modest distance sideways and up from wherever it currently sits — [TILT_SIDE] /
- * [TILT_UP] fractions of the perspective distance — still looking straight at the
- * front pane, so the pane reads at a gentle three-quarter angle instead of the flat
- * 1:1 view (typing into an angled terminal is the whole point). Pressing `j` again
- * (while the tilt pose still holds) flies home via [resetCamera]; any other journey
- * that lands pristine clears the toggle the same way. No-op while a journey is in
- * flight or with no front pane to frame.
+ * The **tilt view** camera move (`j`) — no longer a mode, just a nudge: a quick
+ * [flyCamTo] that steps the camera a modest distance sideways and up **from wherever it
+ * currently sits** ([TILT_SIDE] / [TILT_UP] fractions of the perspective distance),
+ * still looking straight at the target pane, so the pane reads at a gentle three-quarter
+ * angle instead of the flat 1:1 view (typing into an angled terminal is the whole
+ * point). Available in **both** command center and free flight; the target is the
+ * command center's selected pane in navigate, the nearest pane in free flight
+ * ([actionTargetPane]). Each press tilts again from the new pose — to come back level,
+ * press `c` (fly home) or `F`. No-op while a journey is in flight or with no pane to
+ * frame.
  *
- * @see spikeTilted @see TILT_SIDE @see buildKeyHandler
+ * @see actionTargetPane @see TILT_SIDE @see buildKeyHandler
  */
-internal fun toggleCameraTilt() {
+internal fun tiltCamera() {
     if (stashBusy()) return
-    if (spikeTilted && spikeCamFlown) { spikeTilted = false; resetCamera(); return }
-    val p = spikePanes.getOrNull(frontIndex()) ?: return
+    val p = actionTargetPane() ?: return
     val px = p.obj.position.x as Double
     val py = p.obj.position.y as Double
     val pz = p.obj.position.z as Double
@@ -260,7 +267,43 @@ internal fun toggleCameraTilt() {
         px, py, pz,
         landPristine = false, frames = TILT_FRAMES, pullout = 0.0, rise = 0.0,
     )
-    spikeTilted = true
+}
+
+/**
+ * The **overview** camera move (`m`) — flies the camera out to a fixed cinematic "hero
+ * shot" of the *whole* command-center world and parks it there, gazing down at the
+ * world's centre so every tab and window frames as one nice picture. Unlike the pane
+ * fly-bys this frames the scene, not a pane: the target pose is derived purely from the
+ * world's geometry ([RING_R] + the perspective distance) and a fixed three-quarter
+ * direction ([OVERVIEW_DIR_SIDE]/[OVERVIEW_DIR_UP]/[OVERVIEW_DIR_FRONT]), so it lands the
+ * same composed shot no matter where you trigger it — command center or free flight.
+ *
+ * Reached from both handler branches in [buildKeyHandler]. A no-op while another journey
+ * is in flight so a mid-tour press can't fight the tracer. Lands parked at the flown pose
+ * ([flyCamTo] with `landPristine = false`); press `c` ([resetCamera]) to fly home again.
+ *
+ * @see flyCamTo @see OVERVIEW_DIST @see tiltCamera @see buildKeyHandler
+ */
+internal fun flyOverview() {
+    if (spikeCamReturning) return
+    val d = perspDistance(window.innerHeight)
+    val dist = (RING_R + d) * OVERVIEW_DIST
+    // Normalize the fixed look direction, then park `dist` out along it from the origin,
+    // gazing back at the origin — the centre the whole pane sphere is built around.
+    val len = sqrt(
+        OVERVIEW_DIR_SIDE * OVERVIEW_DIR_SIDE +
+            OVERVIEW_DIR_UP * OVERVIEW_DIR_UP +
+            OVERVIEW_DIR_FRONT * OVERVIEW_DIR_FRONT,
+    ).coerceAtLeast(1e-6)
+    flyCamTo(
+        OVERVIEW_DIR_SIDE / len * dist,
+        OVERVIEW_DIR_UP / len * dist,
+        OVERVIEW_DIR_FRONT / len * dist,
+        0.0, 0.0, 0.0,
+        landPristine = false, frames = OVERVIEW_FRAMES,
+        pullout = OVERVIEW_PULLOUT, rise = OVERVIEW_RISE,
+        roll = OVERVIEW_ROLL, landRoll = OVERVIEW_LAND_ROLL,
+    )
 }
 
 /**
@@ -276,12 +319,86 @@ internal fun nearestPaneToCamera(): RingPane? {
     val cx = if (spikeCamFlown) spikeCamX else 0.0
     val cy = if (spikeCamFlown) spikeCamY else 0.0
     val cz = if (spikeCamFlown) spikeCamZ else RING_R + perspDistance(window.innerHeight)
-    return spikePanes.filter { !it.dying }.minByOrNull { p ->
+    return spikePanes.filter { !it.dying && it.bundleId == null }.minByOrNull { p ->
         val dx = (p.obj.position.x as Double) - cx
         val dy = (p.obj.position.y as Double) - cy
         val dz = (p.obj.position.z as Double) - cz
         dx * dx + dy * dy + dz * dz
     }
+}
+
+/**
+ * The live pane **at the centre of the screen** — the free-flight target for every
+ * pane action (focus, glides, grid, reformat, zoom, stash). A ray is cast from the
+ * camera along its nose (the screen-centre direction) and tested against each pane's
+ * oriented quad; the pane the ray actually **pierces** wins, and if several overlap the
+ * centre the **nearest hit** (smallest ray distance) is chosen — so "aim at it to act on
+ * it", and a near pane in front of a far one takes priority. When the ray misses every
+ * pane it falls back to the pane whose centre sits **closest to the centre of view** (the
+ * smallest angle off the nose, front hemisphere only), and finally to the nearest pane by
+ * distance so an action never silently no-ops when panes are around.
+ *
+ * @return the centred pane, or `null` if the world holds none.
+ * @see actionTargetPane @see nearestPaneToCamera @see paneFacingNormal
+ */
+internal fun paneAtScreenCenter(): RingPane? {
+    val ox = if (spikeCamFlown) spikeCamX else 0.0
+    val oy = if (spikeCamFlown) spikeCamY else 0.0
+    val oz = if (spikeCamFlown) spikeCamZ else RING_R + perspDistance(window.innerHeight)
+    val fx = if (spikeCamFlown) spikeCamFx else 0.0
+    val fy = if (spikeCamFlown) spikeCamFy else 0.0
+    val fz = if (spikeCamFlown) spikeCamFz else -1.0
+
+    var bestHit: RingPane? = null
+    var bestT = Double.MAX_VALUE // nearest ray-quad intersection
+    var bestCentred: RingPane? = null
+    var bestCos = -1.0 // most-centred pane in the front hemisphere (ray-miss fallback)
+
+    for (p in spikePanes) {
+        // Skip a pane whose whole tab is unlisted into a hangar stack — it is not a live
+        // ring pane you can aim at, even while it flies to / rests on the dock. @see stashTab
+        if (p.dying || p.bundleId != null) continue
+        val px = p.obj.position.x as Double
+        val py = p.obj.position.y as Double
+        val pz = p.obj.position.z as Double
+        val dx = px - ox; val dy = py - oy; val dz = pz - oz
+        val dl = sqrt(dx * dx + dy * dy + dz * dz)
+        if (dl < 1e-6) return p // camera sits on the pane
+
+        // Most-centred fallback: cosine of the angle between the nose and the pane centre.
+        val cosAng = (dx * fx + dy * fy + dz * fz) / dl
+        if (cosAng > bestCos) { bestCos = cosAng; bestCentred = p }
+
+        // Exact ray → oriented-quad intersection. Plane: point = pane centre, normal N.
+        val (nx, ny, nz) = paneFacingNormal(p)
+        val denom = fx * nx + fy * ny + fz * nz
+        if (abs(denom) < 1e-6) continue // ray parallel to the plane
+        val t = (dx * nx + dy * ny + dz * nz) / denom // ((centre − O)·N) / (F·N)
+        if (t <= 0.0) continue // intersection behind the camera
+        // Hit point relative to the pane centre.
+        val hx = ox + fx * t - px
+        val hy = oy + fy * t - py
+        val hz = oz + fz * t - pz
+        // Pane up axis: Rx(rx)·(0,1,0) = (0, cos rx, sin rx). Right = up × normal.
+        val rxA = p.obj.rotation.x as Double
+        val ux = 0.0; val uy = cos(rxA); val uz = sin(rxA)
+        var rrx = uy * nz - uz * ny
+        var rry = uz * nx - ux * nz
+        var rrz = ux * ny - uy * nx
+        val rl = sqrt(rrx * rrx + rry * rry + rrz * rrz).coerceAtLeast(1e-6)
+        rrx /= rl; rry /= rl; rrz /= rl
+        val along = hx * rrx + hy * rry + hz * rrz // horizontal offset within the quad
+        val up = hx * ux + hy * uy + hz * uz // vertical offset within the quad
+        val sclX = (p.obj.scale.x as? Double) ?: 1.0
+        val sclY = (p.obj.scale.y as? Double) ?: 1.0
+        val halfW = p.baseCw * 0.5 * sclX
+        val halfH = (p.baseCh + TITLE_H) * 0.5 * sclY
+        if (abs(along) <= halfW && abs(up) <= halfH && t < bestT) {
+            bestT = t; bestHit = p
+        }
+    }
+    // A true hit wins; else the most-centred front pane; else nearest by distance.
+    return bestHit ?: bestCentred?.takeIf { bestCos > 0.0 } ?: nearestPaneToCamera()
 }
 
 /**
@@ -314,7 +431,7 @@ internal fun paneFacingNormal(p: RingPane): Triple<Double, Double, Double> {
  */
 internal fun flyBehindPane() {
     if (spikeCamReturning) return
-    val p = nearestPaneToCamera() ?: return
+    val p = actionTargetPane() ?: return
     val px = p.obj.position.x as Double
     val py = p.obj.position.y as Double
     val pz = p.obj.position.z as Double
@@ -322,6 +439,32 @@ internal fun flyBehindPane() {
     val side = paneFlankSign(px, pz, nx, nz)
     flyCamTo(
         px - nx * PANE_BEHIND_DIST, py - ny * PANE_BEHIND_DIST, pz - nz * PANE_BEHIND_DIST,
+        px, py, pz,
+        landPristine = false, frames = PANE_TOUR_FRAMES,
+        pullout = PANE_TOUR_PULLOUT, rise = PANE_TOUR_RISE,
+        sway = side * PANE_TOUR_SWAY, roll = side * PANE_TOUR_ROLL,
+    )
+}
+
+/**
+ * Fly-mode **`H` — glide to the front of the nearest pane**: the mirror of [flyBehindPane],
+ * a slow cinematic [flyCamTo] that arcs around the pane's nearer flank and parks
+ * [PANE_FRONT_DIST] out in front of its face, looking straight at it — the head-on reading
+ * view. Stays in fly mode; any movement key mid-flight cancels the tour and returns control.
+ * A no-op while another journey is in flight or with no panes in the world.
+ *
+ * @see flyBehindPane @see nearestPaneToCamera @see buildKeyHandler
+ */
+internal fun flyFrontPane() {
+    if (spikeCamReturning) return
+    val p = actionTargetPane() ?: return
+    val px = p.obj.position.x as Double
+    val py = p.obj.position.y as Double
+    val pz = p.obj.position.z as Double
+    val (nx, ny, nz) = paneFacingNormal(p)
+    val side = paneFlankSign(px, pz, nx, nz)
+    flyCamTo(
+        px + nx * PANE_FRONT_DIST, py + ny * PANE_FRONT_DIST, pz + nz * PANE_FRONT_DIST,
         px, py, pz,
         landPristine = false, frames = PANE_TOUR_FRAMES,
         pullout = PANE_TOUR_PULLOUT, rise = PANE_TOUR_RISE,
@@ -342,7 +485,7 @@ internal fun flyBehindPane() {
  */
 internal fun flyBesidePane() {
     if (spikeCamReturning) return
-    val p = nearestPaneToCamera() ?: return
+    val p = actionTargetPane() ?: return
     val px = p.obj.position.x as Double
     val py = p.obj.position.y as Double
     val pz = p.obj.position.z as Double
@@ -392,7 +535,7 @@ internal fun flyBelowPane() = flyVerticalPane(-1.0)
  */
 private fun flyVerticalPane(vert: Double) {
     if (spikeCamReturning) return
-    val p = nearestPaneToCamera() ?: return
+    val p = actionTargetPane() ?: return
     val px = p.obj.position.x as Double
     val py = p.obj.position.y as Double
     val pz = p.obj.position.z as Double
@@ -498,10 +641,9 @@ internal fun applyFlyStep() {
         if (held("KeyD")) { spikeCamVX += rx * FLY_ACCEL; spikeCamVY += ry * FLY_ACCEL; spikeCamVZ += rz * FLY_ACCEL; spikeCamFlown = true }
     }
 
-    // Vertical thrusters (Space / Shift): strafe along the ship's *up* vector, so
-    // "up" is always the ship's own roof — Space rises, Shift descends. Same live-basis
-    // relativity as A/D, just the other lateral axis.
-    if (held("Space")) { spikeCamVX += spikeCamUx * FLY_ACCEL; spikeCamVY += spikeCamUy * FLY_ACCEL; spikeCamVZ += spikeCamUz * FLY_ACCEL; spikeCamFlown = true }
+    // Vertical thruster (Shift): strafe *down* along the ship's own roof vector. (Space
+    // used to strafe up but is now the stash/unstash-nearest key, so up-thrust is done by
+    // pitching the nose up and throttling; Shift keeps the quick descend.)
     if (held("ShiftLeft") || held("ShiftRight")) { spikeCamVX -= spikeCamUx * FLY_ACCEL; spikeCamVY -= spikeCamUy * FLY_ACCEL; spikeCamVZ -= spikeCamUz * FLY_ACCEL; spikeCamFlown = true }
 
     // Integrate linear velocity → position.
@@ -585,23 +727,22 @@ internal fun resetFrontZoom() {
     }
 }
 
-/** Toggles the idle pane bob on/off (`b`). */
-internal fun toggleBob() {
-    spikeBobEnabled = !spikeBobEnabled
-}
-
 /**
- * Cycles how a **working** pane signals (`g`): advances [spikeWorkingStyle] through
- * [WorkingStyle.BOTH] → [WorkingStyle.GLOW] → [WorkingStyle.DOTS] → back to `BOTH`. The
- * render loop reads the style each frame and paints whichever treatment(s) it selects, so
- * the switch is live for every working pane at once.
- * @see spikeWorkingStyle @see WorkingStyle @see WORKING_GLOW_COLOR
+ * Re-reads the persisted 3D-world settings into the live runtime flags — window bobbing
+ * ([spikeBobEnabled]) and status indication ([spikeStatusIndication]). Called once at
+ * [openWorld3dSpike] to seed them, and again from the in-world settings panel (⌥⌘,) on
+ * every change so an edit takes effect on the running world immediately (the render loop
+ * reads both flags each frame). Bob is also cleared of any lingering reactor visuals when
+ * the mode leaves REACTOR, so a pane can't freeze mid-glow.
+ * @see isWindowBobbingEnabled @see world3dStatusIndication @see resetWarpCoreVisuals
  */
-internal fun toggleWorkingStyle() {
-    spikeWorkingStyle = when (spikeWorkingStyle) {
-        WorkingStyle.BOTH -> WorkingStyle.GLOW
-        WorkingStyle.GLOW -> WorkingStyle.DOTS
-        WorkingStyle.DOTS -> WorkingStyle.BOTH
+internal fun syncWorld3dRuntimeFromSettings() {
+    spikeBobEnabled = isWindowBobbingEnabled()
+    val prev = spikeStatusIndication
+    spikeStatusIndication = world3dStatusIndication()
+    // Leaving the reactor mode: clear its lingering per-pane visuals so nothing freezes.
+    if (prev == StatusIndication.REACTOR && spikeStatusIndication != StatusIndication.REACTOR) {
+        resetWarpCoreVisuals()
     }
 }
 
@@ -651,9 +792,18 @@ internal fun cycleSignalOverride() {
  */
 internal fun disengage() {
     // Only flex-off if we were actually latched on — a bare disengage (e.g. a
-    // navigate while nothing is engaged) shouldn't play the signal.
-    if (spikeEngaged) spikePanes.getOrNull(frontIndex())?.let { startFlex(it, FLEX_DIR_IN) }
+    // navigate while nothing is engaged) shouldn't play the signal. Flex the pane we
+    // actually engaged (in free flight that is the nearest pane, not necessarily the
+    // front one), falling back to the front pane.
+    if (spikeEngaged) {
+        (spikePanes.firstOrNull { it.paneId == spikeLastEngagedPane }
+            ?: spikePanes.getOrNull(frontIndex()))
+            ?.let { startFlex(it, FLEX_DIR_IN) }
+    }
     spikeEngaged = false
+    // Swap the legend back to whichever mode we return to (command center or free flight).
+    // @see updateLegendVisibility
+    updateLegendVisibility()
     (document.activeElement as? HTMLElement)?.let { el ->
         if (spikePanes.any { it.container.contains(el as Node) }) el.blur()
     }

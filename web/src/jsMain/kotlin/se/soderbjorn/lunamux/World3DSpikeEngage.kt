@@ -155,12 +155,35 @@ internal fun createBulgeFilter(): Pair<String, Element> {
     return id to feDisp
 }
 
+/**
+ * Focuses (engages) the **command center's selected** pane — the `Enter` action in
+ * command center mode. No-op unless that pane is settled at the front. Delegates to
+ * [activatePane]. @see activatePane
+ */
 internal fun activateFront() {
     val fi = frontIndex()
     if (spikeSettledIndex != fi) return
     val p = spikePanes.getOrNull(fi) ?: return
+    activatePane(p)
+}
+
+/**
+ * Focuses (engages) a specific pane [p] so keystrokes flow into it — the shared body of
+ * both `Enter` paths: [activateFront] (command center → the selected front pane) and the
+ * free-flight `Enter` (→ the nearest pane, which need not be the front one). Plays the
+ * outward latch flex, records [spikeLastEngagedPane]/[spikeLastEngagedTab] (which
+ * [disengage] and [tryPromoteMirror] key off, so the *engaged* pane is tracked rather
+ * than assumed to be the front), and focuses/promotes by pane kind. Does not move the
+ * camera — in free flight you observe the typing from wherever you are.
+ *
+ * @param p the pane to engage. @see activateFront @see disengage @see tryPromoteMirror
+ */
+internal fun activatePane(p: RingPane) {
     startFlex(p, FLEX_DIR_OUT)
     spikeEngaged = true
+    // Swap the bottom-left legend to the engage / type panel — from here every key but
+    // the ⌥⌘X disengage chord types into the terminal. @see updateLegendVisibility
+    updateLegendVisibility()
     spikeLastEngagedTab = p.tabId.takeIf { it.isNotEmpty() }
     spikeLastEngagedPane = p.paneId
     when {
@@ -170,10 +193,23 @@ internal fun activateFront() {
         p.kind != PaneKind.TERMINAL -> {
             runCatching { (p.container.querySelector("input, [tabindex], button") as? HTMLElement)?.focus() }
         }
-        p.interactive -> runCatching { p.term?.focus() }
         else -> {
-            if (p.tabId.isNotEmpty()) runCatching { launchCmd(WindowCommand.SetActiveTab(p.tabId)) }
-            tryPromoteMirror(p, 0)
+            // Claim this pane as the app's **active tab + focused pane** before focusing it.
+            // The app's [refocusActivePane] re-focuses the active tab's `focusedPaneId` after
+            // every config push; in free flight the engaged pane is the *nearest* one, which is
+            // usually neither the active tab nor its focused pane — so a bare `term.focus()`
+            // gets stolen straight back and typing goes nowhere (you get the engaged border but
+            // no live cursor). Making it the server's focused pane points that machinery *at*
+            // this pane instead of fighting it. In command center this is effectively a no-op
+            // (the selected pane is already active/focused), so it fixes free flight without
+            // changing the command-center behaviour. Server pushes are deduped, so re-asserting
+            // an already-active tab / focused pane costs nothing.
+            if (p.tabId.isNotEmpty()) {
+                runCatching { launchCmd(WindowCommand.SetActiveTab(p.tabId)) }
+                runCatching { launchCmd(WindowCommand.SetFocusedPane(tabId = p.tabId, paneId = p.paneId)) }
+            }
+            if (p.interactive) runCatching { p.term?.focus() }
+            else tryPromoteMirror(p, 0) // mirror preview → mount the real term, then focus
         }
     }
 }
@@ -189,7 +225,9 @@ internal fun activateFront() {
  */
 internal fun tryPromoteMirror(p: RingPane, attempt: Int) {
     if (!spikeOpen || p.interactive) return
-    if (spikePanes.indexOf(p) != frontIndex()) return
+    // Track the pane we actually engaged (front in command center, nearest in free
+    // flight) rather than assuming it's the front one.
+    if (spikeLastEngagedPane != p.paneId) return
     val entry = terminals[p.paneId]
     if (entry == null) {
         if (attempt < 15) window.setTimeout({ tryPromoteMirror(p, attempt + 1) }, 120)
@@ -221,7 +259,7 @@ internal fun tryPromoteMirror(p: RingPane, attempt: Int) {
         reformatAndHug(p, initial = false)
         // Only grab focus if the user still wants to be engaged (they may have
         // ⌘Esc'd out while the real terminal was still mounting).
-        if (spikeEngaged && frontIndex() == spikePanes.indexOf(p)) runCatching { p.term?.focus() }
+        if (spikeEngaged && spikeLastEngagedPane == p.paneId) runCatching { p.term?.focus() }
     }
 }
 

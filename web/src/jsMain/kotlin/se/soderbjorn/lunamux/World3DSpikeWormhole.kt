@@ -106,8 +106,11 @@ private fun smoother(t: Double): Double {
  * Whether a wormhole spawn may be armed for the pane(s) just built by [reconcileRing]:
  * the flag is on, the scene is up, **exactly one** pane was newly built (a burst — e.g.
  * a workspace restore — falls back to the plain grow-in so we never fire a camera
- * hijack per pane), no wormhole is already running, no demo movie is playing, and the
- * camera is idle (not flying, not mid-tour). Called from [reconcileRing].
+ * hijack per pane), no wormhole is already running, and the camera is idle (not flying,
+ * not mid-tour). Fires during the demo movie too — its `n` beat is a genuine single
+ * create and is meant to arrive through the vortex; burst rebuilds are still filtered
+ * out by [newBornCount] regardless of whether a movie is playing. Called from
+ * [reconcileRing].
  *
  * @param newBornCount how many panes [reconcileRing] built this pass.
  * @return `true` if [armWormholeSpawn] should be called for the sole newborn.
@@ -118,7 +121,6 @@ internal fun wormholeSpawnEligible(newBornCount: Int): Boolean =
         newBornCount == 1 &&
         spikeWormholes.isEmpty() &&
         spikeCssScene != null &&
-        spikeMovieJob == null &&
         !spikeFlyMode &&
         !spikeCamReturning
 

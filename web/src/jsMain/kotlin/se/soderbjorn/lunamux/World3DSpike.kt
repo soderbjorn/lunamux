@@ -125,8 +125,15 @@ internal fun openWorld3dSpike() {
 
     val overlay = document.createElement("div") as HTMLElement
     overlay.tabIndex = -1 // focusable so navigate-mode keys have a home after ⌘Esc
+    // A flat opaque `background-color` sits beneath the radial gradient as a backstop:
+    // if the compositor drops the gradient layer's tile under memory pressure (the
+    // "tile memory limits exceeded" flicker), a solid fill remains instead of a
+    // see-through hole. Paired with hiding the 2D shell below. @see WORLD3D_PERFORMANCE_ANALYSIS
+    // `background-color` + `background-image` as separate longhands (NOT the `background`
+    // shorthand, which would reset the colour to transparent) so the flat opaque fill
+    // always survives beneath the gradient.
     overlay.style.cssText = "position:fixed;inset:0;z-index:99999;overflow:hidden;outline:none;" +
-        "background:radial-gradient(circle at 50% 42%,#141b27,#04060a);"
+        "background-color:#04060a;background-image:radial-gradient(circle at 50% 42%,#141b27,#04060a);"
     spikeOverlay = overlay
 
     // Hidden defs host for the per-pane latch-bulge displacement filters. Kept in the
@@ -208,9 +215,8 @@ internal fun openWorld3dSpike() {
     spikeStashed.clear()
     val shownIds = specs.mapTo(mutableSetOf()) { it.paneId }
     minimizedPaneIds().filterTo(spikeStashed) { it in shownIds }
-    spikeBobEnabled = true
+    syncWorld3dRuntimeFromSettings() // seed window bobbing + status indication from persisted settings
     spikeFlyMode = false
-    spikeTilted = false
     spikeFlyKeys.clear()
     spikeCamFlown = false
     spikeFlyReveal = 0.0
@@ -262,6 +268,19 @@ internal fun openWorld3dSpike() {
 
     document.body?.appendChild(overlay)
 
+    // Hide the 2D app shell entirely while the world is open. The 3D overlay covers it,
+    // but under compositor tile-memory pressure a plane (or the overlay itself) can drop
+    // a tile for a frame or two and render transparent — with the shell hidden there is
+    // simply nothing behind to bleed through, so the gap reveals empty space, not the old
+    // 2D interface. `visibility:hidden` (not `display:none`) keeps the shell's layout and
+    // element dimensions intact so terminals reparented back on close still measure
+    // correctly. Restored in [closeWorld3dSpike]. @see WORLD3D_PERFORMANCE_ANALYSIS
+    (document.getElementById("app") as? HTMLElement)?.let { shell ->
+        spikeHiddenShell = shell
+        spikeHiddenShellVis = shell.style.visibility
+        shell.style.visibility = "hidden"
+    }
+
     // Live-reconcile the ring whenever the window config changes (create/close of
     // panes or tabs — by this spike's own keys or the 2D app) so the change animates
     // in/out instead of only showing on reopen.
@@ -271,6 +290,9 @@ internal fun openWorld3dSpike() {
                 latestWindowConfig = cfg
                 seedZoomFromConfig(cfg) // a pane created while open may carry a persisted zoom
                 reconcileRing()
+                // Tab-unlist ⇄ isHidden inbound sync: a bundle whose tab was re-listed from
+                // another client flies back down and separates. @see syncBundlesFromHidden
+                syncBundlesFromHidden()
             }
         }
     }
@@ -281,7 +303,12 @@ internal fun openWorld3dSpike() {
     // home. Echoes of our own stash writes are no-ops (the sets already match).
     spikeLayoutJob = GlobalScope.launch {
         lunamuxClient.windowState.rawLayoutState.collect {
-            if (spikeOpen) syncStashFromMinimized()
+            if (spikeOpen) {
+                syncStashFromMinimized()
+                // The toolkit order just changed — a freshly created pane it slotted in
+                // beside the split source gets nudged back to the end of the row.
+                pinNewPanesLast()
+            }
         }
     }
 
@@ -367,6 +394,7 @@ internal fun resolveZoomPresetCodes() {
  *    `+`/`−` zoom, `0` reset zoom,
  *    `,`/`.` grid width, `<`/`>` grid height (animated cell steps), ⌥⌘S selection, `w` cycle
  *    signal (off/working/needs-input), `g` working style (dots↔green pulse), `b` toggle bob,
+ *    `p` toggles the warp-core reactor FX (working panes charge blue, waiting panes hold amber),
  *    **Space** stash the front pane / unstash the nearest (a camera-proximity toggle), `v`
  *    fly up to the stash shelf and back with no stash — and while *up at the shelf*
  *    ([cameraAtShelf]) the command-center keys fall away: only ←/→ browse the row
@@ -436,6 +464,15 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
         return@handler
     }
 
+    // **In-world 3D settings** panel — **⌥⌘,** opens/closes a floating window carrying the
+    // same controls as the App Settings sidebar's 3D rows (window bobbing, status
+    // indication), editable live. Available in *both* command center and free flight (the
+    // engaged branch above already returned), and matched here — before the fly branch and
+    // the ⌘ passthrough below — on the physical `code` (⌥ rewrites `ke.key`).
+    if (ke.altKey && ke.metaKey && ke.code == "Comma") {
+        consume(); flashShortcut("settings"); toggleWorld3dSettingsPanel(); return@handler
+    }
+
     // **Free-fly** mode: keys drive the camera, not pane navigation. `F` (or Esc)
     // fixates and returns to navigate mode; movement/rotation keys are tracked as
     // *held* (released on keyup) so the render loop can glide the camera smoothly.
@@ -453,13 +490,47 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
             // `k` hides/shows the shortcut legends here too — the hidden flag is
             // shared with navigate mode.
             ke.code == "KeyK" -> toggleLegend()
-            // Cinematic pane fly-bys: `B` glides slowly behind the nearest pane, `N`
-            // to its flank at a three-quarter angle, `O`/`U` perch over/under it.
-            // Any movement key cancels (below).
+            // Grab the terminal *nearest the camera* and start typing — observe it from a
+            // distance. ⌥⌘X (the engaged branch above) is then the only way out. Disabled
+            // **up at the dock** ([cameraAtShelf]): the dock holds stashed windows you browse
+            // and bring back, not ones you type into, so engaging there is a no-op — matching
+            // command center, where Enter is absent from the dock key branch. @see cameraAtShelf
+            ke.key == "Enter" ->
+                if (!cameraAtShelf()) { flashShortcut("engage"); actionTargetPane()?.let { activatePane(it) } }
+            // Camera moves shared with command center: fly home, tilt, fly to the shelf.
+            ke.key == "c" || ke.key == "C" -> { flashShortcut("cam-home"); resetCamera() }
+            ke.key == "j" || ke.key == "J" -> { flashShortcut("tilt"); tiltCamera() }
+            ke.code == "KeyM" -> { flashShortcut("overview"); flyOverview() }
+            // ⌃Space unlists the *whole tab* of the pane nearest the camera as a merged stack
+            // (or brings the nearest bundle back down at the dock). Matched on physical `code`.
+            ke.ctrlKey && (ke.code == "Space" || ke.key == " ") -> { flashShortcut("stash-tab"); toggleStashTab() }
+            ke.key == "v" || ke.key == "V" -> { flashShortcut("stash-view"); toggleStashView() }
+            // Space stashes / unstashes the pane nearest the camera (no longer a strafe key).
+            ke.key == " " || ke.code == "Space" -> { flashShortcut("stash"); toggleStashNearest() }
+            // Cinematic pane fly-bys around the nearest pane: `B` behind, `G` beside,
+            // `O`/`U` over/under. Any movement key cancels (below).
+            ke.code == "KeyH" -> { flashShortcut("fly-front"); flyFrontPane() }
             ke.code == "KeyB" -> { flashShortcut("fly-behind"); flyBehindPane() }
-            ke.code == "KeyN" -> { flashShortcut("fly-beside"); flyBesidePane() }
+            ke.code == "KeyG" -> { flashShortcut("fly-beside"); flyBesidePane() }
             ke.code == "KeyO" -> { flashShortcut("fly-over"); flyAbovePane() }
             ke.code == "KeyU" -> { flashShortcut("fly-under"); flyBelowPane() }
+            // Screenshot (P) and recording (⇧R) reach the filesystem via Electron,
+            // so both keys exist only in the desktop app — gated on isElectronClient
+            // so a plain-browser demo neither fires nor advertises them (the legend
+            // rows are stripped to match, see hostVisibleSections). ⇧R is matched on
+            // the physical `code`, before the bare-`r`/`R` reformat branch below.
+            isElectronClient && ke.code == "KeyP" -> { flashShortcut("screenshot"); captureWindowScreenshot() }
+            isElectronClient && ke.shiftKey && ke.code == "KeyR" -> { flashShortcut("recording"); toggleWindowRecording() }
+            // Window edits on the nearest pane. Zoom stays an in-place magnify (the
+            // "reference point" is the command center, not a zoom toward the camera).
+            ke.key == "+" || ke.key == "=" -> { flashShortcut("zoom"); zoomNearest(1) }
+            ke.key == "-" || ke.key == "_" -> { flashShortcut("zoom"); zoomNearest(-1) }
+            ke.key == "0" || ke.key == ")" -> { flashShortcut("zoom-reset"); resetNearestZoom() }
+            ke.key == "." -> { flashShortcut("grid-w"); gridNearestW(1) }
+            ke.key == "," -> { flashShortcut("grid-w"); gridNearestW(-1) }
+            ke.key == ">" -> { flashShortcut("grid-h"); gridNearestH(1) }
+            ke.key == "<" -> { flashShortcut("grid-h"); gridNearestH(-1) }
+            ke.key == "r" || ke.key == "R" -> { flashShortcut("reformat"); reformatNearest() }
             ke.code in FLY_KEY_CODES -> {
                 spikeCamReturning = false
                 spikeFlyKeys.add(ke.code)
@@ -474,6 +545,16 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
     // Matched on physical `code` because ⌥ rewrites `ke.key`.
     if (ke.altKey && ke.metaKey && ke.code == "KeyS") {
         consume(); flashShortcut("selection"); toggleSelectionMode(); return@handler
+    }
+
+    // **⌃Space** — unlist / re-list the whole tab (stash or unstash a tab bundle). The one
+    // Ctrl chord this world claims: handled *before* the ⌘/Ctrl early-return below (which
+    // leaves every other Ctrl/⌘ chord to the system) and before the dock/command-center split,
+    // so it works both down at the ring and up at the dock ([toggleStashTab] resolves which).
+    // Matched on `code` so it's layout-independent. NB: macOS binds ⌃Space to the input-source
+    // switcher by default — if the OS grabs it first, it won't reach this handler.
+    if (ke.ctrlKey && !ke.metaKey && !ke.altKey && (ke.code == "Space" || ke.key == " ")) {
+        consume(); flashShortcut("stash-tab"); toggleStashTab(); return@handler
     }
 
     // Navigate mode. Leave ⌘/Ctrl chords for the system; consume everything else.
@@ -557,12 +638,31 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
         ke.key == ">" -> { flashShortcut("grid-h"); growGridH(1) }  // ⇧ → height (rows)
         ke.key == "<" -> { flashShortcut("grid-h"); growGridH(-1) }
         ke.code == "KeyF" -> { flashShortcut("fly"); toggleFlyMode() }
+        // ⇧R toggles screen-recording the world to a .webm on the Desktop. Desktop
+        // app only (isElectronClient) — see the screenshot/recording note below.
+        // Matched on the physical `code` *before* the bare-`r`/`R` reformat branch,
+        // which (with shift held, ke.key is "R") would otherwise swallow it.
+        isElectronClient && ke.shiftKey && ke.code == "KeyR" ->
+            { flashShortcut("recording"); toggleWindowRecording() }
         ke.key == "r" || ke.key == "R" -> { flashShortcut("reformat"); reformatFront() }
-        ke.key == "j" || ke.key == "J" -> { flashShortcut("tilt"); toggleCameraTilt() }
+        ke.key == "j" || ke.key == "J" -> { flashShortcut("tilt"); tiltCamera() }
         ke.key == "c" || ke.key == "C" -> { flashShortcut("cam-home"); resetCamera() }
+        ke.code == "KeyM" -> { flashShortcut("overview"); flyOverview() }
         ke.key == "w" || ke.key == "W" -> { flashShortcut("signal"); cycleSignalOverride() }
-        ke.key == "b" || ke.key == "B" -> { flashShortcut("bob"); toggleBob() }
-        ke.key == "g" || ke.key == "G" -> { flashShortcut("working-style"); toggleWorkingStyle() }
+        // Cinematic glides around the *selected* pane (behind / beside / over / under).
+        // Matched on physical `code` so shift/caps don't matter; `G` is beside since `N`
+        // stays "new pane" in command center. (Window bob / status style are now settings,
+        // freeing `B`; `p`/`g` toggles are gone.)
+        ke.code == "KeyH" -> { flashShortcut("fly-front"); flyFrontPane() }
+        ke.code == "KeyB" -> { flashShortcut("fly-behind"); flyBehindPane() }
+        ke.code == "KeyG" -> { flashShortcut("fly-beside"); flyBesidePane() }
+        ke.code == "KeyO" -> { flashShortcut("fly-over"); flyAbovePane() }
+        ke.code == "KeyU" -> { flashShortcut("fly-under"); flyBelowPane() }
+        // Screenshot (P) writes to the filesystem via Electron, so it exists only in
+        // the desktop app — gated on isElectronClient so a plain-browser demo neither
+        // fires nor advertises it (the legend row is stripped to match, see
+        // hostVisibleSections). The recording toggle (⇧R) is gated the same way above.
+        isElectronClient && ke.code == "KeyP" -> { flashShortcut("screenshot"); captureWindowScreenshot() }
         ke.key == "k" || ke.key == "K" -> {
             toggleLegend()
             // Flash the `k` row when the panel just reappeared, as feedback for
@@ -593,8 +693,7 @@ internal val FLY_KEY_CODES = setOf(
     "KeyW", "KeyS",             // throttle fwd / reverse
     "KeyQ", "KeyE",             // roll
     "KeyA", "KeyD",             // strafe left / right
-    "Space",                    // strafe up
-    "ShiftLeft", "ShiftRight",  // strafe down
+    "ShiftLeft", "ShiftRight",  // strafe down (Space is now stash/unstash-nearest)
 )
 
 /**
@@ -605,6 +704,9 @@ internal val FLY_KEY_CODES = setOf(
 internal fun closeWorld3dSpike() {
     if (!spikeOpen) return
     spikeOpen = false
+    // If a screen recording is still running, stop it now so it's saved (and the
+    // OS window-capture stream is released) rather than orphaned by the teardown.
+    if (spikeRecording) stopWindowRecording()
     // Stop a playing demo movie first — its coroutine reads the spike state the
     // rest of this teardown is about to null out.
     spikeMovieJob?.cancel()
@@ -621,6 +723,7 @@ internal fun closeWorld3dSpike() {
     spikeLayoutJob?.cancel()
     spikeLayoutJob = null
     spikePendingFocusTab = null
+    spikePinLastPanes.clear()
     spikePendingFocusNewTab = false
     spikeFlyMode = false
     spikeFlyKeys.clear()
@@ -652,12 +755,16 @@ internal fun closeWorld3dSpike() {
     spikeModeBadge = null
     spikeLegendPanel = null
     spikeFlyLegendPanel = null
+    spikeEngageLegendPanel = null
+    spikeSettingsPanel = null // the in-world 3D settings window goes down with the overlay
     spikeDemoTourPulseTimer?.let { window.clearTimeout(it) }
     spikeDemoTourPulseTimer = null
     spikeDemoTourButton = null
     spikeDemoTourHint = null
     spikeLegendRows.clear()
     spikeFlyLegendRows.clear()
+    spikeEngageLegendRows.clear()
+    spikeLegendSectionRows.clear()
     spikeNavLabelTimer?.let { window.clearTimeout(it) }
     spikeNavLabelTimer = null
     spikeNavLabel = null
@@ -677,6 +784,9 @@ internal fun closeWorld3dSpike() {
     // Wormhole spawn: the portals are children of the CSS3D layer (removed wholesale
     // below), so just drop the registry (any mid-birth pane dies with the pane sweep above).
     clearWormholes()
+    // Warp-core: the canvas + HUD are overlay children (removed wholesale below), so just
+    // drop the references, pings and clock so a re-open starts cold.
+    clearWarpCore()
     spikeChromeColors = null
     spikeFilterDefs = null
     spikeBulgeMapUri = null
@@ -685,4 +795,9 @@ internal fun closeWorld3dSpike() {
     spikeCamera = null
     spikeOverlay?.remove()
     spikeOverlay = null
+    // Reveal the 2D app shell again, restoring whatever inline visibility it carried
+    // before the world hid it (normally none). @see openWorld3dSpike
+    spikeHiddenShell?.style?.visibility = spikeHiddenShellVis
+    spikeHiddenShell = null
+    spikeHiddenShellVis = ""
 }

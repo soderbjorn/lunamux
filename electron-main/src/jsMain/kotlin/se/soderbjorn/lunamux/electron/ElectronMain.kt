@@ -130,6 +130,26 @@ private fun chromePrefsPath(): String = NodePath.join(app.getPath("userData"), "
  */
 private fun dataFilePath(name: String): String = NodePath.join(app.getPath("userData"), name)
 
+/**
+ * A macOS-screenshot-style local timestamp (`2026-07-10 at 14.51.30`) for the
+ * `Lunamux <stamp>.png` screenshot and `Lunamux <stamp>.webm` recording
+ * filenames built by the `save-window-screenshot` / `save-window-recording`
+ * IPC handlers in [main]. Colons are avoided so the name is filesystem-safe.
+ *
+ * @return the formatted local date-time string.
+ */
+private fun screenshotStamp(): String {
+    val d: dynamic = js("new Date()")
+    fun pad(n: Int): String = if (n < 10) "0$n" else "$n"
+    val y = d.getFullYear() as Int
+    val mo = pad((d.getMonth() as Int) + 1)
+    val da = pad(d.getDate() as Int)
+    val h = pad(d.getHours() as Int)
+    val mi = pad(d.getMinutes() as Int)
+    val s = pad(d.getSeconds() as Int)
+    return "$y-$mo-$da at $h.$mi.$s"
+}
+
 private fun loadChromePrefs(): ChromePrefs = try {
     val raw = NodeFs.readFileSync(chromePrefsPath(), "utf8")
     val parsed: dynamic = js("JSON.parse(raw)")
@@ -1267,6 +1287,115 @@ fun main() {
         Unit
     }
 
+    // IPC: capture the sender window's full page contents and write a PNG to the
+    // user's Desktop, returning the saved absolute path (or a "!"-prefixed error
+    // string). `webContents.capturePage()` composites the whole window client area,
+    // so the renderer's 3D screenshot shortcut gets the entire window without any
+    // renderer-side canvas plumbing. Backing the `save-window-screenshot` bridge.
+    ipcMain.handle("save-window-screenshot") { event, _ ->
+        val sender: dynamic = event.sender
+        val capture = sender.capturePage() as Promise<dynamic>
+        capture.then<String>({ image ->
+            try {
+                val buffer = image.toPNG()
+                val fullPath = NodePath.join(app.getPath("desktop"), "Lunamux ${screenshotStamp()}.png")
+                NodeFs.asDynamic().writeFileSync(fullPath, buffer)
+                fullPath
+            } catch (t: Throwable) {
+                "!${t.message ?: "could not save screenshot"}"
+            }
+        }, { _ -> "!could not capture window" })
+    }
+
+    // IPC: resolve the *capture source id* of the sender's own window, so the
+    // renderer can screen-record the 3D world. World3D is a CSS3DRenderer (real
+    // DOM panes in 3D), so there is no WebGL canvas to `captureStream()`; the
+    // renderer must record the composited window instead. It does that with
+    // `getUserMedia({ video: { mandatory: { chromeMediaSource: "desktop",
+    // chromeMediaSourceId } } })` + `MediaRecorder`, and that source id is what
+    // this handler returns. We match the window by its OS title (all our windows
+    // are titled "Lunamux"), falling back to the first window source. Returns the
+    // `window:…` id string, or `null` when none could be resolved. Backing the
+    // `getWindowRecordingSourceId` bridge. NB: on macOS `getSources` needs the
+    // Screen Recording permission, or the recorded frames come back blank.
+    ipcMain.handle("get-window-recording-source-id") { event, _ ->
+        val sender: dynamic = event.sender
+        val win: dynamic = BrowserWindow.fromWebContents(sender)
+        val title: String = try { (win?.getTitle() as? String) ?: "" } catch (_: Throwable) { "" }
+        val opts: dynamic = js("({})")
+        opts.types = arrayOf("window")
+        val sourcesP = desktopCapturer.getSources(opts) as Promise<dynamic>
+        sourcesP.then<String?>({ sources ->
+            val arr: dynamic = sources
+            val n = (arr.length as? Int) ?: 0
+            var firstId: String? = null
+            var matchId: String? = null
+            var i = 0
+            while (i < n) {
+                val s: dynamic = arr[i]
+                val id = s.id as? String
+                val name = s.name as? String
+                if (firstId == null) firstId = id
+                if (matchId == null && title.isNotEmpty() && name != null && name == title) {
+                    matchId = id
+                }
+                i++
+            }
+            matchId ?: firstId
+        }, { _ -> null })
+    }
+
+    // IPC: write a finished screen recording to the user's Desktop as
+    // `Lunamux <stamp>.webm`, returning the saved absolute path (or a
+    // "!"-prefixed error string, matching `save-window-screenshot`). The renderer
+    // assembles the `MediaRecorder` chunks into a Blob, hands us its bytes as a
+    // `Uint8Array` (Node's `writeFileSync` accepts a TypedArray directly), and
+    // this handler persists them. Backing the `saveWindowRecording` bridge.
+    ipcMain.handle("save-window-recording") { _, data ->
+        try {
+            val fullPath = NodePath.join(app.getPath("desktop"), "Lunamux ${screenshotStamp()}.webm")
+            NodeFs.asDynamic().writeFileSync(fullPath, data)
+            fullPath
+        } catch (t: Throwable) {
+            "!${t.message ?: "could not save recording"}"
+        }
+    }
+
+    // IPC: report the macOS Screen Recording (TCC) authorization status for this
+    // app, so the renderer can gate the record shortcut and avoid silently saving
+    // a black recording. Returns one of "granted" / "denied" / "restricted" /
+    // "not-determined" (macOS), or "granted" on any platform without this OS gate
+    // (and defensively if the query itself throws) so recording is never blocked
+    // where the permission model doesn't apply. Backing `getScreenCaptureAccess`.
+    ipcMain.handle("get-screen-capture-access") { _, _ ->
+        try {
+            if (process.platform != "darwin") "granted"
+            else (systemPreferences.getMediaAccessStatus("screen") as? String) ?: "unknown"
+        } catch (_: Throwable) {
+            "granted"
+        }
+    }
+
+    // IPC: help the user grant Screen Recording when it isn't authorized yet. There
+    // is no API to pop the screen-capture prompt directly (`askForMediaAccess` only
+    // covers camera/mic), so on macOS we (1) fire a throwaway `desktopCapturer`
+    // screen query, which registers the app under Privacy → Screen Recording and, on
+    // first run, provokes the native prompt, then (2) open that Privacy pane so the
+    // user can flip the toggle. No-op off macOS. Backing `openScreenRecordingSettings`.
+    ipcMain.handle("open-screen-recording-settings") { _, _ ->
+        if (process.platform == "darwin") {
+            try {
+                val opts: dynamic = js("({})")
+                opts.types = arrayOf("screen")
+                (desktopCapturer.getSources(opts) as Promise<dynamic>).then<Unit>({ _ -> }, { _ -> })
+            } catch (_: Throwable) {}
+            try {
+                shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            } catch (_: Throwable) {}
+        }
+        Unit
+    }
+
     // IPC: report the machine's LAN IPv4 address(es), its hostname, and the
     // server port so the renderer's About dialog can tell the user which host
     // to add from the Android and iOS clients (by IP or by name). The renderer
@@ -1322,12 +1451,15 @@ fun main() {
             }
         }
 
-        // Notification permissions — Electron denies by default; allow for our origin.
+        // Permissions — Electron denies by default; allow only what our own origin
+        // needs: `notifications`, and `media` for the 3D world's screen-recording
+        // shortcut (`getUserMedia` with `chromeMediaSource: "desktop"` is gated by
+        // the `media` permission). Everything else stays denied.
         session.defaultSession.setPermissionRequestHandler { _, permission, callback ->
-            callback(permission == "notifications")
+            callback(permission == "notifications" || permission == "media")
         }
         session.defaultSession.setPermissionCheckHandler { _, permission ->
-            permission == "notifications"
+            permission == "notifications" || permission == "media"
         }
 
         // Bind the `tt-file://` protocol handler now that the app is ready

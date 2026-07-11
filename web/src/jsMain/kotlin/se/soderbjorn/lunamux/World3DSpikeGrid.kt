@@ -96,8 +96,9 @@ internal fun zoomFrontTo(target: Double, glide: Boolean = false) {
 
 /**
  * Zooms the front pane to the **largest level at which it still fits entirely
- * on screen** (`⇧+`): the min of the viewport/plane ratios per axis, so neither
- * edge is clipped. The front pane renders 1:1 at zoom 1 (the camera is posed at
+ * on screen** (`⇧+`): the min of the viewport/plane ratios per axis, scaled by
+ * [ZOOM_FIT_MARGIN] so the border/glow stays a hair inside the viewport rather
+ * than spilling off the edges. The front pane renders 1:1 at zoom 1 (the camera is posed at
  * exactly the perspective distance), so screen pixels == plane pixels × zoom and
  * the ratio *is* the fit level. Clamped to [ZOOM_MAX] like every zoom, so a tiny
  * pane in a huge window tops out rather than blowing past the ceiling. Glides
@@ -113,7 +114,9 @@ internal fun zoomFrontFit() {
     val pw = p.wrapper.offsetWidth.toDouble()
     val ph = p.wrapper.offsetHeight.toDouble()
     if (pw <= 0.0 || ph <= 0.0) return
-    zoomFrontTo(min(window.innerWidth / pw, window.innerHeight / ph), glide = true)
+    // Fit to a hair inside the viewport ([ZOOM_FIT_MARGIN]) rather than edge-to-edge, so the
+    // pane's border/glow stays on screen instead of spilling off the sides.
+    zoomFrontTo(min(window.innerWidth / pw, window.innerHeight / ph) * ZOOM_FIT_MARGIN, glide = true)
 }
 
 /**
@@ -179,6 +182,68 @@ internal fun growGridAxis(dCols: Int, dRows: Int) {
         return
     }
     console.log("[world3d-spike] grid key: pane ${p.paneId} ${term.cols}x${term.rows} -> ${cols}x$rows")
+    setPaneGrid(p, cols, rows, reassert = true)
+}
+
+/**
+ * **Free-flight zoom** — the `+`/`−` step-zoom applied to the pane **nearest the camera**
+ * (the free-flight counterpart of [zoomFront], which acts on the command center's front
+ * pane). Same per-pane memory ([spikeZoomByPane]) and server write-through as the front
+ * zoom; the magnification is still an in-place GPU scale about the pane's own centre (it
+ * does not zoom "toward" the camera). @see zoomNearestTo @see nearestPaneToCamera
+ *
+ * @param step +1 = larger, -1 = smaller.
+ */
+internal fun zoomNearest(step: Int) {
+    val p = actionTargetPane() ?: return
+    val factor = if (step > 0) ZOOM_STEP else 1.0 / ZOOM_STEP
+    zoomNearestTo(p, (spikeZoomByPane[p.paneId] ?: 1.0) * factor)
+}
+
+/** **Free-flight `0`** — resets the centre pane's zoom to 1×. @see zoomNearest */
+internal fun resetNearestZoom() {
+    actionTargetPane()?.let { zoomNearestTo(it, 1.0, glide = true) }
+}
+
+/**
+ * Sets pane [p]'s visual zoom to an absolute [target] (clamped), remembering it in
+ * [spikeZoomByPane] and writing it through to the server — the shared tail of the
+ * free-flight zoom shortcuts. When [p] is also the command center's front pane, the
+ * front-pane accumulator/ease ([spikeZoomTarget]/[spikeZoomGlide]) is kept in sync,
+ * since the render loop reads those for `i == fi`.
+ *
+ * @param p the pane to zoom. @param target absolute multiplier (1.0 = native).
+ * @param glide ease at the slow preset rate rather than snapping.
+ */
+private fun zoomNearestTo(p: RingPane, target: Double, glide: Boolean = false) {
+    if (spikeSelectionMode) exitSelectionMode()
+    val lvl = target.coerceIn(ZOOM_MIN, ZOOM_MAX)
+    spikeZoomByPane[p.paneId] = lvl
+    if (spikePanes.indexOf(p) == frontIndex()) { spikeZoomTarget = lvl; spikeZoomGlide = glide }
+    runCatching { launchCmd(WindowCommand.SetPaneZoom(p.paneId, lvl)) }
+}
+
+/** **Free-flight `,`/`.`** — grow/shrink the nearest pane's grid width. @see growGridW */
+internal fun gridNearestW(step: Int) = gridNearestAxis(step * GRID_COLS_STEP, 0)
+
+/** **Free-flight `<`/`>`** — grow/shrink the nearest pane's grid height. @see growGridH */
+internal fun gridNearestH(step: Int) = gridNearestAxis(0, step * GRID_ROWS_STEP)
+
+/**
+ * Applies a signed cell delta to the pane **nearest the camera** (free-flight grid
+ * resize), the counterpart of [growGridAxis] for the front pane. Clamped to the same
+ * bounds; no settle guard (the ring is static in flight). No-op if the nearest pane has
+ * no terminal or the resize would be a clamped no-change.
+ *
+ * @param dCols signed column delta. @param dRows signed row delta.
+ */
+private fun gridNearestAxis(dCols: Int, dRows: Int) {
+    val p = actionTargetPane() ?: return
+    val term = p.term ?: return
+    if (spikeSelectionMode) exitSelectionMode()
+    val cols = (term.cols + dCols).coerceIn(GRID_MIN_COLS, GRID_MAX_COLS)
+    val rows = (term.rows + dRows).coerceIn(GRID_MIN_ROWS, GRID_MAX_ROWS)
+    if (cols == term.cols && rows == term.rows) return
     setPaneGrid(p, cols, rows, reassert = true)
 }
 

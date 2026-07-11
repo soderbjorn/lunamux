@@ -212,6 +212,38 @@ internal fun persistPaneOrder(tabId: String, order: List<String>) {
 }
 
 /**
+ * Nudges every pane queued in [spikePinLastPanes] to the **end** of its tab's display
+ * order, so a pane created with `n` ([createPane]) stays at the tail of the row rather
+ * than sliding in beside the current pane once the toolkit orders it. Called from
+ * [reconcileRing] and the `LAYOUT_STATE` collector ([spikeLayoutJob]) — i.e. whenever
+ * either the config or the toolkit order changes.
+ *
+ * Per pinned id, this is a **one-shot**: the id is dropped from the set the moment it is
+ * resolved, so this can't fight a later manual sidebar drag. Resolution cases:
+ * - pane gone (closed / never built) → drop, nothing to do;
+ * - no toolkit blob yet, or the pane not in it → leave pinned and wait (the ring's
+ *   tail fallback already renders it last meanwhile);
+ * - already the last id in its tab's order → drop, no rewrite;
+ * - otherwise → move it to the end via [persistPaneOrder] and drop it.
+ *
+ * @see spikePinLastPanes @see createPane @see persistPaneOrder @see toolkitPaneOrder
+ */
+internal fun pinNewPanesLast() {
+    if (spikePinLastPanes.isEmpty()) return
+    val it = spikePinLastPanes.iterator()
+    while (it.hasNext()) {
+        val pid = it.next()
+        val pane = spikePanes.firstOrNull { p -> !p.dying && p.paneId == pid }
+        if (pane == null) { it.remove(); continue } // closed or not on the ring — give up
+        val order = toolkitPaneOrder(pane.tabId)
+        if (order.isEmpty() || pid !in order) continue // toolkit hasn't ordered it yet — wait
+        if (order.last() == pid) { it.remove(); continue } // already last — nothing to do
+        persistPaneOrder(pane.tabId, order.filterNot { id -> id == pid } + pid)
+        it.remove()
+    }
+}
+
+/**
  * Reconciles [spikeStashed] with the minimized (docked) panes in the toolkit layout
  * state — the live inbound half of the stash ⇄ minimize bridge, run on every
  * `LAYOUT_STATE` broadcast while the world is open ([spikeLayoutJob]). A pane docked
@@ -276,10 +308,13 @@ internal fun cameraAtShelf(): Boolean = spikeCamFlown && spikeCamY > STASH_SHELF
  * @see buildKeyHandler @see stashFront @see unstashNearest
  */
 internal fun toggleStash() {
-    if (stashBusy()) return // a journey is in flight (tour or chase) — ignore until it lands
+    if (stashBusy() || bundlesBusy()) return // a journey is in flight — ignore until it lands
     when {
-        cameraAtShelf() && spikeStashed.isNotEmpty() -> unstashNearest()
-        cameraAtShelf() -> resetCamera() // at the shelf, nothing to unstash → come home
+        // Up at the dock, Space brings back the **browsed dock item** — a single stashed pane
+        // or a whole tab bundle, whichever the ←/→ cursor sits on — so panes and tabs are
+        // unstashed from one enumerated row. @see unstashBrowsedDockItem
+        cameraAtShelf() && dockItemCount() > 0 -> unstashBrowsedDockItem()
+        cameraAtShelf() -> resetCamera() // at the dock, nothing to unstash → come home
         else -> stashFront()
     }
 }
@@ -357,25 +392,33 @@ internal fun shelfArrivalPose(
  */
 internal fun toggleStashView() {
     if (stashBusy()) return
-    if (cameraAtShelf()) { resetCamera(); return }
+    // `v` **always flies to the spaceship**, never home — pressing it again at the dock just
+    // re-centres on the row. Home is `c` (a clean split: `v` → ship, `c` → command center).
     // Fly up and park *close* on the row's centre slot — the same near pose a stash
     // flight lands on ([STASH_CAM_LAND_DIST]), so the shelved pane fills most of the
     // view on arrival and ←/→ then browses its neighbours from equal footing. With
     // nothing stashed yet this simply visits the (empty) shelf under its beacon.
-    val centerSlot = if (spikeStashed.isEmpty()) 0 else (spikeStashed.size - 1) / 2
+    // Centre over **all** dock items (stashed panes + tab bundles), which share the row.
+    val dockN = dockItemCount()
+    val centerSlot = if (dockN == 0) 0 else (dockN - 1) / 2
     spikeShelfIndex = centerSlot // seed ←/→ browsing from the framed centre
-    // Frame the centre slot's pane *and* the STASH sign above it (empty shelf → just the
-    // sign over the bare spot). No pane to track here, so the fixed look is the reveal
-    // look — the sign is in view the whole approach.
+    // Frame the centre slot's item *and* the STASH sign above it (empty dock → just the
+    // sign over the bare spot). No pane to track here, so the fixed look is the reveal look.
     val centerPane = spikeStashed.getOrNull(centerSlot)
         ?.let { id -> spikePanes.firstOrNull { it.paneId == id } }
-    val paneHalfH = centerPane?.let { paneShelfHalfH(it) } ?: 0.0
-    // Name the framed window at the dock, matching the command center's "now showing"
-    // cue (nothing to name on an empty shelf). @see showNavLabelFor
+    val centerBundle = if (centerSlot >= spikeStashed.size) spikeStashedTabs.getOrNull(centerSlot - spikeStashed.size) else null
+    val paneHalfH = centerPane?.let { paneShelfHalfH(it) }
+        ?: centerBundle?.let { b -> spikePanes.firstOrNull { it.paneId == b.paneIds.first() }?.let { paneShelfHalfH(it) } }
+        ?: 0.0
+    // Name the framed item at the dock, matching the command center's "now showing" cue.
     centerPane?.let { showNavLabelFor(it) }
+    centerBundle?.let { showNavLabelForBundle(it) }
     if (stationBuilt()) {
-        // A camera-only visit still flies in through the bay door (no pane to follow).
-        flyStationEnter(stationInteriorPose(centerSlot, paneHalfH), followPaneId = null)
+        // A camera-only visit still flies in through the bay door (no pane to follow), but
+        // it lands at the **same close, centred pose a stash chase rests on**
+        // ([stationChaseRestPose]) so reaching the dock with `v` settles in the same spot as
+        // stashing a pane — not the higher sign-reveal framing.
+        flyStationEnter(stationChaseRestPose(centerSlot), followPaneId = null)
         return
     }
     val pose = shelfArrivalPose(centerSlot, paneHalfH)
@@ -400,7 +443,35 @@ internal fun toggleStashView() {
 internal fun stashFront() {
     val fi = frontIndex()
     if (fi < 0) return
-    val p = spikePanes[fi]
+    stashPane(spikePanes[fi])
+}
+
+/**
+ * The **free-flight Space** stash/unstash — acts on the pane **at screen centre**
+ * ([actionTargetPane], a ray-cast in free flight), the same pane every other free-flight
+ * action targets (the command center's Space acts on the selected front pane via
+ * [toggleStash]). If that centred pane is already on the shelf it flies home
+ * ([unstashPane]); otherwise it flies up to the shelf ([stashPane]). The pane the decision
+ * picks is the exact pane that travels. No-op while a camera journey is in flight.
+ * @see toggleStash @see stashPane @see unstashPane
+ */
+internal fun toggleStashNearest() {
+    if (stashBusy()) return
+    val p = actionTargetPane() ?: return
+    // The pane the decision picks (screen centre) is the exact pane that acts — a shelved
+    // one flies home, a ring one flies up.
+    if (p.paneId in spikeStashed) unstashPane(p) else stashPane(p)
+}
+
+/**
+ * Stashes a specific pane [p] — the shared body of [stashFront] (command center → the
+ * selected front pane) and [toggleStashNearest] (free flight → the nearest pane).
+ * Appends it to [spikeStashed] (so the render loop flies it up to its shelf slot), hops
+ * the ring selection off it onto a neighbour still on the ring (so the fronted slot is
+ * never a shelved pane), and launches the camera up to frame the shelf. No-op if [p] is
+ * already stashed. @see toggleStash @see selectNearestUnstashedInTab
+ */
+internal fun stashPane(p: RingPane) {
     if (p.paneId in spikeStashed) return
 
     leaveFrontPane() // disengage / exit selection before the pane leaves the ring
@@ -410,8 +481,8 @@ internal fun stashFront() {
     persistPaneMinimized(p.paneId, minimized = true) // stash == 2D minimize (dock)
 
     // Keep the ring's fronted slot valid: hop selection to the nearest pane still on
-    // the ring in this tab (the shelved pane's ring slot is left as an empty gap).
-    selectNearestUnstashedInTab(spikeTabIndex, p.paneOrdInTab)
+    // the ring in this pane's tab (the shelved pane's ring slot is left as an empty gap).
+    selectNearestUnstashedInTab(p.tabOrd, p.paneOrdInTab)
 
     // Fly up alongside the pane, tracking it the whole way so it stays centred, and
     // park *close* in front of the slot it lands on ([STASH_CAM_LAND_DIST] — the pane
@@ -456,18 +527,17 @@ internal fun stashFront() {
  * home. @see toggleStash @see stashFront
  */
 internal fun unstashNearest() {
-    val homeZ = RING_R + perspDistance(window.innerHeight)
     if (spikeStashed.isEmpty()) {
         resetCamera() // no-op if already home
         return
     }
-
     // Camera world position: the flown pose, or the pristine home pose.
+    val homeZ = RING_R + perspDistance(window.innerHeight)
     val cx = if (spikeCamFlown) spikeCamX else 0.0
     val cy = if (spikeCamFlown) spikeCamY else 0.0
     val cz = if (spikeCamFlown) spikeCamZ else homeZ
 
-    // Pick the shelved pane whose slot is closest to the camera.
+    // Pick the shelved pane whose slot is closest to the camera, then unstash *that* one.
     var bestId: String? = null
     var bestD = Double.MAX_VALUE
     for ((slot, id) in spikeStashed.withIndex()) {
@@ -475,17 +545,33 @@ internal fun unstashNearest() {
         val d = (sx - cx) * (sx - cx) + (sy - cy) * (sy - cy) + (sz - cz) * (sz - cz)
         if (d < bestD) { bestD = d; bestId = id }
     }
-    val id = bestId ?: return
+    val p = bestId?.let { id -> spikePanes.firstOrNull { it.paneId == id } } ?: return
+    unstashPane(p)
+}
+
+/**
+ * Unstashes a **specific** shelved pane [p] — the shared body of [unstashNearest] (command
+ * center / dock browse → the shelved pane nearest the camera) and the free-flight Space
+ * ([toggleStashNearest] → the pane **at screen centre**). Removes it from [spikeStashed]
+ * (so the render loop sails it back down to its ring slot), lands the ring selection on it
+ * so you arrive fronted on it, and flies the camera home ([flyCamTo] / station chase,
+ * landing pristine). Ensures the pane the stash/unstash *decision* picked is the exact same
+ * pane that flies home. No-op if [p] is not currently stashed.
+ *
+ * @param p the shelved pane to bring home. @see toggleStashNearest @see stashPane
+ */
+internal fun unstashPane(p: RingPane) {
+    if (p.paneId !in spikeStashed) return
+    val id = p.paneId
+    val homeZ = RING_R + perspDistance(window.innerHeight)
     spikeStashed.remove(id) // render loop now eases its stashProg → 0 (flies home)
     persistPaneMinimized(id, minimized = false) // unstash == 2D restore from the dock
 
     // Land selection on the returning pane so the camera home-pose fronts it.
-    spikePanes.firstOrNull { it.paneId == id }?.let { p ->
-        if (spikeTabSel.isNotEmpty()) {
-            spikeTabIndex = p.tabOrd.coerceIn(0, spikeTabSel.size - 1)
-            spikeTabSel[spikeTabIndex] = p.paneOrdInTab
-            spikePaneScroll = p.paneOrdInTab.toDouble()
-        }
+    if (spikeTabSel.isNotEmpty()) {
+        spikeTabIndex = p.tabOrd.coerceIn(0, spikeTabSel.size - 1)
+        spikeTabSel[spikeTabIndex] = p.paneOrdInTab
+        spikePaneScroll = p.paneOrdInTab.toDouble()
     }
 
     spikeSettledIndex = -1
@@ -554,14 +640,15 @@ internal fun nearestShelfSlot(): Int {
  * @see buildKeyHandler @see cameraAtShelf
  */
 internal fun shelfBrowse(delta: Int) {
-    if (spikeStashed.isEmpty()) return
+    val dockN = dockItemCount()
+    if (dockN == 0) return
     if (spikeStashChase != null) return // a stash chase is in flight — not browsing yet
     // A full stash/unstash/stash-view journey is still playing — let it land rather than
     // yanking the camera off mid-cinematic. The pan below then takes over, retargetable.
     if (spikeCamReturning) return
-    val cur = if (spikeShelfIndex in spikeStashed.indices) spikeShelfIndex else nearestShelfSlot()
-    val next = (cur + delta).coerceIn(0, spikeStashed.size - 1)
-    if (next == cur && spikeShelfIndex in spikeStashed.indices) return // already parked at the row's end
+    val cur = if (spikeShelfIndex in 0 until dockN) spikeShelfIndex else nearestDockSlot()
+    val next = (cur + delta).coerceIn(0, dockN - 1)
+    if (next == cur && spikeShelfIndex in 0 until dockN) return // already parked at the row's end
     spikeShelfIndex = next
     // Pure **lateral dolly**: keep the camera's height, depth and straight-ahead gaze
     // fixed and just truck sideways to the new slot's x (the render loop eases
@@ -576,11 +663,16 @@ internal fun shelfBrowse(delta: Int) {
     spikeCamFlown = true
     val (shx, _, _) = stashShelfPos(next)
     spikeShelfPanTargetX = shx
-    // Name the browsed window in the big top-left label — the dock's echo of the
-    // command center's "now showing" cue as you cycle the ring. @see showNavLabelFor
-    spikeStashed.getOrNull(next)
-        ?.let { id -> spikePanes.firstOrNull { it.paneId == id } }
-        ?.let { showNavLabelFor(it) }
+    // Name the browsed item in the big top-left label — the dock's echo of the command
+    // center's "now showing" cue. A slot below [spikeStashed]'s size is a single stashed
+    // pane; beyond it, a whole tab bundle. @see showNavLabelFor @see showNavLabelForBundle
+    if (next < spikeStashed.size) {
+        spikeStashed.getOrNull(next)
+            ?.let { id -> spikePanes.firstOrNull { it.paneId == id } }
+            ?.let { showNavLabelFor(it) }
+    } else {
+        spikeStashedTabs.getOrNull(next - spikeStashed.size)?.let { showNavLabelForBundle(it) }
+    }
 }
 
 /**

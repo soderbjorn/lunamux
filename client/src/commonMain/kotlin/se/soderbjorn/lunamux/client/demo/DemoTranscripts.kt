@@ -68,16 +68,24 @@ internal val DEMO_PROMPT: String =
 
 /**
  * Prompt block shown by the simulated Claude Code session for typed input,
- * styled after the current Claude Code chrome: a dim rule, the
- * `⏵⏵ auto mode on` status line, then the `›` input caret. The caret is the
- * last thing printed so typed characters echo in the right place; the status
- * line rides above it (in the real TUI it sits below the input box, but a
- * scrollback simulation must keep the cursor line last).
+ * matching the real Claude Code chrome exactly: the `›` input caret sits in a
+ * box (a dim rule above and below it) with the `⏵⏵ auto mode on` status line
+ * *underneath* the box — the true on-screen order.
+ *
+ * Rendering that order in an append-only scrollback sim takes one trick: the
+ * caret is not the last thing printed (the status line is), so the block ends
+ * with an ANSI cursor move (`ESC[2A` up two rows, then column 3) that parks the
+ * cursor right after `› ` — so typed characters still echo at the caret while
+ * the status line shows below. On submit, [DemoTerminalSession] erases from the
+ * caret line downward (`ESC[0J`) before the reply so the box chrome (lower rule
+ * + status line) doesn't linger under the typed prompt. @see DemoTerminalSession
  */
 internal val DEMO_CLAUDE_PROMPT: String =
     "${DIM}─────────────────────────────────────────────────────────$R\r\n" +
-    "$CYAN⏵⏵$R ${B}auto mode on$R ${DIM}(shift+tab to cycle) · ← for agents · esc to interrupt$R\r\n" +
-    "$B›$R "
+    "$B›$R \r\n" +
+    "${DIM}─────────────────────────────────────────────────────────$R\r\n" +
+    "$CYAN⏵⏵$R ${B}auto mode on$R ${DIM}(shift+tab to cycle) · esc to interrupt · ← for agents$R" +
+    "$E[2A\r$E[2C"
 
 /**
  * Return-to-column-0 + erase-line — prefixed to script steps that rewrite
@@ -835,6 +843,183 @@ private fun claudeDoneTranscript(): String = lines(
     "",
 ) + DEMO_CLAUDE_PROMPT
 
+/**
+ * A fifth Claude Code session that has just *finished* the logo graphics —
+ * converting the PHOSPHOR logo to interleaved bitplanes — sitting in the
+ * **Assets** tab beside the file browser. Like [claudeDoneTranscript] the whole
+ * run is in the scrollback and the session rests idle at the Claude input
+ * prompt; typing into it plays [claudeLogoInputScript] and the pane flips to
+ * "working" for the burst. Kept out of [DemoFixtures.initialStates] so it starts
+ * stateless (a legitimate "talk to me" target, unlike the working/waiting ones).
+ */
+private fun claudeLogoTranscript(): String = lines(
+    "$DEMO_PROMPT${"claude"}",
+    "",
+    "$B>$R convert the phosphor logo to 4 bitplanes — 320x64, interleaved for",
+    "  the blitter",
+    "",
+    "$B●$R I'll palette-reduce it to the 16-colour demo set, then pack it",
+    "  interleaved so the blitter shifts all four planes in one pass.",
+    "  Reading the source IFF first.",
+    "",
+    "$B●$R ${B}Read$R(gfx/logo.iff)",
+    "  ${DIM}⎿  320x64, 27 colours$R",
+    "",
+    "$B●$R ${B}Bash$R(python tools/iff2bpl.py gfx/logo.iff --planes 4 --interleaved)",
+    "  ${DIM}⎿  wrote gfx/logo.bpl — 10240 bytes, 4 planes$R",
+    "",
+    "$B●$R ${B}Edit$R(src/fx/logo.s)",
+    "  ${DIM}⎿  Updated src/fx/logo.s with 5 additions$R",
+    "",
+    "$B●$R ${B}Bash$R(make test)",
+    "  ${DIM}⎿  4 parts within budget (24 lines spare)$R",
+    "",
+    "$B●$R Done — logo's four planes, interleaved, 10K on chip. The palette",
+    "  folds into the copper so the bars bleed through the letters. Say the",
+    "  word if you want it halved to 2 planes for more copper colours.",
+    "",
+) + DEMO_CLAUDE_PROMPT
+
+/**
+ * The one-shot work burst played when the user types into the finished logo
+ * session (`demo-s8`): same shape and ~9 s pacing as [claudeDoneInputScript]
+ * but themed to the graphics pipeline (palette, bitplanes, the copper bleed),
+ * so the pane reads as a gfx agent picking the task back up. Three variants
+ * rotate on [runIndex]; the typed [line] is only sniffed for the shared POKE
+ * wink (border-black → Amiga COLOR00). Ends at [DEMO_CLAUDE_PROMPT].
+ *
+ * @param line the submitted input line (only sniffed for the POKE wink).
+ * @param runIndex 0-based count of bursts already played this session.
+ * @return the steps of one burst, ending with [DEMO_CLAUDE_PROMPT].
+ */
+private fun claudeLogoInputScript(line: String, runIndex: Int): List<DemoScriptStep> {
+    val poke = line.contains("poke", ignoreCase = true) || line.contains("53280")
+    val ack = listOf(
+        "$B●$R On it — repacking the logo now.",
+        "$B●$R Good call. Let me re-dither that.",
+        "$B●$R Sure — another pass on the palette.",
+    )
+    val edit = listOf(
+        toolStep("Edit", "src/fx/logo.s", "Re-dithered the gradient — banding gone"),
+        toolStep("Edit", "gfx/logo.pal", "Remapped to the 16-entry demo palette"),
+        toolStep("Edit", "src/fx/logo.s", "Interleaved the planes for a single blit"),
+    )
+    val done = listOf(
+        "$B●$R Done — logo's crisp and the bars still bleed through. 10K on chip.",
+        "$B●$R That's in. Palette folds into the copper; budget stays green.",
+        "$B●$R Done. Four planes, one blit, 24 rasterlines spare.",
+    )
+    val v = runIndex.mod(ack.size)
+    val ackLine = if (poke) "$B●$R That POKE is C64 for border-black — on this Amiga it's COLOR00 (\$DFF180). On it." else ack[v]
+    val editStep = if (poke) toolStep("Edit", "src/main.s", "move.w #\$000,\$dff180 — border black at init") else edit[v]
+    val doneLine = if (poke) "$B●$R Done — border's black before frame one. Wrong machine, right instinct." else done[v]
+    return listOf(
+        DemoScriptStep(400, "\r\n$CLAUDE✻$R ${DIM}Thinking…$R"),
+        DemoScriptStep(1_300, CLEAR_LINE + ackLine + "\r\n\r\n" + claudeStatus("Pixeling", 3, "thinking with high effort")),
+        DemoScriptStep(
+            1_700,
+            CLEAR_LINE + toolSummary(
+                "Reading ${B}2$R files, running ${B}1$R shell command…",
+                "gfx/logo.iff",
+            ) + claudeStatus("Pixeling", 6, "counting the colours"),
+        ),
+        DemoScriptStep(1_500, CLEAR_LINE + toolStep("Read", "gfx/logo.iff", "320x64, 27 colours") + claudeStatus("Blitting", 8, "folding the change in")),
+        DemoScriptStep(1_900, CLEAR_LINE + editStep + claudeStatus("Crunching", 10, "repacking the planes")),
+        DemoScriptStep(
+            2_100,
+            CLEAR_LINE + toolStep("Bash", "make test", "4 parts within budget (24 lines spare)") +
+                claudeStatus("Racing the beam", 13, "almost done thinking with high effort"),
+        ),
+        DemoScriptStep(1_400, CLEAR_LINE + doneLine + "\r\n\r\n" + DEMO_CLAUDE_PROMPT),
+    )
+}
+
+/**
+ * A sixth Claude Code session that has just *finished* the copper bars —
+ * mirroring the gradient at the centre — sitting in the **Delta** (git) tab
+ * beside the diff view. Same finished-and-idle shape as [claudeDoneTranscript]:
+ * the run is in the scrollback, the session rests at the Claude input prompt,
+ * and typing plays [claudeCopperInputScript]. Kept out of
+ * [DemoFixtures.initialStates] so it starts stateless.
+ */
+private fun claudeCopperTranscript(): String = lines(
+    "$DEMO_PROMPT${"claude"}",
+    "",
+    "$B>$R the copper bars should mirror at the centre — top gradient flipped",
+    "  for the bottom half",
+    "",
+    "$B●$R Right — I'll walk half the gradient table and reuse it flipped for",
+    "  the lower half, so the bars meet in a seam-free mirror. Reading the",
+    "  copper list first.",
+    "",
+    "$B●$R ${B}Read$R(src/fx/copper.s)",
+    "  ${DIM}⎿  Read 40 lines$R",
+    "",
+    "$B●$R ${B}Edit$R(src/fx/copper.s)",
+    "  ${DIM}⎿  Byte-flip mirror: 32 colours down, the same 32 back up$R",
+    "",
+    "$B●$R ${B}Bash$R(make test)",
+    "  ${DIM}⎿  4 parts within budget (24 lines spare)$R",
+    "",
+    "$B●$R Done — 64 copper moves, mirrored at line 128. The seam's gone and",
+    "  it still fits the WAIT budget. Want the mirror point to breathe with",
+    "  the music?",
+    "",
+) + DEMO_CLAUDE_PROMPT
+
+/**
+ * The one-shot burst played when the user types into the finished copper-bars
+ * session (`demo-s9`): same ~9 s shape as [claudeDoneInputScript], themed to
+ * the copper list (gradient table, WAIT budget, the seam mirror). Three
+ * variants rotate on [runIndex]; the typed [line] is sniffed only for the
+ * shared POKE wink. Ends at [DEMO_CLAUDE_PROMPT].
+ *
+ * @param line the submitted input line (only sniffed for the POKE wink).
+ * @param runIndex 0-based count of bursts already played this session.
+ * @return the steps of one burst, ending with [DEMO_CLAUDE_PROMPT].
+ */
+private fun claudeCopperInputScript(line: String, runIndex: Int): List<DemoScriptStep> {
+    val poke = line.contains("poke", ignoreCase = true) || line.contains("53280")
+    val ack = listOf(
+        "$B●$R On it — reworking the gradient now.",
+        "$B●$R Good call. Let me re-tune the ramp.",
+        "$B●$R Sure — another pass on the copper list.",
+    )
+    val edit = listOf(
+        toolStep("Edit", "src/fx/copper.s", "Eased the ramp — 32 steps, no banding"),
+        toolStep("Edit", "src/fx/copper.s", "Moved the mirror seam to line 130"),
+        toolStep("Edit", "src/fx/copper.s", "Halved the WAIT count — one move per two lines"),
+    )
+    val done = listOf(
+        "$B●$R Done — bars are smooth and the seam's invisible. Budget green.",
+        "$B●$R That's in. 64 moves, mirrored, 24 rasterlines spare.",
+        "$B●$R Done. The gradient meets itself clean at the centre.",
+    )
+    val v = runIndex.mod(ack.size)
+    val ackLine = if (poke) "$B●$R That POKE is C64 for border-black — on this Amiga it's COLOR00 (\$DFF180). On it." else ack[v]
+    val editStep = if (poke) toolStep("Edit", "src/main.s", "move.w #\$000,\$dff180 — border black at init") else edit[v]
+    val doneLine = if (poke) "$B●$R Done — border's black before frame one. Wrong machine, right instinct." else done[v]
+    return listOf(
+        DemoScriptStep(400, "\r\n$CLAUDE✻$R ${DIM}Thinking…$R"),
+        DemoScriptStep(1_300, CLEAR_LINE + ackLine + "\r\n\r\n" + claudeStatus("Coppering", 3, "thinking with high effort")),
+        DemoScriptStep(
+            1_700,
+            CLEAR_LINE + toolSummary(
+                "Reading ${B}1$R file, running ${B}1$R shell command…",
+                "src/fx/copper.s",
+            ) + claudeStatus("Coppering", 6, "walking the gradient table"),
+        ),
+        DemoScriptStep(1_500, CLEAR_LINE + toolStep("Read", "src/fx/copper.s", "Read 40 lines") + claudeStatus("Blitting", 8, "folding the change in")),
+        DemoScriptStep(1_900, CLEAR_LINE + editStep + claudeStatus("Crunching", 10, "checking the WAIT budget")),
+        DemoScriptStep(
+            2_100,
+            CLEAR_LINE + toolStep("Bash", "make test", "4 parts within budget (24 lines spare)") +
+                claudeStatus("Racing the beam", 13, "almost done thinking with high effort"),
+        ),
+        DemoScriptStep(1_400, CLEAR_LINE + doneLine + "\r\n\r\n" + DEMO_CLAUDE_PROMPT),
+    )
+}
+
 /** Assembler watch output (no prompt — a foreground watcher). */
 private fun watchTranscript(): String = lines(
     "$DEMO_PROMPT${"watchexec -e s,bas -- make"}",
@@ -905,6 +1090,22 @@ internal fun demoSessionSpecs(): List<DemoSessionSpec> = listOf(
         startsAtPrompt = false, // Claude owns the tty until Ctrl-C
         respond = ::demoShellRespond,
         liveScript = claudeDocsLiveScript(),
+    ),
+    DemoSessionSpec(
+        sessionId = "demo-s8",
+        transcript = claudeLogoTranscript(),
+        prompt = DEMO_CLAUDE_PROMPT,
+        startsAtPrompt = true, // idle at the Claude input prompt (finished)
+        respond = ::demoShellRespond, // unused: inputScript takes the Enter path
+        inputScript = ::claudeLogoInputScript,
+    ),
+    DemoSessionSpec(
+        sessionId = "demo-s9",
+        transcript = claudeCopperTranscript(),
+        prompt = DEMO_CLAUDE_PROMPT,
+        startsAtPrompt = true, // idle at the Claude input prompt (finished)
+        respond = ::demoShellRespond, // unused: inputScript takes the Enter path
+        inputScript = ::claudeCopperInputScript,
     ),
 )
 

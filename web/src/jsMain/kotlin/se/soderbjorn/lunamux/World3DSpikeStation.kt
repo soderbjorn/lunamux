@@ -277,6 +277,28 @@ internal fun stationInteriorPose(slot: Int, paneHalfH: Double): CamPose =
     shelfArrivalPose(slot, paneHalfH, maxStandoff = STATION_INTERIOR_STANDOFF)
 
 /**
+ * The **rest pose a stash chase settles on** for shelf [slot] — the exact pose
+ * [tickStashChase] leaves the camera parked at when an outbound stash finishes (its
+ * hump `w = 0` at journey's end): [STASH_CHASE_NEAR_DIST] in front of the shelved
+ * pane's face along the level `(OFF_X, 0, OFF_Z)` chase direction, looking straight
+ * at the pane's centre. Used by [toggleStashView] so flying up to the dock with `v`
+ * lands at the **same close, centred framing** a stash does, instead of the higher
+ * sign-reveal pose ([stationInteriorPose]) — the two ways of reaching the shelf now
+ * settle in the same spot.
+ *
+ * @param slot the shelf slot to frame.
+ * @return the camera pose the chase rests at. @see tickStashChase @see toggleStashView
+ */
+internal fun stationChaseRestPose(slot: Int): CamPose {
+    val (sx, sy, sz) = stashShelfPos(slot)
+    // Mirror tickStashChase's end state: hump w = 0 ⇒ offY = 0, dist = NEAR_DIST.
+    val ol = sqrt(STASH_CHASE_OFF_X * STASH_CHASE_OFF_X + STASH_CHASE_OFF_Z * STASH_CHASE_OFF_Z)
+    val cx = sx + STASH_CHASE_OFF_X / ol * STASH_CHASE_NEAR_DIST
+    val cz = sz + STASH_CHASE_OFF_Z / ol * STASH_CHASE_NEAR_DIST
+    return CamPose(cx, sy, cz, sx, sy, sz)
+}
+
+/**
  * The world position of a stashing / unstashing pane at journey progress [sp] (its
  * [RingPane.stashProg]: 0 at the ring slot, 1 at the shelf) — routed **through the bay
  * door** when the station is built, so the pane enters and leaves the hangar the same way

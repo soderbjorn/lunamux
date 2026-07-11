@@ -298,7 +298,13 @@ class DemoTerminalSession internal constructor(
             '\r', '\n' -> {
                 val line = lineBuffer.toString()
                 lineBuffer.clear()
-                write("\r\n")
+                // Erase from the caret to the end of the screen before the reply,
+                // then newline. For the Claude box prompt ([DEMO_CLAUDE_PROMPT]) the
+                // caret sits *above* its lower rule + `auto mode on` status line, so
+                // this wipes that chrome so it doesn't linger under the submitted
+                // line. For the single-line shell prompt the caret is already at the
+                // bottom, so the erase is a no-op.
+                write("\u001b[0J\r\n")
                 val inputScript = spec.inputScript
                 when {
                     // Simulated-agent sessions: any non-blank input sends

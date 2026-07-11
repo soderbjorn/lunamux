@@ -45,6 +45,45 @@ import se.soderbjorn.lunamux.three.PerspectiveCamera
 import se.soderbjorn.lunamux.three.Scene
 
 /**
+ * Paints a pane's **focus / current-target outline** each frame:
+ *  - a **thick solid** accent outline on the pane you're *engaged* in (typing) or, in
+ *    command center, selecting — matched by identity ([spikeLastEngagedPane]) rather than
+ *    "is it the front pane", so the engaged pane in free flight (the one at screen centre,
+ *    not necessarily the front) is the one that lights up — keeping the focus outline in
+ *    lock-step with which terminal actually has the cursor;
+ *  - a lighter **dashed, offset** outline on the **current target** pane (what an action
+ *    would act on) when it isn't the engaged one — the "this is chosen" marker;
+ *  - none otherwise.
+ *
+ * Uses `outline` (drawn outside the border box, immune to the wrapper's `overflow:hidden`)
+ * so the 1:1 terminal content never shifts. Called per pane by [startSpikeLoop] for both
+ * the reactor and glow/none status paths.
+ *
+ * @param p the pane. @param isFront whether it is the settled front pane (for selection
+ *   mode, which is command-center / front-only). @param currentTargetId the id of the
+ *   current target pane ([actionTargetPane]), or `null`. @param accent the theme accent.
+ */
+internal fun applyTargetOutline(p: RingPane, isFront: Boolean, currentTargetId: String?, accent: String) {
+    val engaged = spikeEngaged && p.paneId == spikeLastEngagedPane
+    val selecting = isFront && spikeSelectionMode
+    val isCurrent = currentTargetId != null && p.paneId == currentTargetId
+    when {
+        engaged || selecting -> {
+            p.wrapper.style.setProperty("outline", "3px solid $accent")
+            p.wrapper.style.setProperty("outline-offset", "0px")
+        }
+        isCurrent -> {
+            p.wrapper.style.setProperty("outline", "2px dashed $accent")
+            p.wrapper.style.setProperty("outline-offset", "6px")
+        }
+        else -> {
+            p.wrapper.style.setProperty("outline", "none")
+            p.wrapper.style.setProperty("outline-offset", "0px")
+        }
+    }
+}
+
+/**
  * The render loop: eases both axes (horizontal pane fan + vertical tab scroll),
  * places every pane (front at 1:1 facing the camera), fades panes that fan/scroll
  * too far, and marks the front pane settled so Enter can engage it.
@@ -185,6 +224,23 @@ internal fun startSpikeLoop() {
                 spikeCamUx = bux; spikeCamUy = buy; spikeCamUz = buz
             }
 
+            // Permanent landing bank: ease the roof into a fixed tilt that ramps to full
+            // by touchdown (bank = landRoll·s) and *stays* — the parked pose holds it,
+            // since the flown branch below reads spikeCamU* verbatim once the tour ends.
+            // Unlike the sin(2πs) lean above this does not unwind, giving the [flyOverview]
+            // hero shot its "slightly rotated" composition. @see spikeCamTourLandRoll
+            if (spikeCamTourLandRoll != 0.0) {
+                val bank = spikeCamTourLandRoll * s
+                val rx = spikeCamFy * spikeCamUz - spikeCamFz * spikeCamUy
+                val ry = spikeCamFz * spikeCamUx - spikeCamFx * spikeCamUz
+                val rz = spikeCamFx * spikeCamUy - spikeCamFy * spikeCamUx
+                val cb = cos(bank); val sb = sin(bank)
+                val bux = spikeCamUx * cb + rx * sb
+                val buy = spikeCamUy * cb + ry * sb
+                val buz = spikeCamUz * cb + rz * sb
+                spikeCamUx = bux; spikeCamUy = buy; spikeCamUz = buz
+            }
+
             if (t >= 1.0) {
                 spikeCamReturning = false
                 spikeCamTourFollowPaneId = null // stop tracking; hold the landed pose
@@ -241,8 +297,19 @@ internal fun startSpikeLoop() {
             // Orient straight from the ship's basis: up = roof vector, look down the
             // nose. Roll is carried in the up-vector, so banks and loops are exact.
             camera.up.set(spikeCamUx, spikeCamUy, spikeCamUz)
-            camera.position.set(spikeCamX, spikeCamY, spikeCamZ)
-            camera.lookAt(spikeCamX + spikeCamFx, spikeCamY + spikeCamFy, spikeCamZ + spikeCamFz)
+            // Spaceship bob: while window bobbing is on, gently float the *presented*
+            // camera pose (translate both eye and look-at by the same vertical offset, so
+            // only the position bobs — the nose direction is untouched). Applied to the
+            // presented pose only, never the stored spikeCam* state, so flight momentum
+            // and the cinematic return math are unaffected. Suppressed during a return so
+            // landings stay dead level, mirroring the panes' holdStill suppression.
+            val camBob = if (spikeBobEnabled && !spikeCamReturning)
+                sin(spikeBobPhase) * BOB_AMPLITUDE else 0.0
+            val bx = spikeCamX
+            val by = spikeCamY + camBob
+            val bz = spikeCamZ
+            camera.position.set(bx, by, bz)
+            camera.lookAt(bx + spikeCamFx, by + spikeCamFy, bz + spikeCamFz)
         }
 
         // Ease scrolls + advance shared phases every frame — unconditionally, so
@@ -253,6 +320,38 @@ internal fun startSpikeLoop() {
         spikePaneScroll += (curSel - spikePaneScroll) * PANE_EASE
         val settled = abs(spikeTabScroll - cur) < SETTLE_EPS && abs(spikePaneScroll - curSel) < SETTLE_EPS
         val fi = frontIndex()
+        // The **current** pane — the one an action (focus, glide, grid, reformat, zoom,
+        // stash) would act on: the command center's selected pane, or, in free flight, the
+        // pane at screen centre ([paneAtScreenCenter]). Marked with a dashed target outline
+        // below so you always see which pane is "chosen". Recomputed each frame (a cheap
+        // ray-cast in fly mode) so it tracks the camera live.
+        // The selected dock item may be a whole **tab bundle** rather than a single pane;
+        // when it is, [selectedBundleId] names it so [tickBundles] can ring the *entire
+        // stack* — every sheet — with the dashed target outline, instead of the outline
+        // covering just one pane of the pack. It stays null whenever the selection is a lone
+        // pane (the [currentTargetId] path below wears the outline for that case).
+        var selectedBundleId: String? = null
+        val currentTargetId = when {
+            spikeFlyMode -> paneAtScreenCenter()?.paneId
+            // Up at the dock, the *browsed* dock item is the selection (what ←/→ moves and
+            // Space brings home), so it — not the hidden fronted ring pane far below — wears
+            // the dashed target outline, matching command center. The dock row holds both
+            // single stashed panes and tab bundles ([dockItemCount]); a bundle slot has no
+            // single target pane, so it routes to [selectedBundleId] and leaves this null.
+            cameraAtShelf() -> {
+                val n = dockItemCount()
+                val slot = if (spikeShelfIndex in 0 until n) spikeShelfIndex else nearestDockSlot()
+                when {
+                    slot < 0 -> null
+                    slot < spikeStashed.size -> spikeStashed.getOrNull(slot)
+                    else -> {
+                        selectedBundleId = spikeStashedTabs.getOrNull(slot - spikeStashed.size)?.id
+                        null
+                    }
+                }
+            }
+            else -> spikePanes.getOrNull(fi)?.paneId
+        }
 
         // Ease the fade regime: while the camera is off its home pose, cross-dissolve
         // from the selection-focus fade toward the camera distance/facing fade so
@@ -274,6 +373,9 @@ internal fun startSpikeLoop() {
         spikeBobPhase += BOB_SPEED
         spikeBorderDash -= WORKING_BORDER_SPEED // negative → dashes travel forward round the path
         spikeWaitPhase += WAITING_PULSE_SPEED
+        // Warp-core wall-clock (seconds): the reactor breath / awaiting heartbeat / ping
+        // cadence / discharge shaping are all spec'd in seconds. @see tickWarpCore
+        spikeWarpClock += spikeDtFrames / 60.0
         // Home beacon: spin the crossed chevrons about the arrow's pointing axis so
         // the landmark reads volumetrically from any free-fly angle (glow pulse is
         // pure CSS — only the spin needs a per-frame write).
@@ -299,18 +401,36 @@ internal fun startSpikeLoop() {
 
         run {
             spikePanes.forEachIndexed { i, p ->
+                // A pane whose tab is fully unlisted and now *parked* in the hangar bay is
+                // owned end-to-end by [tickBundles] (position, scale, opacity) and its config
+                // tab is gone, so its [RingPane.tabOrd] is frozen and may point past the live
+                // tab count — running the sphere-placement math below would read [spikeTabSel]
+                // out of range. Skip it here; [tickBundles] places it. Panes still merging,
+                // flying or separating keep a valid tabOrd (their tab is still/again listed),
+                // so they run the loop and [tickBundles] overrides the result. @see stashTab
+                if (isParkedBundlePane(p)) return@forEachIndexed
                 // Every pane rides one sphere of radius RING_R: the horizontal pane
                 // fan is *longitude* (theta), the tab wheel is *latitude* (phi). The
                 // fronted tab's selected pane sits at the pole facing the camera; ↑/↓
                 // rotate the latitude so you "go around" the tabs on a real circle
                 // instead of sliding a flat stack.
-                val center = if (p.tabOrd == cur) spikePaneScroll else spikeTabSel[p.tabOrd].toDouble()
-                val slot = p.paneOrdInTab - center
+                val safeTabOrd = p.tabOrd.coerceIn(0, (spikeTabSel.size - 1).coerceAtLeast(0))
+                val center = if (p.tabOrd == cur) spikePaneScroll else spikeTabSel.getOrElse(safeTabOrd) { 0 }.toDouble()
+                // Ease the *displayed* ordinal toward the logical one so a survivor whose
+                // neighbour just died (and was renumbered down by [reconcileRing]) glides
+                // into the freed slot instead of snapping. A jump bigger than a single slot
+                // (bundle separation, a large reorder) is snapped, not slid. @see RingPane.dispOrd
+                val ordTarget = p.paneOrdInTab.toDouble()
+                if (abs(ordTarget - p.dispOrd) > 2.0) p.dispOrd = ordTarget
+                else p.dispOrd += (ordTarget - p.dispOrd) * PANE_EASE
+                val slot = p.dispOrd - center
                 val theta = slot * SLOT_ANGLE
                 val tabRel = p.tabOrd - spikeTabScroll
                 val phi = tabRel * TAB_ANGLE
                 val ringCosT = cos(theta) * RING_R
-                val engagedThis = spikeEngaged && i == fi
+                // Identity-based, not `i == fi`: in free flight the engaged pane is the one
+                // at screen centre, which need not be the front pane.
+                val engagedThis = spikeEngaged && p.paneId == spikeLastEngagedPane
 
                 // Scale first: the front pane at its live zoom, every other pane at its
                 // *remembered* zoom (so a pane you magnified stays magnified when it
@@ -408,6 +528,14 @@ internal fun startSpikeLoop() {
                 val fbs = bs * flexScale * phaserScale
                 p.obj.scale.set(fbs, fbs, fbs)
 
+                // Resolve this pane's live agent status *before* placing it, so the
+                // warp-core awaiting **lean** can factor into its world z. The manual
+                // `w` override wins over the live state (same as the visual block below).
+                val working = spikeWorkingOverride[p.paneId] ?: (sessionStates?.get(p.sessionId) == "working")
+                // Needs-input ("waiting") state: an agent has stopped and is blocking on
+                // you. The manual override wins over the live state, mirroring above.
+                val waiting = spikeWaitingOverride[p.paneId] ?: (sessionStates?.get(p.sessionId) == "waiting")
+
                 // Position on the sphere, plus two touches: a slow idle **bob** on
                 // every pane except the one you've grabbed (engaged), phase-staggered
                 // per pane; and a size-scaled **z push-back** on non-front panes so a
@@ -437,7 +565,7 @@ internal fun startSpikeLoop() {
                 // Hold still when you're interacting with the front pane (engaged, or
                 // in selection mode so a drag-select target isn't drifting), or when the
                 // pane is up on / heading to the shelf so it rests there; otherwise bob.
-                val holdStill = (i == fi && (spikeEngaged || spikeSelectionMode)) || onShelf
+                val holdStill = engagedThis || (i == fi && spikeSelectionMode) || onShelf
                 if (spikeBobEnabled && !holdStill) py += sin(spikeBobPhase + i * BOB_STAGGER) * BOB_AMPLITUDE
                 if (i != fi) {
                     pz -= SIDE_Z_PUSH * ns
@@ -504,16 +632,19 @@ internal fun startSpikeLoop() {
                 // A stashing pane sits far off the ring where the focus/fly fade would
                 // hide it, so lift its opacity toward full by its stash progress.
                 var vis = fade + (1.0 - fade) * stashE
-                // Chase spotlight: while a stash chase runs, fade every pane except the
-                // travelling one so none of the ring's neighbour panes (which sit right at
-                // the camera as it leaves / returns to the ring) can occlude it. The chased
-                // pane is held lit. Eased by [spikeChaseFocus] so the world dissolves out and
+                // Chase spotlight: while a stash chase runs, fade the *ring* neighbour panes
+                // (which sit right at the camera as it leaves / returns to the ring and would
+                // occlude the travelling pane) so nothing hides it. The chased pane is held
+                // lit. Panes already **parked on the shelf** are exempt — they are at the
+                // destination, cannot occlude the traveller, and must stay visible so flying a
+                // pane up to a shelf that already has windows doesn't blank the ones up there
+                // until arrival. Eased by [spikeChaseFocus] so the world dissolves out and
                 // back rather than popping.
                 if (spikeChaseFocus > 0.001) {
-                    vis = if (spikeStashChase?.paneId == p.paneId) {
-                        maxOf(vis, spikeChaseFocus)
-                    } else {
-                        vis * (1.0 - spikeChaseFocus * (1.0 - STASH_CHASE_OTHER_OPACITY))
+                    vis = when {
+                        spikeStashChase?.paneId == p.paneId -> maxOf(vis, spikeChaseFocus)
+                        onShelf -> vis // already docked at the shelf — keep it shown
+                        else -> vis * (1.0 - spikeChaseFocus * (1.0 - STASH_CHASE_OTHER_OPACITY))
                     }
                 }
                 p.wrapper.style.setProperty("opacity", vis.toString())
@@ -568,77 +699,95 @@ internal fun startSpikeLoop() {
                     }
                 }
 
-                // Working state: the manual `w` override wins over the live state.
-                val working = spikeWorkingOverride[p.paneId] ?: (sessionStates?.get(p.sessionId) == "working")
-                // Needs-input ("waiting") state: an agent has stopped and is blocking on
-                // you. The manual `e` override wins over the live state, mirroring above.
-                val waiting = spikeWaitingOverride[p.paneId] ?: (sessionStates?.get(p.sessionId) == "waiting")
-                // The dotted border shows whenever the pane is working — *including*
-                // the engaged/focused pane (it rides the edge, not the content, so it
-                // never disturbs typing). The legacy veil still exempts the engaged
-                // pane below, since that one dims the content itself.
-                val signalling = working
-                // While the dotted-border signal is showing, it *replaces* the solid
-                // border (which goes transparent) and takes the border's own colour —
-                // so the edge simply turns into travelling dots. A *waiting* pane instead
-                // paints a solid red edge (it has no travelling dots — the outward halo
-                // below is its signal). Otherwise the normal solid border colour is used.
-                val dotBorder = WORKING_BORDER_ENABLED && signalling && spikeWorkingShowDots
-                val borderCol = when {
-                    waiting -> WAITING_GLOW_BORDER
-                    dotBorder -> "transparent"
-                    else -> edgeCol
-                }
-                p.wrapper.style.setProperty("border-color", borderCol)
-
-                // "Needs input" red halo: an outward box-shadow bloom layered over the
-                // pane's resting depth shadow, pulsing at [waitAlpha]. Because it bleeds
-                // *outside* the pane it stays visible when the pane is small and far
-                // across the ring — spot a pane waiting on you from clear across the
-                // world. Non-waiting panes carry the base depth shadow alone.
-                // A working pane whose style shows the glow paints the same outward bloom
-                // in green (its "pulsating green light"); a waiting pane's red halo wins if
-                // both apply, being the more urgent signal.
-                val greenPulseThis = signalling && spikeWorkingShowGlow
-                p.wrapper.style.setProperty(
-                    "box-shadow",
-                    when {
-                        waiting -> "$PANE_BASE_SHADOW, 0 0 ${WAITING_GLOW_BLUR}px ${WAITING_GLOW_SPREAD}px " +
-                            "rgba($WAITING_GLOW_COLOR,$waitAlpha)"
-                        greenPulseThis -> "$PANE_BASE_SHADOW, 0 0 ${WORKING_GLOW_BLUR}px ${WORKING_GLOW_SPREAD}px " +
-                            "rgba($WORKING_GLOW_COLOR,$workAlpha)"
-                        else -> PANE_BASE_SHADOW
-                    },
-                )
-
-                // Focused (engaged/typing, or selection mode) reads as the *same*
-                // accent edge, just thicker — via an outline, not a wider border, so
-                // the 1:1 terminal content underneath never shifts. (No more green.)
-                val focused = isFront && (spikeEngaged || spikeSelectionMode)
-                p.wrapper.style.setProperty("outline", if (focused) "3px solid $frontCol" else "none")
-                p.wrapper.style.setProperty("outline-offset", "0px")
-
-                if (WORKING_BORDER_ENABLED) {
-                    // Dotted border sits on the pane edge in the border's own colour,
-                    // its dash offset scrolled (advanced once per frame below) so the
-                    // dots drift slowly around. (root is an SVGElement — style via
-                    // asDynamic, not an HTMLElement cast.) Shown unless the working style is
-                    // GLOW-only, where the green halo (box-shadow) above is the sole signal.
-                    val showDots = signalling && spikeWorkingShowDots
-                    p.border.root.asDynamic().style.opacity = if (showDots) "1" else "0"
-                    if (showDots) {
-                        // Always the *accent* colour, not the plain border colour: on a
-                        // side pane the border is deliberately dim and the dots would be
-                        // hard to see, so we use the theme's emphasis colour (what the
-                        // fronted border already uses) — visible on every pane.
-                        p.border.path.setAttribute("stroke", frontCol)
-                        p.border.path.setAttribute("stroke-dashoffset", spikeBorderDash.toString())
-                    }
+                // Working/awaiting visual treatment, driven by the persisted **Status
+                // indication** setting ([spikeStatusIndication]). Under REACTOR the
+                // reactor *supersedes* the normal signals for this pane — [tickWarpCore]
+                // owns its border, outward halo and inner heat (blue charge / amber HOLD),
+                // the discharge + pings + HUD painted later by [tickWarpCoreOverlay].
+                // Otherwise (GLOW / GLOW_ANIMATION / NONE) the glow-halo + optional dotted
+                // border apply, gated by [spikeStatusShowGlow] / [spikeStatusShowDots]:
+                // NONE paints neither, so a working/waiting pane shows no status visual.
+                // `working` / `waiting` were resolved above (before placement, for the lean).
+                if (spikeStatusIndication == StatusIndication.REACTOR) {
+                    tickWarpCore(p, i, working, waiting, edgeCol)
+                    // The focus / current-target outline is orthogonal to the reactor state.
+                    applyTargetOutline(p, isFront, currentTargetId, frontCol)
+                    // No travelling dots / green breath veil while the reactor owns the pane.
+                    p.border.root.asDynamic().style.opacity = "0"
                     p.glow.style.opacity = "0"
                 } else {
-                    // Legacy breath veil — exempts the engaged pane (it dims content).
-                    p.glow.style.opacity = if (signalling && !engagedThis) pulse.toString() else "0"
-                    p.border.root.asDynamic().style.opacity = "0"
+                    // The dotted border shows whenever the pane is working — *including*
+                    // the engaged/focused pane (it rides the edge, not the content, so it
+                    // never disturbs typing). The legacy veil still exempts the engaged
+                    // pane below, since that one dims the content itself.
+                    val signalling = working
+                    // While the dotted-border signal is showing, it *replaces* the solid
+                    // border (which goes transparent) and takes the border's own colour —
+                    // so the edge simply turns into travelling dots. A *waiting* pane instead
+                    // paints a solid red edge (it has no travelling dots — the outward halo
+                    // below is its signal). Otherwise the normal solid border colour is used.
+                    val dotBorder = WORKING_BORDER_ENABLED && signalling && spikeStatusShowDots
+                    val borderCol = when {
+                        // A waiting pane's edge is now **amber** (not red) while a glow style
+                        // is active; under NONE it carries no special edge (plain edgeCol).
+                        waiting && spikeStatusShowGlow -> WARP_AMBER_HEX
+                        dotBorder -> "transparent"
+                        else -> edgeCol
+                    }
+                    p.wrapper.style.setProperty("border-color", borderCol)
+
+                    // "Needs input" red halo: an outward box-shadow bloom layered over the
+                    // pane's resting depth shadow, pulsing at [waitAlpha]. Because it bleeds
+                    // *outside* the pane it stays visible when the pane is small and far
+                    // across the ring — spot a pane waiting on you from clear across the
+                    // world. Non-waiting panes carry the base depth shadow alone.
+                    // A working pane whose style shows the glow paints the same outward bloom
+                    // in the reactor's working **blue** ([WORKING_GLOW_COLOR] = [WARP_CORE_COLOR]),
+                    // so working reads the same in a glow style as under the reactor; a waiting
+                    // pane's amber halo wins if both apply, being the more urgent signal.
+                    val workGlowThis = signalling && spikeStatusShowGlow
+                    // A waiting pane's halo is **amber** (the reactor's awaiting colour), and —
+                    // like the working glow — only shown while a glow style is active, so NONE
+                    // leaves the pane with just its base depth shadow.
+                    val amberPulseThis = waiting && spikeStatusShowGlow
+                    p.wrapper.style.setProperty(
+                        "box-shadow",
+                        when {
+                            amberPulseThis -> "$PANE_BASE_SHADOW, 0 0 ${WAITING_GLOW_BLUR}px ${WAITING_GLOW_SPREAD}px " +
+                                "rgba($WARP_AMBER_COLOR,$waitAlpha)"
+                            workGlowThis -> "$PANE_BASE_SHADOW, 0 0 ${WORKING_GLOW_BLUR}px ${WORKING_GLOW_SPREAD}px " +
+                                "rgba($WORKING_GLOW_COLOR,$workAlpha)"
+                            else -> PANE_BASE_SHADOW
+                        },
+                    )
+
+                    // Focus / current-target outline (thick solid = engaged/selecting,
+                    // dashed = the current target pane). Via outline, not border, so the
+                    // 1:1 terminal content underneath never shifts.
+                    applyTargetOutline(p, isFront, currentTargetId, frontCol)
+
+                    if (WORKING_BORDER_ENABLED) {
+                        // Dotted border sits on the pane edge in the border's own colour,
+                        // its dash offset scrolled (advanced once per frame below) so the
+                        // dots drift slowly around. (root is an SVGElement — style via
+                        // asDynamic, not an HTMLElement cast.) Shown unless the working style is
+                        // GLOW-only, where the green halo (box-shadow) above is the sole signal.
+                        val showDots = signalling && spikeStatusShowDots
+                        p.border.root.asDynamic().style.opacity = if (showDots) "1" else "0"
+                        if (showDots) {
+                            // Always the *accent* colour, not the plain border colour: on a
+                            // side pane the border is deliberately dim and the dots would be
+                            // hard to see, so we use the theme's emphasis colour (what the
+                            // fronted border already uses) — visible on every pane.
+                            p.border.path.setAttribute("stroke", frontCol)
+                            p.border.path.setAttribute("stroke-dashoffset", spikeBorderDash.toString())
+                        }
+                        p.glow.style.opacity = "0"
+                    } else {
+                        // Legacy breath veil — exempts the engaged pane (it dims content).
+                        p.glow.style.opacity = if (signalling && !engagedThis) pulse.toString() else "0"
+                        p.border.root.asDynamic().style.opacity = "0"
+                    }
                 }
             }
 
@@ -703,16 +852,35 @@ internal fun startSpikeLoop() {
         }
 
         try {
+            // Tab bundles: override the transforms of panes belonging to an unlisting /
+            // unlisted tab so the whole tab flies as one merged stack to / from the hangar
+            // bay (and rests there). Must run BEFORE render — like the wormhole below — so
+            // its 3D writes take effect this frame; after the per-pane loop so it overrides
+            // the ring-slot placement the loop computed for still-listed bundle panes.
+            // Inside the try so a throw here can never break the RAF chain. @see tickBundles
+            tickBundles(camera, selectedBundleId)
             // Wormhole spawn (feature-flagged): overrides newborn panes' transforms and
             // spirals the vortex — must run BEFORE render so its 3D writes take effect
             // this frame (unlike the phaser's post-render screen-space pass). Inside the
             // try so a throw here can never break the RAF chain and freeze the world.
             tickWormhole(camera)
+            // Freeze-to-canvas: swap the live terminal body of any pane currently flying to /
+            // from the stash shelf (a lone pane, or a whole tab bundle including its front
+            // sheet) for a one-shot static snapshot, so the moving CSS3D plane re-samples one
+            // cached raster instead of re-rasterizing live DOM every frame — a direct relief on
+            // the compositor tile budget. Restored to live at rest. Runs after tickBundles /
+            // tickWormhole so every pane's flight state is final, and is a single idempotent
+            // pass so the render loop and tickBundles can't churn the snapshot. @see tickPaneFreeze
+            tickPaneFreeze()
             css.render(scene, camera)
             // Phaser-fire close (feature-flagged): drawn in screen space over the freshly
             // rendered scene, so the camera matrices its projection uses are current.
             // Inside the try so a throw here can never break the RAF chain and freeze the world.
             tickPhaser(camera)
+            // Warp-core (runtime-toggled): discharge blooms, thruster plumes, sonar pings
+            // and the reactor-load HUD, all in screen space over the rendered scene — so
+            // its projection uses current camera matrices, exactly like the phaser pass.
+            tickWarpCoreOverlay(camera)
         } catch (t: Throwable) {
             window.asDynamic().console.error("[world3d-spike] frame error", t)
         }

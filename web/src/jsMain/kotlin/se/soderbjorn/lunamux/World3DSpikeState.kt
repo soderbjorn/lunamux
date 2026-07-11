@@ -49,6 +49,19 @@ internal var spikeOpen = false
 /** The full-screen overlay root, or `null` when closed. */
 internal var spikeOverlay: HTMLElement? = null
 
+/**
+ * The 2D app shell (`#app`) hidden while the world is open, or `null` when the
+ * world is closed / the shell was never found. Kept so [closeWorld3dSpike] can
+ * restore its prior inline `visibility` on the way out. Hiding the 2D shell means
+ * that if a compositor tile is dropped under memory pressure (the "tile memory
+ * limits exceeded" flicker), a see-through gap in the 3D overlay reveals nothing
+ * but empty space — never the old 2D interface. @see WORLD3D_PERFORMANCE_ANALYSIS
+ */
+internal var spikeHiddenShell: HTMLElement? = null
+
+/** The `#app` shell's inline `visibility` before the world hid it, restored on close. */
+internal var spikeHiddenShellVis: String = ""
+
 /** The "SELECT MODE" badge shown while selection mode is active, or `null` when closed. */
 internal var spikeModeBadge: HTMLElement? = null
 
@@ -119,6 +132,19 @@ internal var spikeLayoutJob: Job? = null
  */
 internal var spikePendingFocusTab: String? = null
 internal var spikePendingFocusNewTab = false
+
+/**
+ * Pane ids of panes freshly created via [createPane] (`n`) that should be pinned to the
+ * **end** of their tab's display order. A new pane starts at the ring tail (it isn't in
+ * the toolkit `paneOrderByTab` blob yet, so [toolkitPaneOrder] ranks it last), but the
+ * moment the toolkit registers it — typically adjacent to the split source, not last —
+ * [reconcileRing] renumbers it and it slides inward. [pinNewPanesLast] watches this set
+ * and, once the toolkit first lists such a pane, rewrites the order to append it (a
+ * one-shot: the id is dropped as soon as it lands last or its pane is gone), so a newly
+ * created pane stays at the end of the row instead of wedging in beside the current one.
+ * @see createPane @see pinNewPanesLast
+ */
+internal val spikePinLastPanes: MutableSet<String> = mutableSetOf()
 
 /** Index of the tab currently at the front (its panes fan on the ring). */
 internal var spikeTabIndex = 0
@@ -340,36 +366,53 @@ internal val spikeWormholes: MutableList<WormholeSpawn> = mutableListOf()
  */
 internal var spikeShelfIndex = -1
 
-/** Whether the idle pane bob is on (toggled by `b`). */
+/**
+ * Whether the idle pane — **and the free-fly spaceship** — bob is on. Persisted as the
+ * `world3dWindowBobbing` setting; seeded here at every open by
+ * [syncWorld3dRuntimeFromSettings] and live-updated by the in-world settings panel.
+ */
 internal var spikeBobEnabled = true
 
 /**
- * The three ways a **working** (agent-running) pane can signal itself, cycled by the
- * `g` key ([toggleWorkingStyle]) and read per-pane by the render loop each frame:
- *  - [BOTH] (**default**) — the [WORKING_GLOW_COLOR] pulsating green halo *and* the
- *    animated dotted [WORKING_BORDER_COLOR] border together.
- *  - [GLOW] — only the pulsating green halo (an outward bloom, like the red "needs
- *    input" glow).
- *  - [DOTS] — only the animated jagged/dotted border that runs around the perimeter.
- * @see WORKING_GLOW_COLOR @see WORKING_BORDER_COLOR
+ * How working / waiting panes signal their state — the persisted **Status indication**
+ * setting (`world3dStatusIndication`), collapsing the old warp-core toggle and
+ * working-style cycle into one choice:
+ *  - [NONE] — no per-pane status visuals at all.
+ *  - [GLOW] — a soft outward halo only (green for working, amber for waiting).
+ *  - [GLOW_ANIMATION] — the halo plus the animated dotted border.
+ *  - [REACTOR] — the full warp-core reactor cinematic (blue charge / amber HOLD), which
+ *    supersedes the glow/dots for working & waiting panes ([tickWarpCore]).
+ * Seeded at open by [syncWorld3dRuntimeFromSettings]; live-updated by the in-world
+ * settings panel. @see tickWarpCore @see spikeStatusShowGlow @see spikeStatusShowDots
  */
-internal enum class WorkingStyle { BOTH, GLOW, DOTS }
+internal enum class StatusIndication { NONE, GLOW, GLOW_ANIMATION, REACTOR }
+
+/** The active [StatusIndication]; defaults to [StatusIndication.REACTOR]. */
+internal var spikeStatusIndication = StatusIndication.REACTOR
+
+/** Whether [spikeStatusIndication] paints the outward glow halo (working green / waiting amber). */
+internal val spikeStatusShowGlow: Boolean
+    get() = spikeStatusIndication == StatusIndication.GLOW ||
+        spikeStatusIndication == StatusIndication.GLOW_ANIMATION
+
+/** Whether [spikeStatusIndication] paints the animated dotted border. */
+internal val spikeStatusShowDots: Boolean
+    get() = spikeStatusIndication == StatusIndication.GLOW_ANIMATION
 
 /**
- * The active [WorkingStyle], cycled live by the `g` key ([toggleWorkingStyle]).
- * Defaults to [WorkingStyle.BOTH] so a working pane wears both the green glow and the
- * travelling dots. @see spikeWorkingShowGlow @see spikeWorkingShowDots
+ * A monotonic **seconds** clock for the warp-core effect, advanced once per frame by the
+ * render loop (`+= spikeDtFrames / 60.0`). Drives the reactor breath, the awaiting
+ * heartbeat + escalation, sonar-ping cadence and discharge shaping — all of which the
+ * spec expresses in wall-clock seconds. Only meaningful while [spikeStatusIndication] is REACTOR.
+ * @see tickWarpCore @see tickWarpCoreOverlay
  */
-internal var spikeWorkingStyle = WorkingStyle.BOTH
-
-/** Whether the current [spikeWorkingStyle] paints the green glow halo. */
-internal val spikeWorkingShowGlow: Boolean get() = spikeWorkingStyle != WorkingStyle.DOTS
-
-/** Whether the current [spikeWorkingStyle] paints the animated dotted border. */
-internal val spikeWorkingShowDots: Boolean get() = spikeWorkingStyle != WorkingStyle.GLOW
+internal var spikeWarpClock = 0.0
 
 /** The shortcuts legend panel, so `k` can hide/show it; `null` when closed. */
 internal var spikeLegendPanel: HTMLElement? = null
+
+/** The in-world 3D settings overlay window (toggled by ⌥⌘,), or `null` when not shown. */
+internal var spikeSettingsPanel: HTMLElement? = null
 
 /**
  * The free-fly shortcuts legend panel (same style as [spikeLegendPanel],
@@ -377,6 +420,14 @@ internal var spikeLegendPanel: HTMLElement? = null
  * `null` when closed. @see updateLegendVisibility
  */
 internal var spikeFlyLegendPanel: HTMLElement? = null
+
+/**
+ * The engage / type shortcuts legend panel (same style as [spikeLegendPanel],
+ * swapped in at the same bottom-left spot while [spikeEngaged] is on — a pane is
+ * engaged and typing, so only the disengage chord is live); `null` when closed.
+ * @see updateLegendVisibility
+ */
+internal var spikeEngageLegendPanel: HTMLElement? = null
 
 /**
  * The big "Play demo tour" button stacked above the shortcuts legend — the
@@ -420,11 +471,52 @@ internal val spikeLegendRows = mutableMapOf<String, HTMLElement>()
 /** Fly-mode legend rows keyed by shortcut id. @see spikeLegendRows */
 internal val spikeFlyLegendRows = mutableMapOf<String, HTMLElement>()
 
+/** Engage-mode legend rows keyed by shortcut id. @see spikeLegendRows */
+internal val spikeEngageLegendRows = mutableMapOf<String, HTMLElement>()
+
+/**
+ * The navigate-mode legend's **section rows** (each section's caption + the divider
+ * line above it) — the non-shortcut chrome rows [updateLegendVisibility] hides while
+ * the camera is up at the dock, so the trimmed shelf legend never shows an orphan
+ * heading or rule. Populated for the COMMAND CENTER panel only; rebuilt with the
+ * chrome, cleared on close. @see spikeLegendRows
+ */
+internal val spikeLegendSectionRows = mutableListOf<HTMLElement>()
+
 /** The big "now showing" pane-name label that fades in on navigation; `null` when closed. */
 internal var spikeNavLabel: HTMLElement? = null
 
 /** Timer handle for the nav-label's auto fade-out (cancelled/restarted on each cycle). */
 internal var spikeNavLabelTimer: Int? = null
+
+/**
+ * The single **status toast** currently on screen (the "Screenshot saved to
+ * Desktop" / "Recording saved to Desktop" pill), or `null` when none is showing.
+ * Tracked so a new toast dismisses the previous one immediately rather than
+ * stacking, and — critically — so [captureWindowScreenshot] can tear an earlier
+ * toast down *before* it snaps the window, keeping a stale confirmation pill out
+ * of the screenshot. @see showSpikeToast @see dismissSpikeToast
+ */
+internal var spikeActiveToast: HTMLElement? = null
+
+/** Pending fade/removal timer handles for [spikeActiveToast], cleared when it is dismissed. */
+internal var spikeActiveToastTimers: MutableList<Int> = mutableListOf()
+
+/**
+ * The live `MediaRecorder` while the 3D world is being screen-recorded, else
+ * `null`. Recording captures the composited window (World3D is a CSS3DRenderer
+ * with no WebGL canvas to `captureStream()`), toggled by `⇧R`. @see toggleWindowRecording
+ */
+internal var spikeMediaRecorder: dynamic = null
+
+/** The desktop-capture `MediaStream` feeding [spikeMediaRecorder]; its tracks are stopped on finalize. */
+internal var spikeRecordingStream: dynamic = null
+
+/** Accumulated `MediaRecorder` `Blob` chunks for the in-flight recording (a JS array), or `null`. */
+internal var spikeRecordingChunks: dynamic = null
+
+/** Whether a screen recording is currently in progress. Guards the `⇧R` toggle. @see toggleWindowRecording */
+internal var spikeRecording: Boolean = false
 
 /**
  * Target world-x the **shelf pan** is easing the camera toward, or `null` when no pan
@@ -467,13 +559,6 @@ internal var spikeLegendAtShelf: Boolean = false
 internal var spikeFlyMode = false
 internal val spikeFlyKeys = mutableSetOf<String>()
 
-/**
- * Whether the camera currently holds the **slight tilt** pose (`j`,
- * [toggleCameraTilt]) — makes the second `j` a fly-home toggle. Only meaningful
- * while [spikeCamFlown] (any pristine landing implicitly straightens the view);
- * cleared by [resetCamera] and on open.
- */
-internal var spikeTilted = false
 internal var spikeCamFlown = false
 internal var spikeCamReturning = false
 internal var spikeCamX = 0.0
@@ -560,6 +645,16 @@ internal var spikeCamTourFollowPaneId: String? = null
  */
 internal var spikeCamTourSway = 0.0
 internal var spikeCamTourRoll = 0.0
+
+/**
+ * A **permanent** camera bank the tour eases *into* over the flight and **holds at
+ * landing** — unlike [spikeCamTourRoll]'s `sin 2πs` in-flight lean (which unwinds to
+ * level), this ramps from 0 to its full value as the tour lands and stays there, so the
+ * parked pose sits tilted. Used by the [flyOverview] hero shot to keep the whole-world
+ * picture "slightly rotated" once it arrives. `0.0` for every flight that lands level.
+ * Set by [flyCamTo]; read by the render loop tracer. @see flyOverview @see OVERVIEW_ROLL
+ */
+internal var spikeCamTourLandRoll = 0.0
 
 /**
  * The camera's **nose direction at tour launch** — snapshotted by [flyCamTo] alongside

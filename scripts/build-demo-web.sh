@@ -19,7 +19,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-WEBSITE_DIR="${1:-/Users/soderbjorn/repo/lunamux-web}"
+WEBSITE_DIR="${1:-../../lunamux-web}"
 DEST="$WEBSITE_DIR/demo-app"
 DIST="web/build/dist/js/productionExecutable"
 

@@ -98,6 +98,74 @@ contextBridge.exposeInMainWorld("electronApi", {
    */
   openExternalUrl: (url) => ipcRenderer.invoke("open-external-url", url),
 
+  /**
+   * Captures the current window's full contents and writes a PNG to the user's
+   * Desktop. Serviced by the Electron main process (`webContents.capturePage`),
+   * since the renderer has no filesystem access under context isolation.
+   *
+   * Called by the 3D world's screenshot shortcut (`P`, live in both command
+   * center and free flight).
+   *
+   * @returns {Promise<string>} Resolves to the saved absolute path on success,
+   *   or a string starting with `"!"` carrying an error message on failure.
+   */
+  saveWindowScreenshot: () => ipcRenderer.invoke("save-window-screenshot"),
+
+  /**
+   * Resolves the desktop-capture source id of the current app window, so the
+   * renderer can screen-record the 3D world. World3D is a CSS3DRenderer (real
+   * DOM panes in 3D) with no WebGL canvas to `captureStream()`, so recording
+   * goes through `getUserMedia({ chromeMediaSource: "desktop", chromeMediaSourceId })`
+   * + `MediaRecorder` on the composited window. The main process enumerates
+   * window sources (`desktopCapturer`) and returns this window's id.
+   *
+   * Called by the 3D world's record toggle (`⇧R`, live in both command center
+   * and free flight) when starting a recording.
+   *
+   * @returns {Promise<string|null>} The `window:…` capture source id, or `null`
+   *   when it could not be resolved.
+   */
+  getWindowRecordingSourceId: () =>
+    ipcRenderer.invoke("get-window-recording-source-id"),
+
+  /**
+   * Writes a finished screen recording to the user's Desktop as a `.webm`.
+   * Counterpart to {@link getWindowRecordingSourceId}: the renderer records the
+   * window with `MediaRecorder`, assembles the chunks into a Blob, and passes
+   * the raw bytes here for the main process to persist (the renderer has no
+   * filesystem access under context isolation).
+   *
+   * Called by the 3D world's record toggle (`⇧R`) when stopping a recording.
+   *
+   * @param {Uint8Array} bytes - The complete `video/webm` payload.
+   * @returns {Promise<string>} Resolves to the saved absolute path on success,
+   *   or a string starting with `"!"` carrying an error message on failure.
+   */
+  saveWindowRecording: (bytes) =>
+    ipcRenderer.invoke("save-window-recording", bytes),
+
+  /**
+   * Reports this app's macOS Screen Recording (TCC) authorization status, so the
+   * 3D world's record toggle can avoid silently saving a black recording when the
+   * permission hasn't been granted. Serviced by the main process
+   * (`systemPreferences.getMediaAccessStatus("screen")`).
+   *
+   * @returns {Promise<string>} `"granted"` / `"denied"` / `"restricted"` /
+   *   `"not-determined"` on macOS, or `"granted"` on platforms without this gate.
+   */
+  getScreenCaptureAccess: () => ipcRenderer.invoke("get-screen-capture-access"),
+
+  /**
+   * Nudges macOS to authorize Screen Recording for the app: registers it under
+   * Privacy → Screen Recording (provoking the native prompt on first run) and
+   * opens that Privacy pane so the user can enable it. No-op off macOS. Called by
+   * the record toggle when {@link getScreenCaptureAccess} is not `"granted"`.
+   *
+   * @returns {Promise<void>}
+   */
+  openScreenRecordingSettings: () =>
+    ipcRenderer.invoke("open-screen-recording-settings"),
+
   // --- Local JSON data files (renderer LocalStore) ------------------------
 
   /**

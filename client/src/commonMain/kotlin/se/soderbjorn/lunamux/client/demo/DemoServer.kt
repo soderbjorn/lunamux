@@ -225,7 +225,18 @@ class DemoServer internal constructor(
         mutex.withLock {
             states.clear()
             states.putAll(DemoFixtures.initialStates)
-            publish(DemoFixtures.initialConfig())
+            // Force a full re-broadcast of the fixture config, bypassing
+            // publish()'s "identical config" no-op guard: a visitor edit may
+            // live only in a client's local view (the open 3D ring's own pane
+            // list, an optimistic removal) while the server's `config` still
+            // equals the fixture, in which case publish() would emit nothing
+            // and the ring would keep the visitor's world. Re-asserting the
+            // fixture config unconditionally makes the tour always start from
+            // the fixture workspace no matter what the visitor did.
+            val fresh = DemoFixtures.initialConfig()
+            config = fresh
+            windowState.updateConfig(fresh)
+            emit(WindowEnvelope.Config(fresh))
             publishStates()
             // Runtime-created panes are gone from the fixture config now;
             // drop their sessions the same way a pane close would.

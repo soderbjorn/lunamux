@@ -34,6 +34,30 @@ external val protocol: dynamic
  */
 external val shell: dynamic
 
+/**
+ * Electron `desktopCapturer` module — enumerates capturable screens and
+ * windows. Used by the `get-window-recording-source-id` IPC handler to
+ * resolve the app window's capture source id, which the renderer then feeds
+ * to `getUserMedia({ chromeMediaSource: "desktop" })` + `MediaRecorder` to
+ * record the 3D world to a `.webm` on the Desktop. Declared `dynamic` because
+ * we only ever call `getSources({ types: [...] })` and read each source's
+ * `id`/`name`, and to avoid pinning to a specific Electron typing.
+ *
+ * NB: on macOS, `getSources` requires the user to have granted the app the
+ * Screen Recording permission (System Settings → Privacy & Security); until
+ * then window captures come back blank.
+ */
+external val desktopCapturer: dynamic
+
+/**
+ * Electron `systemPreferences` module — used to read the macOS Screen Recording
+ * (TCC) authorization status via `getMediaAccessStatus("screen")` before the 3D
+ * world's record shortcut attempts a capture, so we never silently save a black
+ * recording when the permission hasn't been granted. Declared `dynamic` because
+ * we call only that one method and it is macOS-specific. @see desktopCapturer
+ */
+external val systemPreferences: dynamic
+
 external interface ElectronApp {
     val isPackaged: Boolean
     val dock: ElectronDock?

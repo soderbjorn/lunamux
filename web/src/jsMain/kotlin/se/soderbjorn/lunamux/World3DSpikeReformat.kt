@@ -345,7 +345,23 @@ internal fun setPaneGrid(p: RingPane, cols: Int, rows: Int, reassert: Boolean) {
                 }
             }
         }
-        if (atBottom) term.asDynamic().scrollToBottom()
+        // A **user** grid command ([reassert] = true: the grid keys, `r`) is a
+        // deliberate "reshape this window" gesture — always land it on the live
+        // tail, exactly like [reformatPane] does. Without this, a reflow across a
+        // multi-step resize (e.g. the demo tour's ./,/>/< run) can leave the
+        // terminal parked a line above its baseline (`viewportY < baseY`): xterm
+        // then reads as "scrolled up", every following `atBottom` snapshot in the
+        // sequence is false so it never re-pins, and the next PTY output falsely
+        // raises the "New output" pill on a pane the user never scrolled. A
+        // passive **server-size follow** ([reassert] = false: another client
+        // resized) instead preserves the reader's position, only re-pinning if
+        // they were already tailing. @see reformatPane @see writeHoldingScroll
+        if (reassert || atBottom) {
+            term.asDynamic().scrollToBottom()
+            // Clear a possibly-stale "New output" pill now that we are tailing
+            // again (no-op for mirror panes, which carry no scroll button).
+            p.entry?.let { updateScrollButton(it) }
+        }
         term.asDynamic().refresh(0, term.rows - 1)
         console.log(
             "[world3d-spike] setPaneGrid done: pane ${p.paneId} at ${term.cols}x${term.rows} " +
@@ -482,4 +498,16 @@ internal fun reformatFront() {
     if (spikeSettledIndex != fi || fi < 0) return
     val front = spikePanes.getOrNull(fi) ?: return
     window.requestAnimationFrame { reformatPane(front) }
+}
+
+/**
+ * Reformats the pane **nearest the camera** — the free-flight `r`, the counterpart of
+ * [reformatFront] for the command center's front pane. Deferred one frame like the
+ * front reformat so it runs at the pane's settled transform. No-op with no panes.
+ *
+ * @see reformatFront @see reformatPane @see nearestPaneToCamera
+ */
+internal fun reformatNearest() {
+    val p = actionTargetPane() ?: return
+    window.requestAnimationFrame { reformatPane(p) }
 }

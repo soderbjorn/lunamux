@@ -111,6 +111,17 @@ internal class RingPane(
     var birth: Double = 1.0,
     var dying: Boolean = false,
     var lscale: Double = 1.0,
+    /**
+     * The pane's **displayed** horizontal ordinal — the smoothed stand-in for the
+     * integer [paneOrdInTab] that the ring-placement math actually uses. The render
+     * loop eases it toward [paneOrdInTab] each frame ([PANE_EASE]), so when a pane
+     * dies and [reconcileRing] renumbers every survivor to its right down by one, they
+     * *slide* into the freed slot instead of snapping. A large jump (bundle
+     * separation, a big reorder) is snapped rather than eased. Seeded to the pane's
+     * ordinal at build time so a newborn grows in at its slot, not sliding from 0.
+     * @see reconcileRing
+     */
+    var dispOrd: Double = 0.0,
     /** Elapsed frames into the current latch-flex; `< 0` when idle. @see startFlex */
     var flexPhase: Double = -1.0,
     /** Sign of the current flex deflection: [FLEX_DIR_OUT] engage, [FLEX_DIR_IN] disengage. */
@@ -133,6 +144,16 @@ internal class RingPane(
      * lerp keeps interpolating from the correct shelf position. @see stashShelfPos
      */
     var stashSlot: Int = 0,
+    /**
+     * **Freeze-to-canvas** snapshot: while this pane is *flying* to / from the stash shelf
+     * (individually or as a member of a [TabBundle]), its live terminal body is hidden and
+     * this static `<canvas>` — a one-shot paint of the terminal grid — is shown over the
+     * [container] instead, so the moving CSS3D plane re-samples one cached raster rather than
+     * re-rasterizing live DOM every frame (the tile-memory culprit). `null` when the pane is
+     * at rest (on the ring or parked on the shelf), where the live body is shown. Managed
+     * solely by [tickPaneFreeze]. @see freezePaneSnapshot @see thawPaneSnapshot
+     */
+    var freezeCanvas: HTMLCanvasElement? = null,
     /**
      * Shelf-browse **highlight** progress: `0` = unhighlighted, `1` = this pane is the
      * browsed shelf slot, fully lit. The render loop steps it toward its target at the
@@ -178,18 +199,143 @@ internal class RingPane(
      * @see tickWormhole @see armWormholeSpawn
      */
     var spawnPhase: Double = -1.0,
+    /**
+     * **Warp-core charge** progress, `0.0` cold → `1.0` full reactor. Eased up while the
+     * pane's agent is `working` ([WARP_ATTACK]), drained gently when a run ends without
+     * discharging ([WARP_COOLDOWN]) and hard during a discharge ([WARP_DRAIN]). Read every
+     * frame by [tickWarpCore] to size the blue glow + inner heat, and summed across the
+     * ring by [tickWarpCoreOverlay] for the collective reactor-load HUD/sky tint. Inert
+     * (never advanced) unless [spikeStatusIndication]. @see tickWarpCore
+     */
+    var chargeProg: Double = 0.0,
+    /**
+     * **Discharge** progress in *seconds* since the reactor fired (a `working → not` edge
+     * with [chargeProg] ≥ [WARP_MIN_DISCHARGE]), or `< 0` when not discharging. [tickWarpCore]
+     * advances it and clears it back to `-1` past [WARP_DISCHARGE_S]; [tickWarpCoreOverlay]
+     * shapes the screen-space bloom + thruster plume from it. @see tickWarpCore
+     */
+    var dischargePhase: Double = -1.0,
+    /**
+     * `true` if the just-fired discharge is a **failure sputter** (orange) rather than a
+     * success bloom (cyan). Set at discharge time from any available exit-code signal; today
+     * the `working` status is agent-level and carries none, so this stays `false` (cyan) —
+     * see the OSC 133 follow-up in the implementation prompt. @see tickWarpCoreOverlay
+     */
+    var dischargeFail: Boolean = false,
+    /**
+     * The pane's `working` state on the **previous** frame, so [tickWarpCore] can detect the
+     * `working → not-working` falling edge that triggers a discharge. Edge-tracking only —
+     * the live state itself is read fresh from the status map each frame. @see tickWarpCore
+     */
+    var warpWasWorking: Boolean = false,
+    /**
+     * Transient **output-activity flicker** (0..1): bumped by [WARP_FLICKER_PER_OUTPUT] each
+     * time the pane's mirror socket delivers a burst of bytes and decayed each frame
+     * ([WARP_FLICKER_DECAY]), so a charging reactor flickers a touch brighter on live output.
+     * Polish only — the primary charge signal is the `working` state. @see tickWarpCore
+     */
+    var warpFlicker: Double = 0.0,
+    /**
+     * The [spikeWarpClock] timestamp (seconds) at which this pane entered the awaiting HOLD,
+     * or `< 0` when not awaiting. Drives the heartbeat + ping escalation (calm at first,
+     * escalating slightly over [WARP_HOLD_ESC_S]). Reset each time the pane starts waiting. @see tickWarpCore
+     */
+    var warpAwaitStart: Double = -1.0,
+    /** The [spikeWarpClock] time (seconds) the next sonar ping is due while awaiting. @see spawnWarpPing */
+    var warpNextPing: Double = 0.0,
+    /**
+     * The **warp-core ring** — the signature big glowing ring of light that fills the pane
+     * interior while its reactor charges (blue) or holds (amber): a screen-blended, heavily
+     * blurred radial-ellipse gradient (transparent centre so the terminal stays readable, a
+     * bright ring hugging just inside the edges), riding *inside* the pane wrapper so it
+     * tracks the pane's 3D transform. Lazily built by [ensureWarpCore], its opacity + scale +
+     * colour pulsed each frame by [tickWarpCore]. `null` until the reactor first lights here.
+     * @see tickWarpCore
+     */
+    var warpCore: HTMLElement? = null,
+    /**
+     * The blue/amber **inner heat veil** laid over this pane's terminal while its reactor is
+     * charging or holding — a subtler screen-blended radial tint (like [phaserTint] but cool)
+     * beneath the [warpCore] ring, adding a faint wash of reactor colour over the text.
+     * Lazily built by [tickWarpCore]. `null` until the reactor first lights on this pane.
+     * @see tickWarpCore
+     */
+    var warpHeat: HTMLElement? = null,
+    /**
+     * PERF cache — the last `background` gradient written to [warpCore]. The reactor ring's
+     * gradient is a *constant* per state (blue charge / amber HOLD) yet the old path re-assigned
+     * it every frame, forcing the browser to re-parse the gradient and invalidate the layer.
+     * [tickWarpCore] now writes it only when it actually changes (branch flip / theme). Reset to
+     * `null` by [resetWarpCoreVisuals] so a re-light writes fresh. @see tickWarpCore
+     */
+    var lastRingBg: String? = null,
+    /**
+     * PERF cache — the last `mix-blend-mode` applied to [warpCore] + [warpHeat] (`screen` on a
+     * dark surface, `multiply` on a light one). Changes only on a theme surface flip, so
+     * [tickWarpCore] writes both elements only when it differs from this. @see tickWarpCore
+     */
+    var lastRingBlend: String? = null,
+    /**
+     * PERF cache — the last `background` gradient written to [warpHeat] (constant per reactor
+     * colour); skipped when unchanged, like [lastRingBg]. @see tickWarpCore
+     */
+    var lastHeatBg: String? = null,
+    /**
+     * PERF cache — the last `border-color` the reactor path wrote to [wrapper]. Constant while a
+     * pane holds amber, so most frames skip the write; the blue charge tint still writes as it
+     * ramps. @see tickWarpCore
+     */
+    var lastBorderCol: String? = null,
+    /**
+     * PERF cache — the last outward-halo `box-shadow` string the reactor path wrote to [wrapper].
+     * The blurred shadow re-rasterizes on any change, so [tickWarpCore] quantizes its alpha
+     * ([WARP_GLOW_ALPHA_STEP]) and skips the write when this snapped string is unchanged. Reset
+     * to `null` on leaving REACTOR ([resetWarpCoreVisuals]) since the glow path then owns the
+     * shadow. @see tickWarpCore @see WARP_GLOW_ALPHA_STEP
+     */
+    var lastShadowKey: String? = null,
+    /**
+     * The id of the **tab bundle** ([TabBundle]) this pane belongs to while its whole tab is
+     * being unlisted (stashed as a merged stack) into the spaceship, or `null` when the pane
+     * is a normal ring pane. Non-null means [tickBundles] owns this pane's world transform and
+     * opacity every frame — it is flying to / resting in / flying back from the hangar bay as
+     * part of the stack — and [reconcileRing]'s death sweep must **not** retire it even though
+     * its tab has left the config ([TabConfig.isHidden]). Cleared when the bundle separates
+     * back onto the ring. @see stashTab @see unstashTab @see tickBundles
+     */
+    var bundleId: String? = null,
+    /**
+     * **Merge** progress for a bundled pane: `0` = at its own ring slot (fanned out on the
+     * sphere), `1` = collapsed onto the stack at the bundle anchor, sitting behind the front
+     * pane offset like a sheet of paper ([bundleStackOffset]). [tickBundles] eases it toward 1
+     * as the tab merges and toward 0 (staggered by [mergeOrd] — the papers-spreading cascade)
+     * as it separates back onto the ring. Meaningless while [bundleId] is `null`.
+     * @see tickBundles
+     */
+    var mergeProg: Double = 0.0,
+    /**
+     * This pane's **position in its bundle's stack**, `0` = the front (topmost, closest to
+     * the camera) sheet, growing toward the back. Assigned from the tab's display order
+     * ([toolkitPaneOrder]) when the bundle forms, so the stack always fronts with the first
+     * pane in sequence and separates back into that same order. Drives the per-sheet offset
+     * ([bundleStackOffset]) and the separation stagger. Meaningless while [bundleId] is `null`.
+     * @see stashTab @see tickBundles
+     */
+    var mergeOrd: Int = 0,
 )
 
 /**
- * A ghost placeholder plane for an **empty tab** (a tab with no panes). Empty tabs
- * are invisible in the pane-based sphere layout, so this card gives them a body on
- * the ring: you can rotate to one, drop a pane into it (`n`), or remove it (`x`). It
- * rides the same latitude ([tabOrd]) as a real tab's panes would, at the pane pole.
+ * An **invisible** placeholder record for an **empty tab** (a tab with no panes).
+ * The visible card box was removed by request, so an empty tab now shows nothing at
+ * its latitude. This record still exists purely to carry the tab's plumbing: it holds
+ * the latitude ([tabOrd]) so you can rotate to the empty tab, drop a pane into it
+ * (`n` → [createPane]) or remove it (`x x` → [confirmRemove]) — its [wrapper] is a
+ * transparent, painted-nothing div. It rides the same latitude a real tab's panes would.
  *
  * @property tabId the backing tab's id (used to target `AddPaneToTab` / `CloseTab`).
  * @property tabOrd the tab's latitude ordinal, kept in sync by [reconcileRing].
- * @property title the tab's display title, shown on the card.
- * @property wrapper the CSS3D plane element. @property obj the positioned [CSS3DObject].
+ * @property title the tab's display title (no longer painted; kept for nav labels).
+ * @property wrapper the transparent CSS3D plane element. @property obj the positioned [CSS3DObject].
  * @property birth/[dying] the same grow-in / shrink-out animation as [RingPane.birth].
  * @see buildEmptyTabCard @see reconcileRing
  */

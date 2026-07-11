@@ -209,6 +209,14 @@ internal const val SCALE_EASE = 0.16
 internal const val ZOOM_PRESET_EASE = 0.03
 
 /**
+ * Slack left around the **fit-screen** preset (`⇧+`, [zoomFrontFit]): the pane is fitted to
+ * this fraction of the viewport rather than filling it edge-to-edge, so the window's border
+ * and glow stay *inside* the screen instead of spilling off it. A hair under 1 — just enough
+ * margin to keep the frame visible. @see zoomFrontFit
+ */
+internal const val ZOOM_FIT_MARGIN = 0.96
+
+/**
  * Extra depth (world units) each **non-front** pane is pushed back, scaled by its
  * size, so a neighbour reads as clearly recessed behind the centred pane. This is
  * the *aesthetic* recess; the hard occlusion guarantee is the per-frame clamp
@@ -327,8 +335,8 @@ internal const val CAM_RETURN_PULLOUT = 2600.0
 internal const val CAM_RETURN_RISE = 1500.0
 
 /**
- * The **slight camera tilt** (`j`, [toggleCameraTilt]) — a quick hop that parks the
- * camera a small step off-axis, still looking at the front pane, so the pane reads
+ * The **tilt view** camera move (`j`, [tiltCamera]) — a quick hop that parks the
+ * camera a small step off-axis, still looking at the target pane, so the pane reads
  * at a gentle three-quarter angle:
  * - [TILT_SIDE] / [TILT_UP] sideways / upward step as fractions of the perspective
  *   distance — deliberately modest ("slightly tilted, not that much").
@@ -337,6 +345,47 @@ internal const val CAM_RETURN_RISE = 1500.0
 internal const val TILT_SIDE = 0.30
 internal const val TILT_UP = 0.14
 internal const val TILT_FRAMES = 130.0
+
+/**
+ * The **overview** camera move (`m`, [flyOverview]) — a cinematic pull-back to a fixed
+ * "hero shot" of the whole command-center world: the camera flies to a pose that sits
+ * up high, off to one side and pulled back in front, then gazes down at the world's
+ * centre (the origin the pane sphere is built around) so the entire ring — every tab,
+ * every window — reads as one nice framed picture, three-quarter and slightly angled.
+ * Unlike the pane fly-bys ([flyBehindPane] et al.) this frames the *scene*, not a pane,
+ * so it takes no target and lands the same composed shot from anywhere you trigger it
+ * (command center or free flight).
+ *
+ * - [OVERVIEW_DIR_SIDE] / [OVERVIEW_DIR_UP] / [OVERVIEW_DIR_FRONT] the (un-normalized)
+ *   direction from the origin to the camera: `+X` right, `+Y` up, and a **negative** `Z`
+ *   so the camera sits *behind* the ring, looking back through it — you see the whole
+ *   arrangement from over-and-behind (the panes' backs), a bit off to one side. The
+ *   ratios set the shot's elevation (~33°) and how far round the side it swings.
+ * - [OVERVIEW_DIST] how far out along that direction the camera parks, as a multiple of
+ *   the home distance ([RING_R] + `perspDistance`): >1 pulls back beyond the 1:1 home
+ *   pose so the whole sphere plus a generous margin of sky fits the [SPIKE_FOV] frustum.
+ * - [OVERVIEW_PULLOUT] / [OVERVIEW_RISE] the Bézier apex shaping — how far the flight
+ *   bulges **radially out** from the origin and **lifts** in +Y. Essential here because
+ *   the launch pose sits *in front* of the ring and the target sits *behind* it: without
+ *   an arc the path is a straight line that flies **through** the world (a moment of
+ *   void as the panes whip past and end up behind the camera). Swinging out and over the
+ *   top keeps the camera outside the sphere, gazing down at a full world the whole way.
+ * - [OVERVIEW_FRAMES] journey length (~/60 s) — a brisk, camera-only reframe.
+ * - [OVERVIEW_ROLL] gentle in-flight bank (radians, `sin 2πs`, unwinds mid-flight) for a
+ *   touch of cinematic sweep on the way to the shot.
+ * - [OVERVIEW_LAND_ROLL] the **permanent** bank the shot lands and holds (radians), so
+ *   the parked picture sits "slightly rotated" like a hand-held hero frame.
+ * @see flyOverview @see flyCamTo
+ */
+internal const val OVERVIEW_DIR_SIDE = 0.45
+internal const val OVERVIEW_DIR_UP = 0.55
+internal const val OVERVIEW_DIR_FRONT = -0.70
+internal const val OVERVIEW_DIST = 1.42
+internal const val OVERVIEW_PULLOUT = 2600.0
+internal const val OVERVIEW_RISE = 2400.0
+internal const val OVERVIEW_FRAMES = 360.0
+internal const val OVERVIEW_ROLL = 0.14
+internal const val OVERVIEW_LAND_ROLL = 0.12
 
 /**
  * The **stash shelf** — a horizontal row of slots floating high above the sphere where
@@ -363,6 +412,66 @@ internal const val STASH_ROW_X0 = -960.0
 internal const val STASH_ROW_GAP = 900.0
 
 /**
+ * Per-sheet offset of a merged tab stack ([TabBundle]): each pane behind the front one is
+ * pushed by this much in X (right), −Y (down) and −Z (away from the camera) per step of
+ * its [RingPane.mergeOrd], so the collapsed tab reads as a fanned pile of papers with the
+ * first pane in sequence on top. Small relative to a pane's world size so the whole stack
+ * still frames as one object at the bay. @see tickBundles @see bundleStackOffset
+ */
+internal const val STACK_OFF_X = 46.0
+internal const val STACK_OFF_Y = 40.0
+internal const val STACK_OFF_Z = 34.0
+
+/**
+ * Frame length of the **merge** (fan-in) and **separation** (fan-out) phases of a tab
+ * stash — the panes collapsing onto / spreading back off the stack, *before* the shared
+ * [STASH_CAM_FRAMES] flight to / from the bay. Short and snappy relative to the flight so
+ * the merge reads as a quick gather and the flight as the long haul. Separation staggers
+ * each sheet by [BUNDLE_SEP_STAGGER] frames so the pile spreads in sequence rather than
+ * all at once. @see tickBundles
+ */
+internal const val BUNDLE_MERGE_FRAMES = 42.0
+internal const val BUNDLE_SEP_FRAMES = 46.0
+internal const val BUNDLE_SEP_STAGGER = 7.0
+
+/**
+ * Total yaw (radians) a merged tab stack spins through over its flight to / from the bay —
+ * applied as a rigid-body rotation of the whole stack about its vertical axis ([tickBundles]),
+ * so the fanned per-sheet offsets ([bundleStackOffset]) sweep in and out of view mid-journey.
+ * Must be a **whole number of turns** so the spin lands cleanly yaw-flat (the dock rest tilt is the
+ * separate [BUNDLE_DOCK_PITCH]); applied at a constant rate (linear in flightProg), since rotating
+ * the big CSS3D sheets strains the compositor in proportion to angular speed and the stutter was
+ * worst mid-flight — easing would only peak the speed there. One slow turn reveals the fan without
+ * the fast 3-turn spin that stuttered; 2π is the floor (less would snap at landing). Lower is
+ * cheaper but a fraction of a turn is not an option. @see tickBundles @see BUNDLE_DOCK_PITCH
+ */
+internal const val BUNDLE_FLIGHT_SPIN = 2.0 * kotlin.math.PI
+
+/**
+ * The resting **pitch** (radians, about the X axis) of a **docked** tab stack — a merged pile
+ * parks tilted this far back toward the camera, like a drafting table angled up at you, so its
+ * sheets (stepped down-and-back, [bundleStackOffset]) fan into view and read as *several* windows
+ * rather than one flat face hiding the rest behind it. The stack eases into this pitch on arrival
+ * and out of it on departure, so it is fanned at rest yet flat (head-on) the instant it merges or
+ * lands back on the ring. −π/4 ≈ 45°, tilting the stack's stepped-back tail up toward the camera
+ * so the smaller receding sheets fan into view above the front one. Flip the sign to tilt the
+ * other way. @see tickBundles
+ */
+internal const val BUNDLE_DOCK_PITCH = -kotlin.math.PI / 4.0
+
+/**
+ * World-distance over which a **moving** bundle sheet fades as it nears its target during the
+ * fan-in ([BundleState.MERGING]) / fan-out ([BundleState.SEPARATING]): a sheet more than this far
+ * from where it will rest this frame is fully transparent, fully opaque once seated, lerped
+ * between. Fading by *distance to target* (not stack order) keeps whichever sheet starts at the
+ * merge point — the pane you were looking at — solid throughout, while every sheet that sweeps in
+ * from a far ring slot stays faint until it seats, so none slams across the view. The stack front
+ * ([RingPane.mergeOrd] 0) is *not* necessarily that anchor pane (it's the display-order head), so
+ * an order-based test can't tell them apart; distance can. ~ half a pane width. @see tickBundles
+ */
+internal const val BUNDLE_MERGE_FADE_DIST = 340.0
+
+/**
  * Frame length of a **stash / unstash journey** (~[STASH_CAM_FRAMES]/60 s) — the single
  * shared duration for *both* the camera flight ([flyCamTo]) **and** the pane's flight to
  * / from the shelf ([RingPane.stashProg] advances `1/STASH_CAM_FRAMES` per frame). Using
@@ -371,7 +480,7 @@ internal const val STASH_ROW_GAP = 900.0
  * than the pane arriving first. Deliberately long, so the trip is slow and cinematic.
  * @see flyCamTo @see stashFront @see startSpikeLoop
  */
-internal const val STASH_CAM_FRAMES = 820.0
+internal const val STASH_CAM_FRAMES = 685.0
 
 /**
  * Frame length of a **stash-view (`v`) flight** — the camera-only trip up to the dock
@@ -381,7 +490,7 @@ internal const val STASH_CAM_FRAMES = 820.0
  * the shelf, but a `v` peek carries no pane, so there is nothing to wait for — a
  * brisker flight just gets you there. @see toggleStashView @see resetCamera
  */
-internal const val STASH_VIEW_CAM_FRAMES = 360.0
+internal const val STASH_VIEW_CAM_FRAMES = 300.0
 
 /**
  * Arc shape of a **stash / unstash** camera flight — how far the journey's Bézier apex
@@ -452,6 +561,8 @@ internal const val STASH_CAM_LAND_DROP = 140.0
  */
 internal const val PANE_TOUR_FRAMES = 420.0
 internal const val PANE_BEHIND_DIST = 1000.0
+/** How far in **front** of the pane's face the `H` head-on pose parks (twin of [PANE_BEHIND_DIST]). */
+internal const val PANE_FRONT_DIST = 1000.0
 internal const val PANE_SIDE_DIST = 1400.0
 internal const val PANE_SIDE_ANGLE = 1.15
 internal const val PANE_SIDE_LIFT = 0.18
@@ -784,6 +895,28 @@ internal const val STATION_PANE_LEG_A = 0.55
 internal const val SPIKE_COSMOS_ENABLED = false
 
 /**
+ * **Feature flag** for freezing stashing panes to a static snapshot in flight — a pane
+ * flying to / from the stash shelf (a lone pane, or every sheet of a tab bundle including the
+ * front sheet) has its live terminal body swapped for a one-shot `<canvas>` snapshot and its
+ * wrapper promoted to a stable composited layer, so the moving CSS3D plane re-samples a cached
+ * raster instead of re-rasterizing live DOM every frame. **Disabled for now** while we weigh
+ * whether it meaningfully helps the take-off stutter; flip to `true` to re-enable. When
+ * `false`, [tickPaneFreeze] thaws any in-flight snapshot each frame, so toggling it off mid-run
+ * cleanly restores every pane to its live body. @see tickPaneFreeze @see freezePaneSnapshot
+ */
+internal const val SPIKE_FLIGHT_FREEZE_ENABLED = false
+
+/**
+ * **Feature flag** for extending [SPIKE_FLIGHT_FREEZE_ENABLED] to panes *sitting* at the stash
+ * site — a parked tab bundle, or a lone pane rested on the shelf. When `false` (default) those
+ * at-rest panes always paint **live**: freezing is strictly the journey, never the destination.
+ * When `true`, they are also held as static snapshots while parked (cheaper GPU tiles for a
+ * crowded shelf, at the cost of a shelf preview that stops updating until brought back). Has no
+ * effect unless [SPIKE_FLIGHT_FREEZE_ENABLED] is also `true`. @see tickPaneFreeze
+ */
+internal const val SPIKE_FREEZE_PARKED_ENABLED = false
+
+/**
  * Rate multiplier on [spikeBobPhase] for the **cosmos drift** — the slow vertical
  * float of the decorative planets/nebulae/star clusters ([tickCosmos]). Below 1 so
  * the sky drifts even more languidly than the pane bob: celestial bodies should
@@ -1047,24 +1180,29 @@ internal const val WORKING_BORDER_SPEED = 0.14
 
 /**
  * Alternative "working" treatment to the [WORKING_BORDER_COLOR] jagged/dotted border:
- * a **pulsating green light** — the same outward `box-shadow` bloom mechanic the urgent
- * [WAITING_GLOW_COLOR] red halo uses, only green and breathing at the calm working
- * cadence ([WORKING_PULSE_SPEED], reusing [spikePulsePhase]) rather than the red's
- * urgent throb. Cycled at runtime by the `g` key ([spikeWorkingStyle]) so you can flip a
- * working pane between showing this glow, the travelling dots, or both together live.
- * Because the bloom bleeds *outside* the pane it stays spottable across the ring, like
- * the red halo, but its softer green cadence reads as "busy, no action needed" versus
- * the red "come here now".
+ * a **pulsating light** — the same outward `box-shadow` bloom mechanic the urgent
+ * [WAITING_GLOW_COLOR] halo uses, breathing at the calm working cadence
+ * ([WORKING_PULSE_SPEED], reusing [spikePulsePhase]) rather than the urgent throb.
+ * Selected by the **Status indication** setting ([spikeStatusIndication]): the `GLOW`
+ * and `GLOW_ANIMATION` styles paint this glow ([spikeStatusShowGlow]), and
+ * `GLOW_ANIMATION` adds the travelling dots on top ([spikeStatusShowDots]). Because the
+ * bloom bleeds *outside* the pane it stays spottable across the ring, like the amber
+ * waiting halo, but its softer cadence reads as "busy, no action needed".
+ *
+ * The colour is the **reactor's working blue** ([WARP_CORE_COLOR]), so a working pane
+ * reads the same whether the world is in `REACTOR` or a glow style — the glow just uses
+ * the reactor's colours (blue working / amber waiting) at its own softer cadence, keeping
+ * the two status modes in agreement.
  *
  *  - [WORKING_GLOW_COLOR] the halo colour as bare `r,g,b` (fed into `rgba(...)`).
  *  - [WORKING_GLOW_MIN]/[WORKING_GLOW_MAX] the halo alpha floor/ceiling; the floor is
- *    non-zero so the green never fully fades out between breaths.
+ *    non-zero so the glow never fully fades out between breaths.
  *  - [WORKING_GLOW_BLUR] px blur radius of the bloom.
  *  - [WORKING_GLOW_SPREAD] px spread radius — pushes the bloom out past the pane edge.
- * @see spikeWorkingStyle @see toggleWorkingStyle
+ * @see spikeStatusIndication @see spikeStatusShowGlow @see WARP_CORE_COLOR
  */
-internal const val WORKING_GLOW_COLOR = "34,197,94" // #22c55e — a clear emerald green
-internal const val WORKING_GLOW_MIN = 0.22 // floor: the green never fully fades out
+internal const val WORKING_GLOW_COLOR = "79,184,255" // #4fb8ff — reactor blue (matches WARP_CORE_COLOR)
+internal const val WORKING_GLOW_MIN = 0.22 // floor: the glow never fully fades out
 internal const val WORKING_GLOW_MAX = 0.85 // full flare
 internal const val WORKING_GLOW_BLUR = 60.0 // px — wide soft bloom, spottable from across the ring
 internal const val WORKING_GLOW_SPREAD = 8.0 // px — pushes the bloom out past the edge
@@ -1104,3 +1242,191 @@ internal const val WAITING_GLOW_MIN = 0.28 // floor: the red never fully fades o
 internal const val WAITING_GLOW_MAX = 0.90 // full flare
 internal const val WAITING_GLOW_BLUR = 64.0 // px — a wide soft bloom, spottable from across the ring
 internal const val WAITING_GLOW_SPREAD = 10.0 // px — pushes the bloom out past the edge
+
+// ---------------------------------------------------------------------------
+// WARP-CORE CHARGE + AWAITING-INPUT (HOLD) — the [spikeStatusIndication] cinematic
+// reactor treatment (the `p` key), a layer-independent alternative to the working
+// dots/green-glow and the red needs-input halo. A *working* pane spools a blue
+// reactor that breathes and, on finishing, discharges a bloom + thruster plume; a
+// *waiting* pane idles amber, leaning out of formation and radiating sonar pings.
+// Numbers are ported from the standalone WARP_CORE_SPIKE.html spec (its `<script>`
+// tuning constants are the starting values); charge-rate constants are per-60fps-
+// frame (scaled by [spikeDtFrames]) and second-based constants (durations,
+// escalation, ping cadence) are driven off [spikeWarpClock].
+// @see World3DSpikeWarpCore.kt @see tickWarpCore @see spikeStatusIndication
+// ---------------------------------------------------------------------------
+
+/**
+ * Charge **spool-up** rate per 60fps frame: `chargeProg += (1 - chargeProg) * this`.
+ * Deliberately slow (~1.5s to ~0.85) so a brief blip never visibly charges a reactor —
+ * short commands self-filter below [WARP_MIN_DISCHARGE] and earn no discharge bloom.
+ * @see tickWarpCore
+ */
+internal const val WARP_ATTACK = 0.020
+
+/** Gentle charge **drain** per frame while a reactor idles (run ended without discharge). @see tickWarpCore */
+internal const val WARP_COOLDOWN = 0.05
+
+/** Fast multiplicative charge **drain** per frame during a discharge: `chargeProg *= WARP_DRAIN^frames`. @see tickWarpCore */
+internal const val WARP_DRAIN = 0.86
+
+/**
+ * The charge floor a reactor must reach to earn a **discharge** (bloom + thruster) when
+ * its run ends — the anti-strobe / short-command guard. Below it the run just cools off. @see tickWarpCore
+ */
+internal const val WARP_MIN_DISCHARGE = 0.28
+
+/** Discharge bloom + thruster **duration** in seconds. @see tickWarpCore @see tickWarpCoreOverlay */
+internal const val WARP_DISCHARGE_S = 0.85
+
+/** Breath cadence of the sustain hum in rad/second — a slow ~4s reactor breathing. @see tickWarpCore */
+internal const val WARP_BREATH_SPEED = 1.6
+
+/** Breath amplitude of the sustain hum (fraction of charge). @see tickWarpCore */
+internal const val WARP_BREATH_AMP = 0.06
+
+/** Extra charge intensity a burst of terminal output adds via [RingPane.warpFlicker] (0..1). @see tickWarpCore */
+internal const val WARP_FLICKER_PER_OUTPUT = 0.5
+
+/** Per-frame multiplicative decay of [RingPane.warpFlicker] (output-activity flicker fades out). @see tickWarpCore */
+internal const val WARP_FLICKER_DECAY = 0.90
+
+/** Blue charging reactor colour as bare `r,g,b` (fed into `rgba(...)` for the outward halo). @see tickWarpCore */
+internal const val WARP_CORE_COLOR = "79,184,255" // #4fb8ff — reactor blue
+internal const val WARP_CORE_HEX = "#4fb8ff" // same, as a hex border tint
+internal const val WARP_CORE_HOT = "#bfe6ff" // white-hot discharge centre (hex)
+internal const val WARP_CORE_HOT_RGB = "191,230,255" // #bfe6ff as bare r,g,b for canvas gradients
+
+/** Amber "holding for you" reactor colour as bare `r,g,b`. Distinct from blue-work / cyan-success / orange-fail. @see tickWarpCore */
+internal const val WARP_AMBER_COLOR = "240,182,73" // #f0b649 — attention amber
+internal const val WARP_AMBER_HEX = "#f0b649"
+
+/** Orange failure sputter colour for a discharge whose command failed (exit ≠ 0). @see tickWarpCoreOverlay */
+internal const val WARP_FAIL_COLOR = "224,101,90" // #e0655a
+
+/** px blur radius of the reactor's outward glow bloom (a wide soft halo seen across the ring). @see tickWarpCore */
+internal const val WARP_GLOW_BLUR = 60.0
+
+/**
+ * PERF (revertible) — reactor outward-halo blur pinning. The `box-shadow` halo cannot be
+ * animated on the compositor, so **any** change to it re-rasterizes the whole blurred shadow
+ * each frame; the original code also *grew* the blur radius with charge (up to
+ * `WARP_GLOW_BLUR + 70 = 130px`), making that per-frame raster as large as possible.
+ *
+ * When [WARP_GLOW_BLUR_PINNED] is true the halo uses a **fixed** blur radius
+ * (`WARP_GLOW_BLUR + [WARP_GLOW_BLUR_PINNED_ADD]`) and lets charge read through the pulsing
+ * *alpha* alone — a smaller, constant raster area. Set it back to `false` to restore the
+ * original charge-driven growth ([WARP_GLOW_BLUR_GROW_AMBER]/[WARP_GLOW_BLUR_GROW_BLUE]).
+ * @see tickWarpCore
+ */
+internal const val WARP_GLOW_BLUR_PINNED = true
+
+/** Static blur add (px) over [WARP_GLOW_BLUR] when [WARP_GLOW_BLUR_PINNED] — a mid of the old 0..70 / 0..40 growth. */
+internal const val WARP_GLOW_BLUR_PINNED_ADD = 45.0
+
+/** Original per-frame blur growth (px) added to the amber "hold" halo at full intensity (revert path). @see tickWarpCore */
+internal const val WARP_GLOW_BLUR_GROW_AMBER = 70.0
+
+/** Original per-frame blur growth (px) added to the blue "charge" halo at full intensity (revert path). @see tickWarpCore */
+internal const val WARP_GLOW_BLUR_GROW_BLUE = 40.0
+
+/** px spread radius of the reactor's outward glow bloom (pushes it past the pane edge). @see tickWarpCore */
+internal const val WARP_GLOW_SPREAD = 8.0
+
+/** Peak alpha of the charging blue outward glow at full charge. @see tickWarpCore */
+internal const val WARP_GLOW_ALPHA = 0.85
+
+/**
+ * PERF (revertible) — **quantization step** for the outward-halo `box-shadow` alpha.
+ *
+ * Even with [WARP_GLOW_BLUR_PINNED] holding the blur radius constant, the halo still pulses
+ * its *alpha* every frame — and because a blurred `box-shadow` cannot composite, **any** change
+ * to the string re-rasterizes the whole ~[WARP_GLOW_BLUR]+ px shadow around every active pane.
+ * The pulse is a slow sine, so consecutive frames are visually identical to two decimals.
+ * [tickWarpCore] snaps the halo alpha to this step and **skips the DOM write when the snapped
+ * string is unchanged** ([RingPane.lastShadowKey]) — cutting the shadow re-raster from ~60/s to
+ * a handful/s per pane with no visible banding at this granularity. Set to `0.0` to restore the
+ * original every-frame write (no quantization). @see tickWarpCore @see RingPane.lastShadowKey
+ */
+internal const val WARP_GLOW_ALPHA_STEP = 0.02
+
+/** Peak opacity of the inner "heat" veil laid over the terminal (kept low so text stays legible). @see tickWarpCore */
+internal const val WARP_HEAT_MAX = 0.55
+
+/**
+ * The **core ring** radial-ellipse gradients (blue charge / amber hold) — the big glowing
+ * ring of light that fills the pane interior, ported verbatim from the spec's `.core`.
+ * `radial-gradient(closest-side, …)` is an *ellipse* matching the pane aspect: a transparent
+ * centre (so the terminal reads through) rising to a bright ring hugging just inside the
+ * edges, then falling back to transparent. Screen-blended + heavily blurred by [ensureWarpCore].
+ * @see tickWarpCore
+ */
+internal const val WARP_RING_BLUE =
+    "radial-gradient(closest-side, transparent 50%, #4fb8ff55 64%, #4fb8ff 78%, #2a86d8bb 88%, transparent 100%)"
+internal const val WARP_RING_AMBER =
+    "radial-gradient(closest-side, transparent 48%, #f0b64966 64%, #f0b649 78%, #c8871fbb 88%, transparent 100%)"
+
+/**
+ * PERF (revertible) — **pre-softened** core-ring gradients used when [WARP_RING_LOWCOST].
+ * The original [WARP_RING_BLUE]/[WARP_RING_AMBER] rely on a heavy per-frame `filter:blur` to
+ * turn a fairly sharp ring band into a broad glow. These variants **bake that softness into
+ * the colour stops** — the fade starts earlier, the bright band is wider and lower-contrast —
+ * so only a small residual [WARP_RING_BLUR_LOWCOST] is needed, eliminating almost all of the
+ * ring's blur cost. Tune the stops here if the softened look needs eyeballing. @see ensureWarpCore
+ */
+internal const val WARP_RING_BLUE_SOFT =
+    "radial-gradient(closest-side, transparent 40%, #4fb8ff22 58%, #4fb8ffaa 76%, #2a86d866 90%, transparent 100%)"
+internal const val WARP_RING_AMBER_SOFT =
+    "radial-gradient(closest-side, transparent 38%, #f0b64922 58%, #f0b649aa 76%, #c8871f66 90%, transparent 100%)"
+
+/**
+ * PERF (revertible) — drop the core ring's expensive per-frame CSS `filter:blur`.
+ *
+ * The ring div carries `filter:blur([WARP_RING_BLUR]px)` + `mix-blend-mode`, and its opacity /
+ * scale / colour change every frame — so the 2-pass Gaussian is re-run and can never be cached.
+ * It is the single heaviest layer op in the world. When true, [ensureWarpCore] uses the
+ * pre-softened gradients ([WARP_RING_BLUE_SOFT]/[WARP_RING_AMBER_SOFT]) plus only
+ * [WARP_RING_BLUR_LOWCOST] of residual blur. Set to `false` to restore the original heavy
+ * ring (sharp gradient + [WARP_RING_BLUR]). @see ensureWarpCore @see WARP_RING_BLUE_ACTIVE
+ */
+internal const val WARP_RING_LOWCOST = true
+
+/** Residual ring blur (px) when [WARP_RING_LOWCOST] — small, since the gradient is pre-softened. */
+internal const val WARP_RING_BLUR_LOWCOST = 6.0
+
+/** Blur radius (px) of the core ring — softens the ellipse ring into a broad reactor glow. @see ensureWarpCore */
+internal const val WARP_RING_BLUR = 22.0
+
+/** The core-ring blur (px) actually applied: small residual when [WARP_RING_LOWCOST], else the original [WARP_RING_BLUR]. */
+internal val WARP_RING_BLUR_ACTIVE = if (WARP_RING_LOWCOST) WARP_RING_BLUR_LOWCOST else WARP_RING_BLUR
+
+/** The active blue "charge" core-ring gradient — pre-softened when [WARP_RING_LOWCOST]. @see tickWarpCore */
+internal val WARP_RING_BLUE_ACTIVE = if (WARP_RING_LOWCOST) WARP_RING_BLUE_SOFT else WARP_RING_BLUE
+
+/** The active amber "hold" core-ring gradient — pre-softened when [WARP_RING_LOWCOST]. @see tickWarpCore */
+internal val WARP_RING_AMBER_ACTIVE = if (WARP_RING_LOWCOST) WARP_RING_AMBER_SOFT else WARP_RING_AMBER
+
+/**
+ * Awaiting-input (HOLD) heartbeat: a **slow, calm** breathing, NOT a fast strobe (this was
+ * explicitly tuned down). Base sin frequency in rad/second, plus [WARP_HOLD_ESC_FREQ] added
+ * as it escalates over [WARP_HOLD_ESC_S] seconds. @see tickWarpCore
+ */
+internal const val WARP_HOLD_FREQ = 0.7
+internal const val WARP_HOLD_ESC_FREQ = 0.5 // added to the freq at full escalation
+internal const val WARP_HOLD_ESC_S = 18.0 // seconds to fully escalate the heartbeat
+
+/** Base amber intensity while holding; escalates by [WARP_HOLD_ESC_INTEN] the longer it waits. @see tickWarpCore */
+internal const val WARP_HOLD_INTEN = 0.6
+internal const val WARP_HOLD_ESC_INTEN = 0.35
+
+/** Sonar-ping cadence while awaiting, in seconds: slower at first, tightening to [WARP_PING_MIN_S] as it escalates. @see spawnWarpPing */
+internal const val WARP_PING_MAX_S = 3.4
+internal const val WARP_PING_MIN_S = 2.2
+internal const val WARP_PING_LIFE_S = 1.7 // sonar ring expansion duration (matches the CSS keyframe)
+
+/**
+ * Collective **reactor load** → faint warm sky tint: the summed ring charge (averaged over
+ * pane count) drives the HUD meter and a subtle warm overlay so a busy ring visibly hums.
+ * [WARP_LOAD_TINT_ALPHA] is the tint's opacity at full average load. @see tickWarpCoreOverlay
+ */
+internal const val WARP_LOAD_TINT_ALPHA = 0.16

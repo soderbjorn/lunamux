@@ -46,7 +46,7 @@ import se.soderbjorn.lunamux.three.Scene
 /** The number of (non-dying) panes in the currently-fronted tab. */
 internal fun currentTabPaneCount(): Int = spikePanes.count { !it.dying && it.tabOrd == spikeTabIndex }
 
-/** `true` when the fronted tab has no panes (its slot shows an [EmptyTabCard]). */
+/** `true` when the fronted tab has no panes (its latitude holds an invisible [EmptyTabCard]). */
 internal fun currentTabIsEmpty(): Boolean = currentTabPaneCount() == 0
 
 /**
@@ -57,6 +57,26 @@ internal fun currentTabIsEmpty(): Boolean = currentTabPaneCount() == 0
 internal fun frontIndex(): Int {
     val sel = spikeTabSel.getOrNull(spikeTabIndex) ?: return -1
     return spikePanes.indexOfFirst { !it.dying && it.tabOrd == spikeTabIndex && it.paneOrdInTab == sel }
+}
+
+/**
+ * The pane a "pane action" (focus, tilt, glide, grid, reformat, zoom) should act on,
+ * resolved by the **one targeting rule**:
+ *  - **Command Center** (`!spikeFlyMode`) → the selected/front pane, but only when it is
+ *    settled at the front ([spikeSettledIndex] == [frontIndex]); `null` mid-rotation so an
+ *    action can't fire while the ring is still swinging.
+ *  - **Free Flight** ([spikeFlyMode]) → the pane **at the centre of the screen**
+ *    ([paneAtScreenCenter]): a ray cast along the camera's nose, so you aim at a pane to
+ *    act on it. The ring is static in flight, so no settle guard is needed.
+ *
+ * @return the target pane, or `null` when there is none / the front pane isn't settled.
+ * @see paneAtScreenCenter @see nearestPaneToCamera @see buildKeyHandler
+ */
+internal fun actionTargetPane(): RingPane? {
+    if (spikeFlyMode) return paneAtScreenCenter()
+    val fi = frontIndex()
+    if (fi < 0 || spikeSettledIndex != fi) return null
+    return spikePanes.getOrNull(fi)
 }
 
 /**

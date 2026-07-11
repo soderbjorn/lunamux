@@ -118,6 +118,16 @@ internal const val OVERVIEW_3D_STYLE_ORBIT = "orbit"
 /** Persisted value for the vertigo ("tower") style — floors of a tower, a dolly-zoom lock. */
 internal const val OVERVIEW_3D_STYLE_VERTIGO = "vertigo"
 
+/** Persistence key for the 3D-world **window bobbing** toggle. @see isWindowBobbingEnabled */
+private const val KEY_WORLD3D_WINDOW_BOBBING = "world3dWindowBobbing"
+
+/**
+ * Persistence key for the 3D-world **status indication** style (None / Glow /
+ * Glow animation / Reactor). Stored as a [StatusIndication] enum name.
+ * @see world3dStatusIndication
+ */
+private const val KEY_WORLD3D_STATUS_INDICATION = "world3dStatusIndication"
+
 // The opt-in "use program-set terminal titles" flag persists under
 // TERMINAL_PROGRAM_TITLE_KEY from the shared clientServer module — the server
 // reads the same constant, so the contract is compiler-enforced.
@@ -305,6 +315,27 @@ fun isTerminalProgramTitleEnabled(): Boolean =
     snapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY, default = true)
 
 /**
+ * Whether the 3D world's idle **window bobbing** (and the free-flight spaceship
+ * float) is on. Ships **on by default**. Read at open by
+ * [syncWorld3dRuntimeFromSettings] to seed [spikeBobEnabled], and live by the
+ * in-world settings panel. @see KEY_WORLD3D_WINDOW_BOBBING
+ */
+fun isWindowBobbingEnabled(): Boolean =
+    snapshotBoolean(KEY_WORLD3D_WINDOW_BOBBING, default = true)
+
+/**
+ * The 3D world's chosen **status indication** style, one of [StatusIndication].
+ * Defaults to [StatusIndication.REACTOR]. Stored as the enum's `name`; an
+ * unrecognised stored value falls back to the default. Read at open by
+ * [syncWorld3dRuntimeFromSettings] to seed [spikeStatusIndication].
+ * @see KEY_WORLD3D_STATUS_INDICATION
+ */
+internal fun world3dStatusIndication(): StatusIndication =
+    snapshotString(KEY_WORLD3D_STATUS_INDICATION, StatusIndication.REACTOR.name).let { raw ->
+        runCatching { StatusIndication.valueOf(raw) }.getOrDefault(StatusIndication.REACTOR)
+    }
+
+/**
  * Mirror a single boolean key into [toolkitSettingsSnapshot] without
  * waiting for the server to echo the write back. Keeps the snapshot in
  * sync with what we just persisted so `paneAddMenuItems` on the next
@@ -387,6 +418,8 @@ fun buildAppSettingsContent(): HTMLElement {
 
     container.appendChild(buildNavigationSection())
     container.appendChild(buildGeneralSection())
+    container.appendChild(buildOverview3dSection())
+    container.appendChild(buildWorld3dSection())
     container.appendChild(buildExperimentalSection())
 
     return container
@@ -545,6 +578,73 @@ private fun buildGeneralSection(): HTMLElement {
     title.textContent = "General"
     section.appendChild(title)
 
+    section.appendChild(buildToggleRow(
+        labelText = "Use program-set terminal titles",
+        initialValue = isTerminalProgramTitleEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY, v)
+            putJsonBoolean(TERMINAL_PROGRAM_TITLE_KEY, v)
+        },
+        descriptionText = "Lets programs running in a terminal name its tab, using " +
+            "the standard title sequence that terminals like iTerm2 honor. With " +
+            "Claude Code this means the tab shows a short summary of what you " +
+            "asked it to do instead of the folder name. Terminals you've renamed " +
+            "yourself are never changed, and turning this off returns tabs to " +
+            "their folder names.",
+    ))
+
+    return section
+}
+
+/**
+ * The **3D world** settings box: enabling 3D mode plus its look/feel controls
+ * (window bobbing, status indication). The bobbing/status rows come from the shared
+ * [buildWorld3dSettingsRows] builder — the same controls the in-world settings panel
+ * (⌥⌘,) shows — so both surfaces edit the same persisted settings identically. The
+ * sidebar just persists (default no-op onChanged; the world re-reads on its next open).
+ *
+ * @return the freshly-built section element.
+ */
+private fun buildWorld3dSection(): HTMLElement {
+    val section = document.createElement("section") as HTMLElement
+    section.className = "lunamux-app-settings-section"
+
+    val title = document.createElement("h3") as HTMLElement
+    title.className = "lunamux-app-settings-section-title"
+    title.textContent = "3D world"
+    section.appendChild(title)
+
+    section.appendChild(buildToggleRow(
+        labelText = "Enable 3D mode",
+        initialValue = isExperimentalWorld3dEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_EXPERIMENTAL_WORLD3D, v)
+            putJsonBoolean(KEY_EXPERIMENTAL_WORLD3D, v)
+            // Show/hide the topbar cube button live; the ⌥⌘← hotkey gates itself
+            // through the toggleWorld3dSpike chokepoint, so it needs no work here.
+            applyWorld3dSpikeChromeVisibility()
+        },
+    ))
+    buildWorld3dSettingsRows(section)
+
+    return section
+}
+
+/**
+ * The **3D app switcher** settings box: the enable toggle plus its style picker
+ * (rotunda / carousel / exposé …), shown/hidden in lock-step with the toggle.
+ *
+ * @return the freshly-built section element.
+ */
+private fun buildOverview3dSection(): HTMLElement {
+    val section = document.createElement("section") as HTMLElement
+    section.className = "lunamux-app-settings-section"
+
+    val title = document.createElement("h3") as HTMLElement
+    title.className = "lunamux-app-settings-section-title"
+    title.textContent = "3D app switcher"
+    section.appendChild(title)
+
     // The style dropdown only makes sense while the switcher is on, so it is
     // built up-front (to capture its onChange) but shown/hidden in lock-step
     // with the enable toggle below.
@@ -583,22 +683,53 @@ private fun buildGeneralSection(): HTMLElement {
         },
     ))
     section.appendChild(styleRow)
-    section.appendChild(buildToggleRow(
-        labelText = "Use program-set terminal titles",
-        initialValue = isTerminalProgramTitleEnabled(),
-        onChange = { v ->
-            updateSnapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY, v)
-            putJsonBoolean(TERMINAL_PROGRAM_TITLE_KEY, v)
-        },
-        descriptionText = "Lets programs running in a terminal name its tab, using " +
-            "the standard title sequence that terminals like iTerm2 honor. With " +
-            "Claude Code this means the tab shows a short summary of what you " +
-            "asked it to do instead of the folder name. Terminals you've renamed " +
-            "yourself are never changed, and turning this off returns tabs to " +
-            "their folder names.",
-    ))
 
     return section
+}
+
+/**
+ * Append the two **3D-world** settings controls — *Window bobbing* and *Status
+ * indication* — to [container]. Shared by the App Settings sidebar's General section
+ * ([buildGeneralSection]) and the in-world settings overlay (⌥⌘,,
+ * [buildWorld3dSettingsPanel]), so both render identical controls that persist
+ * identically.
+ *
+ * Each row does the usual snapshot-update + persist and then runs [onChanged]. The
+ * in-world panel passes `::syncWorld3dRuntimeFromSettings` so a change takes effect on
+ * the live world immediately; the sidebar passes the default no-op (the world reads the
+ * settings fresh on its next open).
+ *
+ * @param container the element to append the two rows to.
+ * @param onChanged run after each change has been persisted; defaults to a no-op.
+ * @see buildToggleRow @see buildChoiceRow @see world3dStatusIndication
+ */
+fun buildWorld3dSettingsRows(container: HTMLElement, onChanged: () -> Unit = {}) {
+    container.appendChild(buildToggleRow(
+        labelText = "Window bobbing",
+        initialValue = isWindowBobbingEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_WORLD3D_WINDOW_BOBBING, v)
+            putJsonBoolean(KEY_WORLD3D_WINDOW_BOBBING, v)
+            onChanged()
+        },
+        descriptionText = "Gently floats unfocused windows up and down — and, in free " +
+            "flight, makes the spaceship camera bob so it feels like it's hovering.",
+    ))
+    container.appendChild(buildChoiceRow(
+        labelText = "Status indication",
+        options = listOf(
+            "None" to StatusIndication.NONE.name,
+            "Glow" to StatusIndication.GLOW.name,
+            "Glow animation" to StatusIndication.GLOW_ANIMATION.name,
+            "Reactor" to StatusIndication.REACTOR.name,
+        ),
+        initialValue = world3dStatusIndication().name,
+        onChange = { v ->
+            updateSnapshotString(KEY_WORLD3D_STATUS_INDICATION, v)
+            putJsonString(KEY_WORLD3D_STATUS_INDICATION, v)
+            onChanged()
+        },
+    ))
 }
 
 /**
@@ -638,18 +769,7 @@ private fun buildExperimentalSection(): HTMLElement {
             putJsonBoolean(KEY_EXPERIMENTAL_GIT_VIEW, v)
         },
     ))
-    section.appendChild(buildToggleRow(
-        labelText = "Enable 3D mode",
-        initialValue = isExperimentalWorld3dEnabled(),
-        onChange = { v ->
-            updateSnapshotBoolean(KEY_EXPERIMENTAL_WORLD3D, v)
-            putJsonBoolean(KEY_EXPERIMENTAL_WORLD3D, v)
-            // Show/hide the topbar cube button live; the ⌥⌘← hotkey gates
-            // itself through the toggleWorld3dSpike chokepoint, so it needs no
-            // work here.
-            applyWorld3dSpikeChromeVisibility()
-        },
-    ))
+    // "Enable 3D mode" now lives in its own "3D world" section ([buildWorld3dSection]).
 
     return section
 }

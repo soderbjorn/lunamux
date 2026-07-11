@@ -125,13 +125,8 @@ internal fun restyleWorldChrome() {
         bar.style.color = chrome.titleText
         (bar.children.item(1) as? HTMLElement)?.style?.color = chrome.titleDim
     }
-    for (c in spikeEmptyTabs) {
-        c.wrapper.style.background = chrome.surface
-        c.wrapper.style.border = "1px dashed ${chrome.accent}"
-        c.wrapper.style.color = chrome.titleDim
-        (c.wrapper.children.item(0) as? HTMLElement)?.style?.color = chrome.accent
-        (c.wrapper.children.item(1) as? HTMLElement)?.style?.color = chrome.titleText
-    }
+    // Empty-tab placeholders paint nothing (the visible card box was removed), so
+    // there is no chrome to re-tint on a live theme change. @see buildEmptyTabCard
     spikeOverlay?.querySelectorAll(".spike-beacon-glyph")?.let { glyphs ->
         for (i in 0 until glyphs.length) {
             val svg = glyphs.item(i) as? Element ?: continue
@@ -259,6 +254,14 @@ internal fun buildRingPane(spec: PaneSpec, n: Int, scene: Scene, chrome: SpikeCh
                         }
                     } else {
                         mTerm.write(Uint8Array(data as ArrayBuffer))
+                        // Warp-core polish: a burst of live output flickers this pane's
+                        // charging reactor a touch brighter (decayed each frame). Cheap
+                        // no-op unless the reactor status style is on and the pane is on the ring.
+                        if (spikeStatusIndication == StatusIndication.REACTOR) {
+                            spikePanes.firstOrNull { it.paneId == spec.paneId }?.let {
+                                it.warpFlicker = minOf(1.0, it.warpFlicker + WARP_FLICKER_PER_OUTPUT)
+                            }
+                        }
                     }
                 }
                 mirrorSocket = socket
@@ -333,6 +336,7 @@ internal fun buildRingPane(spec: PaneSpec, n: Int, scene: Scene, chrome: SpikeCh
             paneId = spec.paneId, tabId = spec.tabId, sessionId = spec.sessionId,
             title = spec.title, tabTitle = spec.tabTitle,
             tabOrd = spec.tabOrd, paneOrdInTab = spec.paneOrdInTab,
+            dispOrd = spec.paneOrdInTab.toDouble(),
             kind = spec.kind,
             term = term, fit = fit, container = container, wrapper = wrapper, dim = dim, glow = glow,
             border = border,
@@ -401,15 +405,22 @@ internal fun applyMirrorSize(paneId: String, term: Terminal, cols: Int, rows: In
 }
 
 /**
- * Builds and registers an [EmptyTabCard] — the ghost plane shown at an empty tab's
- * latitude — and adds it to [spikeEmptyTabs] and the CSS3D scene. Called from
- * [reconcileRing] (and the initial [openWorld3dSpike] build) whenever a non-hidden
- * tab has no panes. The card echoes a pane's footprint so latitude spacing/fades
- * line up, but shows a centred "empty tab" prompt instead of a terminal.
+ * Builds and registers the **invisible** placeholder for an empty tab's latitude and
+ * adds it to [spikeEmptyTabs] and the CSS3D scene. Called from [reconcileRing] (and the
+ * initial [openWorld3dSpike] build) whenever a non-hidden tab has no panes.
+ *
+ * The visible "empty tab" card box was removed by request: an emptied tab now shows
+ * *nothing* at its latitude. This record is still built and registered so the empty
+ * tab keeps its plumbing — navigating to it, adding a pane (`n` → [createPane]) and
+ * removing it (`x x` → [confirmRemove]) all resolve the tab via [spikeEmptyTabs] — but
+ * its wrapper is an empty, fully transparent div that paints no box, border, glyph or
+ * text. It still echoes a pane's footprint (size only) so latitude spacing lines up.
  *
  * @param tabId the backing tab's id. @param title the tab's display title.
  * @param tabOrd the latitude ordinal. @param scene the CSS3D scene to add into.
- * @param chrome the theme colours. @param birth initial anim factor (0 → grows in).
+ * @param chrome the theme colours (unused now the card paints nothing; kept for the
+ *   shared [reconcileRing]/[openWorld3dSpike] call signature). @param birth initial
+ *   anim factor (0 → grows in).
  * @see reconcileRing @see EmptyTabCard
  */
 internal fun buildEmptyTabCard(
@@ -418,27 +429,11 @@ internal fun buildEmptyTabCard(
     val provW = if (SPIKE_UNIFORM_SCREENS) spikeScreenW else PANE_W
     val provH = if (SPIKE_UNIFORM_SCREENS) spikeScreenH else PANE_H
 
+    // Empty, fully transparent placeholder — no box is drawn. Sized to a pane's
+    // footprint only so the latitude keeps consistent spacing; nothing is painted.
     val wrapper = document.createElement("div") as HTMLElement
     wrapper.style.cssText = "width:${provW}px;height:${provH + TITLE_H}px;position:relative;" +
-        "background:${chrome.surface};border:1px dashed ${chrome.accent};border-radius:8px;overflow:hidden;" +
-        "box-shadow:0 0 42px rgba(0,0,0,0.55);display:flex;flex-direction:column;align-items:center;" +
-        "justify-content:center;gap:10px;color:${chrome.titleDim};" +
-        "font:600 13px ui-monospace,Menlo,monospace;text-align:center;padding:0 24px;box-sizing:border-box;"
-
-    val glyph = document.createElement("div") as HTMLElement
-    glyph.textContent = "＋"
-    glyph.style.cssText = "font-size:44px;line-height:1;color:${chrome.accent};font-weight:400;"
-    wrapper.appendChild(glyph)
-
-    val name = document.createElement("div") as HTMLElement
-    name.textContent = title.ifBlank { "Untitled tab" }
-    name.style.cssText = "font-size:15px;color:${chrome.titleText};"
-    wrapper.appendChild(name)
-
-    val hint = document.createElement("div") as HTMLElement
-    hint.textContent = "empty tab · n to add a window · x x to remove"
-    hint.style.cssText = "font-weight:400;opacity:0.8;"
-    wrapper.appendChild(hint)
+        "background:transparent;pointer-events:none;"
 
     val obj = CSS3DObject(wrapper)
     scene.add(obj)
@@ -480,7 +475,12 @@ internal fun reconcileRing() {
             buildRingPane(spec, spikePanes.size, scene, chrome, birth = 0.0)
             added = true
             newBornIds.add(spec.paneId)
-        } else if (!existing.dying) {
+        } else if (!existing.dying && !isParkedBundlePane(existing)) {
+            // A *committed* bundle pane is deliberately held off-ring ([RingPane.tabOrd] = −1)
+            // so the command center excludes it; don't let a stale config broadcast (arriving
+            // before our SetTabHidden round-trips, tab still listed) renumber it back on. Once
+            // the bundle is unstashed ([TabBundle.committed] cleared) this renumbers again so
+            // separation lands the panes on their real ring slots. @see stashTab
             existing.tabOrd = spec.tabOrd
             existing.paneOrdInTab = spec.paneOrdInTab
         }
@@ -488,7 +488,32 @@ internal fun reconcileRing() {
     // A pane mid phaser-fire close (phaserPhase >= 0) has already left the config but
     // must keep burning at the front for the full barrage — [tickPhaser] marks it dying
     // when it completes, so don't shrink it out here the instant its Close lands.
-    for (p in spikePanes) if (!p.dying && p.phaserPhase < 0.0 && p.paneId !in specIds) p.dying = true
+    // A pane held in a **tab bundle** (bundleId != null) has also left the config — its
+    // whole tab is unlisted ([TabConfig.isHidden]) — but is flying to / resting in the
+    // hangar bay as part of a merged stack owned by [tickBundles]; it must survive the
+    // death sweep until [unstashTab] separates it back onto the ring. @see stashTab
+    for (p in spikePanes) {
+        if (!p.dying && p.phaserPhase < 0.0 && p.bundleId == null && p.paneId !in specIds) p.dying = true
+    }
+
+    // A phasering pane keeps burning at its old ring slot, but it has already left the
+    // config — so the renumber above just gave every *later* pane in its tab the next
+    // ordinal down, pulling the killed pane's neighbour forward into the very slot it is
+    // still dying in. Re-open a gap at each phasering pane's frozen ordinal: bump every
+    // surviving (non-dying, non-phaser) pane in its tab whose ordinal now lands at or past
+    // it back by one, so the survivors hold their places until [tickPhaser] finishes the
+    // barrage, marks the pane dying and re-reconciles (which then closes the gap for real).
+    // Ascending frozen-ordinal order keeps this correct when two panes burn in one tab.
+    // @see startPhaserDeath @see tickPhaser
+    val phaseringPanes = spikePanes
+        .filter { it.phaserPhase >= 0.0 && !it.dying }
+        .sortedBy { it.paneOrdInTab }
+    for (ph in phaseringPanes) {
+        for (s in spikePanes) {
+            if (s === ph || s.dying || s.phaserPhase >= 0.0) continue
+            if (s.tabOrd == ph.tabOrd && s.paneOrdInTab >= ph.paneOrdInTab) s.paneOrdInTab += 1
+        }
+    }
 
     // --- Empty-tab cards: a non-hidden tab with no kept panes gets one card. ---
     val paneTabIds = specs.map { it.tabId }.toSet()
@@ -514,15 +539,31 @@ internal fun reconcileRing() {
 
     // --- Honour a pending "front the thing I just made" request. ---
     spikePendingFocusTab?.let { wanted ->
-        val newest = specs.filter { it.tabId == wanted }.maxByOrNull { it.paneOrdInTab }
+        // Front the pane we just *created* — identified as a **newborn built this pass**
+        // ([newBornIds]), not merely the highest-ordinal pane in the tab. A tab can already
+        // hold a stashed pane (up on the shelf, its ring slot a gap) whose ordinal outranks
+        // the newcomer; a plain `maxByOrNull { paneOrdInTab }` would front that shelved pane's
+        // empty gap and leave the new pane sitting off to the side, unselected. Keying on the
+        // newborn also defers the front until the server actually mints the pane — an earlier
+        // config broadcast that arrives without it no longer clears the request against a
+        // pre-existing pane. @see spikePendingFocusTab @see createPane
+        val newest = specs
+            .filter { it.tabId == wanted && it.paneId in newBornIds }
+            .maxByOrNull { it.paneOrdInTab }
         if (newest != null) {
             leaveFrontPane()
             spikeTabIndex = newest.tabOrd
             spikeTabSel[newest.tabOrd] = newest.paneOrdInTab
             loadFrontZoom(); showNavLabel(); spikeSettledIndex = -1
             spikePendingFocusTab = null
+            // Keep this fresh pane at the *end* of the row: it sits at the tail now (the
+            // toolkit hasn't ordered it yet), but the toolkit will soon slot it in beside
+            // the split source — [pinNewPanesLast] moves it back to last once that lands.
+            spikePinLastPanes.add(newest.paneId)
         }
     }
+    // A just-created pane whose toolkit order has now arrived may need pinning last.
+    pinNewPanesLast()
     if (spikePendingFocusNewTab && emptyTabs.isNotEmpty()) {
         leaveFrontPane()
         spikeTabIndex = emptyTabs.maxOf { it.third }

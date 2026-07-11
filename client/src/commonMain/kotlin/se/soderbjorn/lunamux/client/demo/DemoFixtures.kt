@@ -103,10 +103,12 @@ internal object DemoFixtures {
      *    resumes working when typed into.
      *  - **Trackmo** (grid): a ProTracker playback pane, a raster-budget
      *    test run, an assembler watcher, and the NFO-writing session.
-     *  - **Assets** (single): a full-screen file browser opened on the
-     *    scrolltext.
-     *  - **Delta** (single): a full-screen git pane with the side-by-side
-     *    P4Diff-style split view enabled by default.
+     *  - **Assets** (hero-left): the file browser opened on the scrolltext,
+     *    beside a *finished* Claude session that just converted the logo to
+     *    interleaved bitplanes (resumes working when typed into).
+     *  - **Delta** (hero-left): the git pane with the side-by-side P4Diff-style
+     *    split view, beside a *finished* Claude session that just mirrored the
+     *    copper bars (resumes working when typed into).
      *
      * @return the initial [WindowConfig] pushed to every demo client.
      */
@@ -221,11 +223,22 @@ internal object DemoFixtures {
                                 leftColumnWidthPx = 260,
                             ),
                         ),
-                        x = 0.0, y = 0.0, width = 1.0, height = 1.0, z = 1,
+                        x = 0.0, y = 0.0, width = 0.6, height = 1.0, z = 1,
+                    ),
+                    Pane(
+                        leaf = LeafNode(
+                            id = "demo-p10",
+                            sessionId = "demo-s8",
+                            title = "claude: logo",
+                            customName = "claude: logo",
+                            cwd = CWD,
+                            content = TerminalContent(sessionId = "demo-s8"),
+                        ),
+                        x = 0.6, y = 0.0, width = 0.4, height = 1.0, z = 2,
                     ),
                 ),
                 focusedPaneId = "demo-p8",
-                layoutPreset = "auto",
+                layoutPreset = "hero-left",
             ),
             TabConfig(
                 id = "demo-t4",
@@ -244,11 +257,22 @@ internal object DemoFixtures {
                                 graphicalDiff = true,
                             ),
                         ),
-                        x = 0.0, y = 0.0, width = 1.0, height = 1.0, z = 1,
+                        x = 0.0, y = 0.0, width = 0.6, height = 1.0, z = 1,
+                    ),
+                    Pane(
+                        leaf = LeafNode(
+                            id = "demo-p11",
+                            sessionId = "demo-s9",
+                            title = "claude: copper",
+                            customName = "claude: copper",
+                            cwd = CWD,
+                            content = TerminalContent(sessionId = "demo-s9"),
+                        ),
+                        x = 0.6, y = 0.0, width = 0.4, height = 1.0, z = 2,
                     ),
                 ),
                 focusedPaneId = "demo-p3",
-                layoutPreset = "auto",
+                layoutPreset = "hero-left",
             ),
         ),
         activeTabId = "demo-t1",
