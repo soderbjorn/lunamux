@@ -201,8 +201,21 @@ fun buildGitView(paneId: String, leaf: dynamic, headerEl: HTMLElement? = null): 
 
     outer.appendChild(left); outer.appendChild(divider); outer.appendChild(right)
 
+    // Drop any observer from a prior build of this pane before replacing the view,
+    // so a rebuild (remount, font change) doesn't leak a live observer on stale DOM.
+    gitPaneViews[paneId]?.resizeObserver?.disconnect()
     val view = GitPaneView(listBody, diffContent, searchCounter, searchNavButtons)
     gitPaneViews[paneId] = view
+    // General pane-resize mechanism: watch the view root's *layout* box and re-run
+    // the active renderer's pixel-dependent relayout ([GitPaneView.onResize]) on any
+    // change. This is world-agnostic on purpose — it fires identically for a 2D
+    // splitter drag / maximize / sidebar toggle, a 3D `resizePaneBox` box nudge, and
+    // a browser-window resize — so no resize path needs to know about git panes. A
+    // CSS transform (e.g. the 3D zoom scale) doesn't change the layout box, so it
+    // correctly does *not* fire this. @see GitPaneView.onResize @see resizePaneBox
+    val resizeObs = ResizeObserver { _, _ -> view.onResize?.invoke() }
+    resizeObs.observe(outer)
+    view.resizeObserver = resizeObs
     renderGitList(paneId, view, state)
     if (state.entries == null) {
         launchCmd(WindowCommand.GitList(paneId = paneId))

@@ -99,10 +99,20 @@ private fun fileBrowserAbsPath(paneId: String, relPath: String?): String? {
  *
  * @property listBody the scrollable container for the directory tree on the left
  * @property rendered the container for the rendered file content on the right
+ * @property onResize the current view's **pixel-dependent relayout**, or `null` when
+ *   it has none. Invoked whenever the pane's box changes (via [resizeObserver]) —
+ *   the same general hook [GitPaneView] carries. The file browser's content is
+ *   CSS-flowed (flexbox, a full-size iframe preview), so it reflows on its own and
+ *   this stays `null`; the hook exists so any future pixel-measured view (a
+ *   canvas/SVG preview) can opt in without new plumbing. @see resizeObserver
+ * @property resizeObserver the [ResizeObserver] watching the view root for box-size
+ *   changes; drives [onResize]. Disconnected when the view is rebuilt or disposed.
  */
 class FileBrowserPaneView(
     val listBody: HTMLElement,
     val rendered: HTMLElement,
+    var onResize: (() -> Unit)? = null,
+    var resizeObserver: ResizeObserver? = null,
 )
 
 /**
@@ -567,8 +577,16 @@ fun buildFileBrowserView(paneId: String, leaf: dynamic, headerEl: HTMLElement? =
     outer.appendChild(left); outer.appendChild(divider); outer.appendChild(right)
     wireMarkdownAnchorLinks(right)
 
+    // See [buildGitView] for the rationale: the same world-agnostic resize hook is
+    // installed here for symmetry and future-proofing. The file browser's content is
+    // CSS-flowed, so [FileBrowserPaneView.onResize] stays `null` and the observer is
+    // a no-op today — but a later pixel-measured preview can opt in with no plumbing.
+    fileBrowserPaneViews[paneId]?.resizeObserver?.disconnect()
     val view = FileBrowserPaneView(listBody, right)
     fileBrowserPaneViews[paneId] = view
+    val resizeObs = ResizeObserver { _, _ -> view.onResize?.invoke() }
+    resizeObs.observe(outer)
+    view.resizeObserver = resizeObs
     renderFileBrowserTree(paneId, view, state)
     renderFileBrowserContent(paneId, view, state.kind, state.html)
 

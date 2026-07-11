@@ -137,8 +137,23 @@ internal fun renderGitDiffSplit(diffPane: HTMLElement, parsed: dynamic) {
  * Renders a graphical side-by-side diff with SVG connector curves
  * linking corresponding change regions between the old and new file
  * panels.
+ *
+ * The connector geometry is computed from the panels' live pixel width/height, so
+ * this renderer also registers [GitPaneView.onResize] (its rAF-throttled connector
+ * recompute) — the general pane-resize hook fired by the view's `ResizeObserver`
+ * (see [buildGitView]) — so a pane-box resize re-lays the curves instead of leaving
+ * them stale until the next scroll. Called from the `"gitDiff"` dispatch in
+ * [WindowConnection], which clears the hook first so the flowed inline/split
+ * renderers leave no stale relayout behind.
+ *
+ * @param view the git pane view whose [GitPaneView.diffPane] is drawn into and whose
+ *   [GitPaneView.onResize] hook is armed with the connector relayout.
+ * @param parsed the raw server diff payload (old/new content, hunks, language).
+ * @param state the pane's view-model (diff font size drives line-height/anchors).
+ * @see GitPaneView.onResize @see buildGitView
  */
-internal fun renderGitDiffGraphical(diffPane: HTMLElement, parsed: dynamic, state: GitPaneState) {
+internal fun renderGitDiffGraphical(view: GitPaneView, parsed: dynamic, state: GitPaneState) {
+    val diffPane = view.diffPane
     diffPane.innerHTML = ""
     val oldContent = parsed.oldContent as? String
     val newContent = parsed.newContent as? String
@@ -351,4 +366,11 @@ internal fun renderGitDiffGraphical(diffPane: HTMLElement, parsed: dynamic, stat
     }, json("passive" to false))
     window.requestAnimationFrame { syncLeftFromRight() }
     window.addEventListener("resize", { _ -> syncLeftFromRight(); scheduleUpdate() })
+    // Expose this renderer's pixel relayout as the pane's general resize hook, so a
+    // *pane-box* resize (2D splitter/maximize, 3D `resizePaneBox`) — which, unlike a
+    // browser-window resize, never fires the `window` "resize" listener above —
+    // recomputes the connectors at the new width/height instead of leaving them
+    // stale until the user scrolls. The rAF throttle keeps a glided resize smooth.
+    // @see GitPaneView.onResize
+    view.onResize = { syncLeftFromRight(); scheduleUpdate() }
 }

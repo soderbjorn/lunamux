@@ -100,8 +100,12 @@ fun handlePaneContentMessage(type: String?, parsed: dynamic): Boolean {
                 val hasOld = parsed.oldContent as? String != null
                 val hasNew = parsed.newContent as? String != null
                 val oneSided = !hasOld || !hasNew
+                // Default the resize hook off: the flowed inline/split renderers reflow
+                // via CSS alone, so a box resize needs no JS relayout. The graphical
+                // renderer re-arms it (its SVG connectors are pixel-computed). @see GitPaneView.onResize
+                view.onResize = null
                 if (!oneSided && state.diffMode == "Split" && state.graphicalDiff) {
-                    renderGitDiffGraphical(view.diffPane, parsed, state)
+                    renderGitDiffGraphical(view, parsed, state)
                 } else if (!oneSided && state.diffMode == "Split") {
                     renderGitDiffSplit(view.diffPane, parsed)
                 } else {

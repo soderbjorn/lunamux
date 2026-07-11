@@ -273,6 +273,54 @@ internal fun presentPaneToGrid(p: RingPane, animate: Boolean = false) {
 }
 
 /**
+ * Resizes a **non-terminal** pane's (git / file-browser) plane box by a signed pixel
+ * delta — the box-geometry counterpart of [presentPaneToGrid], which sizes a
+ * *terminal* plane from its cell grid. Such a plane has no xterm/PTY to drive, so the
+ * resize keys ([growGridAxis]/[gridNearestAxis]) route here for `p.term == null`
+ * panes: the box grows/shrinks directly and the DOM view inside (registered at 100%
+ * width/height in [buildRingPane]) reflows to fill it — exactly how the 2D world
+ * resizes any pane by geometry rather than by cells.
+ *
+ * Mirrors the DOM-update tail of [presentPaneToGrid]: updates
+ * [RingPane.baseCw]/[RingPane.baseCh] (which the render loop and camera math read as
+ * the plane's native box), the wrapper and container boxes, the side-pane
+ * normalization ([RingPane.normScale]), and the working-border SVG — gliding over
+ * [GRID_ANIM_MS] when [animate] so the resize reads as fluid growth like a grid step.
+ * Clamped to [PANE_BOX_MIN_W]..[PANE_BOX_MAX_W] / [PANE_BOX_MIN_H]..[PANE_BOX_MAX_H];
+ * returns `false` (a clamped no-change) so the caller can log an inert key press just
+ * like the grid path does.
+ *
+ * @param p the non-terminal pane to resize (a terminal pane would be resized via its
+ *   grid instead; this path never touches [RingPane.term]).
+ * @param dW signed width delta in px (`.`/`,`). @param dH signed height delta in px (`>`/`<`).
+ * @param animate `true` to ease the plane to the new box, `false` to snap.
+ * @return `true` if the box actually changed, `false` if already clamped at a bound.
+ * @see presentPaneToGrid @see growGridAxis @see gridNearestAxis
+ */
+internal fun resizePaneBox(p: RingPane, dW: Int, dH: Int, animate: Boolean = true): Boolean {
+    val gw = (p.baseCw + dW).coerceIn(PANE_BOX_MIN_W, PANE_BOX_MAX_W)
+    val gh = (p.baseCh + dH).coerceIn(PANE_BOX_MIN_H, PANE_BOX_MAX_H)
+    if (gw == p.baseCw && gh == p.baseCh) return false
+    p.baseCw = gw
+    p.baseCh = gh
+    // Same side-pane renormalization as [presentPaneToGrid]: a large plane is scaled
+    // down (never up) as a side pane so it can't intersect its ring neighbours; the
+    // front pane still eases to 1:1 in the render loop. @see RingPane.normScale
+    p.normScale = minOf(1.0, spikeScreenW.toDouble() / gw, spikeScreenH.toDouble() / gh)
+    val ease = "width ${GRID_ANIM_MS}ms ease, height ${GRID_ANIM_MS}ms ease"
+    p.wrapper.style.setProperty("transition", if (animate) ease else "none")
+    p.wrapper.style.setProperty("width", "${gw}px")
+    p.wrapper.style.setProperty("height", "${gh + TITLE_H}px")
+    // Preserve the container's positioning (position/left/top set at build time) and
+    // override only its box, so the git/file-browser view fills the new plane.
+    p.container.style.setProperty("transition", if (animate) ease else "none")
+    p.container.style.setProperty("width", "${gw}px")
+    p.container.style.setProperty("height", "${gh}px")
+    resizeWorkingBorder(p.border, gw, gh + TITLE_H)
+    return true
+}
+
+/**
  * Sets pane [p]'s grid to `cols × rows` **atomically**: resizes the local terminal,
  * re-presents the plane at the new grid ([presentPaneToGrid]), optionally reasserts
  * the size to the shared PTY, keeps a tail-following viewport pinned to the bottom,

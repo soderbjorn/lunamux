@@ -172,6 +172,24 @@ internal fun growGridW(step: Int) = growGridAxis(step * GRID_COLS_STEP, 0)
 internal fun growGridH(step: Int) = growGridAxis(0, step * GRID_ROWS_STEP)
 
 /**
+ * Maps a signed **cell** delta ([dCols]/[dRows], as the grid keys emit) to a signed
+ * **pixel** box delta of magnitude [step] on the same axis — the translation the
+ * non-terminal resize path applies so `,`/`.`/`<`/`>` resize a git/file-browser
+ * plane by geometry (see [resizePaneBox]) rather than by cells it doesn't have. A
+ * zero cell delta stays zero (that axis is untouched); only the sign of [cell] is
+ * used, not its magnitude, so one key press is one box step.
+ *
+ * @param cell the signed cell delta on this axis (`+`/`0`/`−`).
+ * @param step the box step magnitude in px for this axis ([PANE_BOX_W_STEP] / [PANE_BOX_H_STEP]).
+ * @return `+step`, `0`, or `−step`. @see resizePaneBox @see growGridAxis
+ */
+private fun boxStep(cell: Int, step: Int): Int = when {
+    cell > 0 -> step
+    cell < 0 -> -step
+    else -> 0
+}
+
+/**
  * Shared body for [growGridW]/[growGridH]: applies a signed **cell delta** to the
  * front pane's current grid, clamped to the sane bounds, through [setPaneGrid]
  * (which resizes the terminal, re-presents the plane, and force-resizes the PTY).
@@ -199,7 +217,20 @@ internal fun growGridAxis(dCols: Int, dRows: Int) {
     }
     val term = p.term
     if (term == null) {
-        console.warn("[world3d-spike] grid resize ignored: pane ${p.paneId} has no terminal (non-terminal pane, or mirror never built)")
+        // Non-terminal (git / file-browser) pane: no cell grid to resize, so nudge the
+        // plane box directly in pixels — the same keys resize *any* pane, just like the
+        // 2D world. The signed cell delta becomes a signed box delta on the same axis.
+        if (spikeSelectionMode) exitSelectionMode()
+        val dW = boxStep(dCols, PANE_BOX_W_STEP)
+        val dH = boxStep(dRows, PANE_BOX_H_STEP)
+        if (!resizePaneBox(p, dW, dH)) {
+            console.warn(
+                "[world3d-spike] box resize ignored: pane ${p.paneId} already clamped at bounds " +
+                    "(${p.baseCw}x${p.baseCh}, delta $dW,$dH)"
+            )
+        } else {
+            console.log("[world3d-spike] box key: pane ${p.paneId} -> ${p.baseCw}x${p.baseCh}")
+        }
         return
     }
     if (spikeSelectionMode) exitSelectionMode()
@@ -270,7 +301,14 @@ internal fun gridNearestH(step: Int) = gridNearestAxis(0, step * GRID_ROWS_STEP)
  */
 private fun gridNearestAxis(dCols: Int, dRows: Int) {
     val p = actionTargetPane() ?: return
-    val term = p.term ?: return
+    val term = p.term
+    if (term == null) {
+        // Non-terminal pane in free-flight: resize its plane box directly (see the
+        // front-pane branch in [growGridAxis]) so the resize keys work for any pane.
+        if (spikeSelectionMode) exitSelectionMode()
+        resizePaneBox(p, boxStep(dCols, PANE_BOX_W_STEP), boxStep(dRows, PANE_BOX_H_STEP))
+        return
+    }
     if (spikeSelectionMode) exitSelectionMode()
     val cols = (term.cols + dCols).coerceIn(GRID_MIN_COLS, GRID_MAX_COLS)
     val rows = (term.rows + dRows).coerceIn(GRID_MIN_ROWS, GRID_MAX_ROWS)

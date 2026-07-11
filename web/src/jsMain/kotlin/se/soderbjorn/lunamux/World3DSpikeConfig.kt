@@ -175,6 +175,22 @@ internal const val GRID_MIN_ROWS = 5
 internal const val GRID_MAX_ROWS = 200
 
 /**
+ * Box-resize steps and bounds for **non-terminal** panes (git / file-browser). Such
+ * a plane has no cell grid or PTY, so the same resize keys (`,`/`.` width, `<`/`>`
+ * height) instead nudge its plane box directly in **pixels** — the DOM view inside
+ * fills the box at 100% and reflows, exactly the way the 2D world resizes any pane
+ * by geometry. The steps are picked to feel like one terminal grid step (≈ a cell
+ * step × cell size); the bounds keep a git/file-browser plane from being driven to
+ * an unreadable sliver or an absurdly large sheet. @see resizePaneBox
+ */
+internal const val PANE_BOX_W_STEP = 140
+internal const val PANE_BOX_H_STEP = 120
+internal const val PANE_BOX_MIN_W = 300
+internal const val PANE_BOX_MAX_W = 2400
+internal const val PANE_BOX_MIN_H = 200
+internal const val PANE_BOX_MAX_H = 1600
+
+/**
  * Duration (ms) of the fluid pane-box glide when the grid changes: the terminal
  * reflows to the new grid instantly (a text reflow can't tween), but the pane's
  * plane — wrapper, terminal container, and the stretch-along border SVG — eases to

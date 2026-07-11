@@ -44,10 +44,20 @@ class GitPaneState {
  * @property diffPane the container for the rendered diff content
  * @property searchCounter the element displaying "N/M" search match counter
  * @property searchNavButtons navigation buttons for stepping through search matches
+ * @property onResize the current renderer's **pixel-dependent relayout**, or `null`
+ *   when the active diff mode has none. Invoked whenever the pane's box changes
+ *   (via the [resizeObserver], so it fires the same for a 2D splitter drag /
+ *   maximize / sidebar toggle, a 3D [resizePaneBox], or a window resize). Set by
+ *   [renderGitDiffGraphical] to recompute its SVG connectors at the new size, and
+ *   cleared by the flowed inline/split renderers (which reflow via CSS alone).
+ * @property resizeObserver the [ResizeObserver] watching the view root for box-size
+ *   changes; drives [onResize]. Disconnected when the view is rebuilt or disposed.
  */
 class GitPaneView(
     val listBody: HTMLElement,
     val diffPane: HTMLElement,
     var searchCounter: HTMLElement? = null,
     var searchNavButtons: List<HTMLElement> = emptyList(),
+    var onResize: (() -> Unit)? = null,
+    var resizeObserver: ResizeObserver? = null,
 )

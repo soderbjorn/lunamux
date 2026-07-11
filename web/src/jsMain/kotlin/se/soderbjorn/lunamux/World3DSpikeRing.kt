@@ -612,8 +612,10 @@ internal fun disposeRingPane(p: RingPane) {
                     container.removeAttribute("data-spike-prevcss")
                     p.origParent?.insertBefore(container, p.origNext)
                 } else {
-                    if (p.kind == PaneKind.GIT) gitPaneViews.remove(p.paneId)
-                    else fileBrowserPaneViews.remove(p.paneId)
+                    // Disconnect the view's resize observer before dropping it, so an
+                    // owned preview's observer doesn't outlive its removed DOM.
+                    if (p.kind == PaneKind.GIT) gitPaneViews.remove(p.paneId)?.resizeObserver?.disconnect()
+                    else fileBrowserPaneViews.remove(p.paneId)?.resizeObserver?.disconnect()
                     runCatching { p.container.remove() }
                 }
             }
