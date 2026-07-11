@@ -772,6 +772,9 @@ internal fun toggleWindowRecording() {
         showSpikeToast("Recording needs the desktop app")
         return
     }
+    // Ignore the toggle while the 3-2-1 countdown is running: capture hasn't
+    // started yet, so this is neither a stop nor a reason to start a second count.
+    if (spikeRecordingCountingDown) return
     if (spikeRecording) stopWindowRecording() else startWindowRecording(api)
 }
 
@@ -783,22 +786,92 @@ internal fun toggleWindowRecording() {
  * errors), so only a *definitively* unauthorized macOS returns early — there we
  * point the user at System Settings via [openScreenRecordingSettings] instead of
  * recording. On an older bridge lacking the check, we record directly.
+ *
+ * Once authorized, we don't capture immediately: [runRecordingCountdown] shows a
+ * 3-2-1 pill and only calls [acquireAndRecord] *after* the pill has faded away, so
+ * the countdown itself never lands in the video.
  * Called only by [toggleWindowRecording] when idle.
  *
  * @param api the `window.electronApi` bridge (already null-checked by the caller).
  */
 private fun startWindowRecording(api: dynamic) {
     val accessCheck: dynamic = if (api.getScreenCaptureAccess != null) api.getScreenCaptureAccess() else null
-    if (accessCheck == null) { acquireAndRecord(api); return }
+    if (accessCheck == null) { runRecordingCountdown(api); return }
     accessCheck.then({ status: dynamic ->
         if ((status as? String) == "granted") {
-            acquireAndRecord(api)
+            runRecordingCountdown(api)
         } else {
             showSpikeToast("Enable Screen Recording for Lunamux in System Settings, then relaunch")
             if (api.openScreenRecordingSettings != null) api.openScreenRecordingSettings()
         }
     })
-    accessCheck.catch({ _: dynamic -> acquireAndRecord(api) })
+    accessCheck.catch({ _: dynamic -> runRecordingCountdown(api) })
+}
+
+/**
+ * Shows a centred 3 → 2 → 1 countdown pill and, once it has fully faded and been
+ * removed from the DOM, starts the actual capture via [acquireAndRecord]. The pill
+ * is torn down *and one animation frame is awaited* before capture begins, so the
+ * compositor has repainted the countdown-free window and no "1" is baked into the
+ * first frame of the recording.
+ *
+ * [spikeRecordingCountingDown] is held true for the whole count so [toggleWindowRecording]
+ * ignores a stray second `⇧R`, and every timer is tracked in
+ * [spikeRecordingCountdownTimers] so [cancelRecordingCountdown] can abort it if the
+ * world closes mid-count. Reuses the [showSpikeToast] pill styling for a consistent look.
+ * Called by [startWindowRecording] once Screen Recording is authorized.
+ *
+ * @param api the `window.electronApi` bridge, forwarded to [acquireAndRecord].
+ * @see acquireAndRecord
+ * @see cancelRecordingCountdown
+ */
+private fun runRecordingCountdown(api: dynamic) {
+    val overlay = spikeOverlay ?: return
+    // Clear any lingering confirmation pill and mark the countdown active so a
+    // second ⇧R can't start a parallel count or be read as a stop.
+    dismissSpikeToast()
+    spikeRecordingCountingDown = true
+    spikeRecordingCountdownTimers = mutableListOf()
+
+    val pill = document.createElement("div") as HTMLElement
+    pill.textContent = "3"
+    pill.style.cssText = "position:absolute;bottom:64px;left:50%;transform:translateX(-50%);z-index:6;" +
+        "pointer-events:none;padding:8px 22px;border-radius:14px;border:1px solid #2a3242;" +
+        "background:#0b0f16f2;color:#cdd8ea;font:700 15px ui-monospace,Menlo,monospace;white-space:nowrap;" +
+        "box-shadow:0 8px 30px rgba(0,0,0,0.55);opacity:0;transition:opacity 140ms ease;"
+    overlay.appendChild(pill)
+    spikeRecordingCountdownTimers.add(window.setTimeout({ pill.style.opacity = "1" }, 10))
+    // Tick 3 → 2 → 1, one second apart (the "3" is already showing).
+    spikeRecordingCountdownTimers.add(window.setTimeout({ pill.textContent = "2" }, 1_000))
+    spikeRecordingCountdownTimers.add(window.setTimeout({ pill.textContent = "1" }, 2_000))
+    // After the "1" second, fade the pill out.
+    spikeRecordingCountdownTimers.add(window.setTimeout({
+        pill.style.transition = "opacity 260ms ease"
+        pill.style.opacity = "0"
+    }, 3_000))
+    // Once the fade completes, remove the pill, let the compositor repaint the
+    // clean window (rAF), then begin capturing.
+    spikeRecordingCountdownTimers.add(window.setTimeout({
+        pill.remove()
+        spikeRecordingCountingDown = false
+        spikeRecordingCountdownTimers = mutableListOf()
+        window.requestAnimationFrame { acquireAndRecord(api) }
+    }, 3_300))
+}
+
+/**
+ * Aborts an in-flight pre-recording countdown: cancels its pending timers, drops the
+ * countdown flag, and removes the countdown pill from the overlay. A no-op when no
+ * countdown is running. Called from [closeWorld3dSpike] so a `⇧R` count started right
+ * before the world closes can't fire [acquireAndRecord] into a torn-down overlay.
+ *
+ * @see runRecordingCountdown
+ */
+internal fun cancelRecordingCountdown() {
+    if (!spikeRecordingCountingDown && spikeRecordingCountdownTimers.isEmpty()) return
+    for (t in spikeRecordingCountdownTimers) window.clearTimeout(t)
+    spikeRecordingCountdownTimers = mutableListOf()
+    spikeRecordingCountingDown = false
 }
 
 /**
@@ -828,6 +901,19 @@ private fun acquireAndRecord(api: dynamic) {
             val mandatory: dynamic = js("({})")
             mandatory.chromeMediaSource = "desktop"
             mandatory.chromeMediaSourceId = id
+            // Without explicit dimensions Chromium's desktop capturer falls back to
+            // a low default cap (~1280x720) and ignores the window's Retina pixel
+            // size, producing a soft, low-res recording. Pin min/max to the window's
+            // native device-pixel resolution so we capture at full sharpness, and
+            // request 60fps for smooth camera flights.
+            val dpr = (window.asDynamic().devicePixelRatio as? Number)?.toDouble() ?: 1.0
+            val nativeW = kotlin.math.round(window.innerWidth * dpr).toInt()
+            val nativeH = kotlin.math.round(window.innerHeight * dpr).toInt()
+            mandatory.minWidth = nativeW
+            mandatory.maxWidth = nativeW
+            mandatory.minHeight = nativeH
+            mandatory.maxHeight = nativeH
+            mandatory.maxFrameRate = 60
             val video: dynamic = js("({})")
             video.mandatory = mandatory
             val constraints: dynamic = js("({})")
@@ -901,7 +987,7 @@ private fun beginRecorder(stream: dynamic) {
  */
 private fun makeMediaRecorder(stream: dynamic): dynamic {
     val factory: dynamic = js(
-        "(function(s, mime){ return mime ? new MediaRecorder(s, { mimeType: mime }) : new MediaRecorder(s); })"
+        "(function(s, mime, bps){ var o = {}; if (mime) o.mimeType = mime; if (bps) o.videoBitsPerSecond = bps; return (mime || bps) ? new MediaRecorder(s, o) : new MediaRecorder(s); })"
     )
     val isSupported: dynamic = js(
         "(function(m){ try { return !!(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)); } catch (e) { return false; } })"
@@ -912,7 +998,17 @@ private fun makeMediaRecorder(stream: dynamic): dynamic {
         isSupported("video/webm") == true -> "video/webm"
         else -> null
     }
-    return factory(stream, mime)
+    // The MediaRecorder default (~2.5 Mbps) blocks up badly on a full-window,
+    // full-motion 3D scene. Scale a target bitrate to the capture's pixel area
+    // (~0.2 bits/px/frame at 60fps), clamped to an 8–32 Mbps band. The 32 Mbps
+    // ceiling is the sizing knob: 32 Mbps ≈ 4 MB/s ≈ 240 MB/min, so a
+    // near-fullscreen 16" M2 flight lands ~480 MB for a 2-minute clip (under
+    // 500 MB) while VP9 keeps it essentially artifact-free at that bitrate.
+    val dpr = (window.asDynamic().devicePixelRatio as? Number)?.toDouble() ?: 1.0
+    val pixels = (window.innerWidth * dpr) * (window.innerHeight * dpr)
+    val target = (pixels * 60.0 * 0.2).toLong()
+    val bitsPerSecond = target.coerceIn(8_000_000L, 32_000_000L)
+    return factory(stream, mime, bitsPerSecond.toDouble())
 }
 
 /**

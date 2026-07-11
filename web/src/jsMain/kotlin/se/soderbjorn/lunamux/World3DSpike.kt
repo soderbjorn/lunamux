@@ -704,6 +704,9 @@ internal val FLY_KEY_CODES = setOf(
 internal fun closeWorld3dSpike() {
     if (!spikeOpen) return
     spikeOpen = false
+    // Abort a pre-recording 3-2-1 countdown so its pending timer can't fire
+    // acquireAndRecord() into the overlay this teardown is about to remove.
+    cancelRecordingCountdown()
     // If a screen recording is still running, stop it now so it's saved (and the
     // OS window-capture stream is released) rather than orphaned by the teardown.
     if (spikeRecording) stopWindowRecording()

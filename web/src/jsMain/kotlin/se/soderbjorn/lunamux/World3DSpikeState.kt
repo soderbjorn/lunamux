@@ -519,6 +519,19 @@ internal var spikeRecordingChunks: dynamic = null
 internal var spikeRecording: Boolean = false
 
 /**
+ * Whether the pre-recording 3-2-1 countdown is currently on screen (after `⇧R`
+ * but before capture actually begins). Guards the `⇧R` toggle so a second press
+ * during the countdown neither starts a parallel countdown nor is mistaken for a
+ * stop — recording hasn't started yet. Its pending timer handles live in
+ * [spikeRecordingCountdownTimers] so the countdown can be torn down on close.
+ * @see runRecordingCountdown
+ */
+internal var spikeRecordingCountingDown: Boolean = false
+
+/** Pending timer handles for the in-flight pre-recording countdown, cancelled if the world closes mid-count. @see runRecordingCountdown */
+internal var spikeRecordingCountdownTimers: MutableList<Int> = mutableListOf()
+
+/**
  * Target world-x the **shelf pan** is easing the camera toward, or `null` when no pan
  * is active. Set by [shelfBrowse] to the browsed slot's x; the render loop trucks
  * [spikeCamX] toward it each frame (fixed y/z and straight-ahead gaze — a clean lateral
