@@ -1,6 +1,6 @@
 {
   "name": "lunamux-electron",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Electron desktop wrapper for the Lunamux web app",
   "author": "Robert Söderbjörn",
   "main": "main.js",
@@ -40,8 +40,8 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
-      "bundleVersion": "10",
-      "bundleShortVersion": "1.7.0",
+      "bundleVersion": "11",
+      "bundleShortVersion": "1.8.0",
       "identity": "Robert Söderbjörn (CCJP95ZXG4)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
