@@ -1018,24 +1018,29 @@ internal const val PHASER_IMPLODE = 1.6 // inward bulge (× FLEX_BULGE) at full 
  *
  * Sizes are fractions of the viewport's shorter edge so the blast scales with resolution:
  * the fireball eases out to [EXPLOSION_FIREBALL_MAX_FRAC], the shockwave to
- * [EXPLOSION_SHOCK_MAX_FRAC]. The core/fireball live [EXPLOSION_LIFE_FRAMES] frames (the
- * first [EXPLOSION_FLASH_FRAMES] being the blue-white flash), the shockwave
- * [EXPLOSION_SHOCK_FRAMES]. [EXPLOSION_DEBRIS_COUNT] sparks are seeded, each flung at up
- * to [EXPLOSION_DEBRIS_SPEED] px/frame, slowed by [EXPLOSION_DEBRIS_DRAG]/frame and living
- * up to [EXPLOSION_DEBRIS_LIFE] frames.
+ * [EXPLOSION_SHOCK_MAX_FRAC] (with a second, faster ring for a double concussion). The
+ * core/fireball live [EXPLOSION_LIFE_FRAMES] frames (the first [EXPLOSION_FLASH_FRAMES]
+ * being the blue-white flash, which also throws a four-point star-flare and a brief
+ * [EXPLOSION_SCREEN_FLASH_MAX] full-viewport whiteout), the shockwave [EXPLOSION_SHOCK_FRAMES].
+ * [EXPLOSION_DEBRIS_COUNT] sparks are seeded, each flung at up to [EXPLOSION_DEBRIS_SPEED]
+ * px/frame, slowed by [EXPLOSION_DEBRIS_DRAG]/frame and living up to [EXPLOSION_DEBRIS_LIFE]
+ * frames; a [EXPLOSION_STREAK_FRACTION] slice of them are white-hot high-speed streaks that
+ * outrun the rest for extra violence.
  * @see spawnPaneExplosion @see tickExplosion @see tickPhaser
  */
 internal const val EXPLOSION_ON_KILL = true
-internal const val EXPLOSION_PRE_SLIDE_MS = 240 // hold the survivors' slide this long so the blast lands first
-internal const val EXPLOSION_LIFE_FRAMES = 46.0 // ~0.77 s core/fireball lifetime
-internal const val EXPLOSION_FLASH_FRAMES = 7.0 // opening blue-white flash duration
-internal const val EXPLOSION_FIREBALL_MAX_FRAC = 0.24 // peak fireball radius (× min(w,h))
-internal const val EXPLOSION_SHOCK_FRAMES = 26.0 // shockwave-ring lifetime
-internal const val EXPLOSION_SHOCK_MAX_FRAC = 0.42 // peak shockwave radius (× min(w,h))
-internal const val EXPLOSION_DEBRIS_COUNT = 38 // sparks/chunks flung out
-internal const val EXPLOSION_DEBRIS_SPEED = 15.0 // peak initial spark speed (px/frame)
-internal const val EXPLOSION_DEBRIS_DRAG = 0.90 // per-frame velocity retention (space: drag only, no gravity)
-internal const val EXPLOSION_DEBRIS_LIFE = 44.0 // max spark lifetime in frames
+internal const val EXPLOSION_PRE_SLIDE_MS = 300 // hold the survivors' slide this long so the blast lands first
+internal const val EXPLOSION_LIFE_FRAMES = 60.0 // ~1.0 s core/fireball lifetime
+internal const val EXPLOSION_FLASH_FRAMES = 9.0 // opening blue-white flash duration
+internal const val EXPLOSION_SCREEN_FLASH_MAX = 0.30 // peak full-viewport whiteout alpha at detonation
+internal const val EXPLOSION_FIREBALL_MAX_FRAC = 0.46 // peak fireball radius (× min(w,h))
+internal const val EXPLOSION_SHOCK_FRAMES = 32.0 // shockwave-ring lifetime
+internal const val EXPLOSION_SHOCK_MAX_FRAC = 0.85 // peak shockwave radius (× min(w,h))
+internal const val EXPLOSION_DEBRIS_COUNT = 110 // sparks/chunks flung out
+internal const val EXPLOSION_DEBRIS_SPEED = 34.0 // peak initial spark speed (px/frame)
+internal const val EXPLOSION_DEBRIS_DRAG = 0.935 // per-frame velocity retention (space: drag only, no gravity)
+internal const val EXPLOSION_DEBRIS_LIFE = 62.0 // max spark lifetime in frames
+internal const val EXPLOSION_STREAK_FRACTION = 0.32 // slice of debris that are fast white-hot streaks
 
 /**
  * **Feature flag** (no UI) for the **wormhole pane spawn** — the birth-effect

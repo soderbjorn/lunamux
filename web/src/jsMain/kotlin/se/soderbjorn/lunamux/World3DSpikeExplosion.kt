@@ -51,6 +51,8 @@ import se.soderbjorn.lunamux.three.PerspectiveCamera
  * @property life the spark's total lifetime in frames.
  * @property size the head radius in px.
  * @property warm 0..1 colour bias — 1 is white-hot, 0 is a deep-orange ember.
+ * @property streak `true` for the fast white-hot shards ([EXPLOSION_STREAK_FRACTION] of the
+ *   spray) that outrun the embers and draw a long motion-blur tail for extra violence.
  * @see tickExplosion
  */
 internal class ExplosionSpark(
@@ -62,6 +64,7 @@ internal class ExplosionSpark(
     val life: Double,
     val size: Double,
     val warm: Double,
+    val streak: Boolean,
 )
 
 /**
@@ -118,9 +121,15 @@ internal fun spawnPaneExplosion(p: RingPane, camera: PerspectiveCamera) {
     val sparks = ArrayList<ExplosionSpark>(EXPLOSION_DEBRIS_COUNT)
     repeat(EXPLOSION_DEBRIS_COUNT) {
         // Even angular spread with jitter, so the debris fans out all round rather than
-        // clumping; speed and life vary per spark for a ragged, organic blast.
+        // clumping; speed and life vary per spark for a ragged, organic blast. A slice are
+        // fast white-hot streaks that outrun the embers — the violent, shrapnel edge.
         val ang = (it + Random.nextDouble()) / EXPLOSION_DEBRIS_COUNT * PI * 2.0
-        val speed = EXPLOSION_DEBRIS_SPEED * (0.35 + Random.nextDouble() * 0.65)
+        val streak = Random.nextDouble() < EXPLOSION_STREAK_FRACTION
+        val speed = if (streak) {
+            EXPLOSION_DEBRIS_SPEED * (0.85 + Random.nextDouble() * 0.6) // fast shards
+        } else {
+            EXPLOSION_DEBRIS_SPEED * (0.28 + Random.nextDouble() * 0.6) // ragged embers
+        }
         sparks.add(
             ExplosionSpark(
                 x = cx, y = cy,
@@ -128,8 +137,9 @@ internal fun spawnPaneExplosion(p: RingPane, camera: PerspectiveCamera) {
                 vy = sin(ang) * speed,
                 age = 0.0,
                 life = EXPLOSION_DEBRIS_LIFE * (0.5 + Random.nextDouble() * 0.5),
-                size = 1.4 + Random.nextDouble() * 2.6,
-                warm = Random.nextDouble(),
+                size = if (streak) 1.2 + Random.nextDouble() * 1.6 else 1.6 + Random.nextDouble() * 3.0,
+                warm = if (streak) 0.8 + Random.nextDouble() * 0.2 else Random.nextDouble(),
+                streak = streak,
             ),
         )
     }
@@ -225,18 +235,35 @@ private fun drawFireball(ctx: dynamic, ex: PaneExplosion) {
     ctx.arc(ex.cx, ex.cy, r, 0.0, PI * 2.0)
     ctx.fill()
 
-    // Opening blue-white flash: a big soft bloom that outshines the fireball, gone fast.
+    // Opening detonation: a full-viewport whiteout, a big blue-white bloom that outshines
+    // the fireball, and a four-point star-flare — all gone within the first few frames.
     if (ex.age < EXPLOSION_FLASH_FRAMES) {
         val f = 1.0 - ex.age / EXPLOSION_FLASH_FRAMES
-        val fr = rMax * (0.6 + 0.9 * (1.0 - f))
+        // Full-viewport whiteout: a violent frame of overexposure at the instant of the blast.
+        ctx.fillStyle = "rgba(255,255,255,${EXPLOSION_SCREEN_FLASH_MAX * f * f})"
+        ctx.fillRect(ex.cx - ex.radius * 2.0, ex.cy - ex.radius * 2.0, ex.radius * 4.0, ex.radius * 4.0)
+
+        val fr = rMax * (0.7 + 1.1 * (1.0 - f))
         val fl = ctx.createRadialGradient(ex.cx, ex.cy, 0.0, ex.cx, ex.cy, fr)
-        fl.addColorStop(0.0, "rgba(235,245,255,${0.9 * f})")
-        fl.addColorStop(0.5, "rgba(150,200,255,${0.4 * f})")
+        fl.addColorStop(0.0, "rgba(235,245,255,${0.95 * f})")
+        fl.addColorStop(0.5, "rgba(150,200,255,${0.45 * f})")
         fl.addColorStop(1.0, "rgba(80,140,255,0)")
         ctx.fillStyle = fl
         ctx.beginPath()
         ctx.arc(ex.cx, ex.cy, fr, 0.0, PI * 2.0)
         ctx.fill()
+
+        // Star-flare: two long, thin lens spikes crossing the core (horizontal + vertical),
+        // the classic bright-flash sparkle that sells the concussion.
+        val spike = rMax * (2.4 * f + 1.2)
+        ctx.strokeStyle = "rgba(255,255,255,${0.8 * f})"
+        for (pass in 0..1) {
+            ctx.lineWidth = if (pass == 0) 3.0 * f + 0.6 else 1.4 * f + 0.4
+            ctx.beginPath()
+            ctx.moveTo(ex.cx - spike, ex.cy); ctx.lineTo(ex.cx + spike, ex.cy)
+            ctx.moveTo(ex.cx, ex.cy - spike); ctx.lineTo(ex.cx, ex.cy + spike)
+            ctx.stroke()
+        }
     }
 }
 
@@ -250,15 +277,31 @@ private fun drawFireball(ctx: dynamic, ex: PaneExplosion) {
  * @see tickExplosion
  */
 private fun drawShockwave(ctx: dynamic, ex: PaneExplosion) {
-    val t = (ex.age / EXPLOSION_SHOCK_FRAMES).coerceIn(0.0, 1.0)
+    val maxR = ex.radius * EXPLOSION_SHOCK_MAX_FRAC
+    // A fast leading concussion ring and a slower, wider trailing one — a double blast wave.
+    drawShockRing(ctx, ex, phase = ex.age / EXPLOSION_SHOCK_FRAMES, maxR = maxR, width = 9.0, alpha = 0.8)
+    drawShockRing(ctx, ex, phase = ex.age / (EXPLOSION_SHOCK_FRAMES * 1.7), maxR = maxR * 1.15, width = 5.0, alpha = 0.45)
+}
+
+/**
+ * Draws one expanding shockwave ring for the current frame: radius grows on an ease-out to
+ * [maxR] as [phase] runs 0→1, the stroke thinning and fading as it goes. Assumes additive
+ * compositing. A `phase >= 1` ring is spent and skipped.
+ *
+ * @param ctx the explosion canvas 2D context. @param ex the blast (for its centre).
+ * @param phase the ring's own 0→1 progress. @param maxR its peak radius in px.
+ * @param width its stroke width at birth in px. @param alpha its opacity at birth.
+ * @see drawShockwave
+ */
+private fun drawShockRing(ctx: dynamic, ex: PaneExplosion, phase: Double, maxR: Double, width: Double, alpha: Double) {
+    val t = phase.coerceIn(0.0, 1.0)
     if (t >= 1.0) return
     val ease = 1.0 - (1.0 - t) * (1.0 - t)
-    val r = ex.radius * EXPLOSION_SHOCK_MAX_FRAC * ease
-    val alpha = (1.0 - t) * 0.7
-    ctx.strokeStyle = "rgba(255,225,180,$alpha)"
-    ctx.lineWidth = (7.0 * (1.0 - t)).coerceAtLeast(0.6)
+    val r = (maxR * ease).coerceAtLeast(1.0)
+    ctx.strokeStyle = "rgba(255,225,180,${(1.0 - t) * alpha})"
+    ctx.lineWidth = (width * (1.0 - t)).coerceAtLeast(0.6)
     ctx.beginPath()
-    ctx.arc(ex.cx, ex.cy, r.coerceAtLeast(1.0), 0.0, PI * 2.0)
+    ctx.arc(ex.cx, ex.cy, r, 0.0, PI * 2.0)
     ctx.stroke()
 }
 
@@ -288,11 +331,12 @@ private fun drawSparks(ctx: dynamic, ex: PaneExplosion) {
         val red = 255
         val grn = (110 + (145 * s.warm)).toInt()
         val blu = (30 + (120 * s.warm)).toInt()
-        // Motion-blur tail, a couple of frames of travel behind the head.
-        ctx.strokeStyle = "rgba($red,$grn,$blu,${0.55 * fade})"
+        // Motion-blur tail — long and bright for the fast streaks, short for the embers.
+        val tail = if (s.streak) 4.5 else 2.0
+        ctx.strokeStyle = "rgba($red,$grn,$blu,${(if (s.streak) 0.8 else 0.55) * fade})"
         ctx.lineWidth = s.size
         ctx.beginPath()
-        ctx.moveTo(s.x - s.vx * 2.0, s.y - s.vy * 2.0)
+        ctx.moveTo(s.x - s.vx * tail, s.y - s.vy * tail)
         ctx.lineTo(s.x, s.y)
         ctx.stroke()
         // Glowing head.
