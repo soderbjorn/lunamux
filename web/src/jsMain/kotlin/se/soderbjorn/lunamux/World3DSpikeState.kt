@@ -453,6 +453,20 @@ internal var spikeBobEnabled = true
 internal var spikeFancyAnimations = true
 
 /**
+ * Whether the 3D world plays its **procedural sound effects** — the phaser barrage when a pane
+ * is closed, the explosion when it blows up, the wormhole opening a new pane arrives through,
+ * the terminal's warp-in swoosh, and the tunnel hum/whoosh of a world switch. Synthesized live
+ * by [World3DSpikeAudio] on the shared Web Audio context. Persisted as the `world3dSoundEffects`
+ * setting; seeded here at every open by [syncWorld3dRuntimeFromSettings] and live-updated by the
+ * in-world settings panel. When `false`, every effect entry point returns immediately (no audio
+ * context is even created). Independent of [spikeFancyAnimations] — you can keep the visuals and
+ * mute the sound — but note the sounds fire only from the cinematic effects, so turning fancy
+ * animations off already silences them.
+ * @see isSoundEffectsEnabled @see playExplosion
+ */
+internal var spikeSoundEffects = true
+
+/**
  * How working / waiting panes signal their state — the persisted **Status indication**
  * setting (`world3dStatusIndication`), collapsing the old warp-core toggle and
  * working-style cycle into one choice:

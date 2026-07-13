@@ -85,6 +85,10 @@ internal class WormholeSpawn(
     val sz: Double,
     var spin: Double = 0.0,
     var armedReturn: Boolean = false,
+    /** `true` once the "wormhole appears" sound has fired (when the funnel begins to open). */
+    var playedAppear: Boolean = false,
+    /** `true` once the "terminal materialize" swoosh has fired (when the pane begins to emerge). */
+    var playedEmerge: Boolean = false,
 )
 
 /** The frame at which the camera-focus leg ends and the funnel begins to open. */
@@ -209,6 +213,21 @@ internal fun tickWormhole(camera: PerspectiveCamera) {
             pane?.spawnPhase = -1.0
             completed.add(ws)
             continue
+        }
+
+        // Sound cues, fired once as the sequence crosses each visual beat: the vortex tearing
+        // open (as the funnel begins to spiral open), then the terminal's warp-in swoosh (as the
+        // pane begins to emerge from the throat). @see playWormholeAppear @see playTerminalMaterialize
+        if (!ws.playedAppear && phase >= WORMHOLE_FOCUS_END) {
+            ws.playedAppear = true
+            playWormholeAppear(WORMHOLE_OPEN_FRAMES / 60.0)
+        }
+        // Fire the swoosh a beat BEFORE the pane pops (WORMHOLE_OPEN_END): the warp-in sound
+        // is a rising swoosh whose climax lands ~0.35 s after it starts, so leading the trigger
+        // by ~22 frames makes that climax coincide with the pane appearing rather than trailing it.
+        if (!ws.playedEmerge && phase >= WORMHOLE_OPEN_END - 22.0) {
+            ws.playedEmerge = true
+            playTerminalMaterialize()
         }
 
         // --- Funnel: face the camera (with a fixed cant so we see *into* it), spin the

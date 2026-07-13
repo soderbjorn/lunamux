@@ -144,11 +144,15 @@ internal fun tickPhaser(camera: PerspectiveCamera) {
                 // Slightly more bolts per volley, and volleys a touch closer, as it peaks.
                 val volley = 1 + (Random.nextDouble() * (0.4 + prog * 1.1)).toInt()
                 repeat(volley) { spawnPhaserBolt(p, w, h) }
+                playPhaserShot() // one plasma zap per volley — the audible barrage
+
                 val span = PHASER_BOLT_INTERVAL_MAX - PHASER_BOLT_INTERVAL_MIN
                 p.phaserNextBolt = (PHASER_BOLT_INTERVAL_MIN +
                     (Random.nextDouble() * span * (1.0 - prog * 0.55)).toInt()).toDouble()
             }
-        } else if (p.phaserPhase >= PHASER_TOTAL_FRAMES + PHASER_COLLAPSE_FRAMES) {
+        } else if (p.phaserPhase >= PHASER_TOTAL_FRAMES + PHASER_COLLAPSE_FRAMES - PHASER_BLAST_LEAD) {
+            // Detonate a touch before the implosion fully lands (the pane is already at ~0 scale
+            // by here) so the blast + its boom feel tight rather than a beat late. @see PHASER_BLAST_LEAD
             completed.add(p)
         }
     }
@@ -181,7 +185,7 @@ internal fun tickPhaser(camera: PerspectiveCamera) {
         for (p in completed) {
             // Burst a space explosion at the kill site *before* wiping the pane, while its
             // CSS3D object is still in the scene to project — the payoff to the barrage.
-            if (EXPLOSION_ON_KILL) { spawnPaneExplosion(p, camera); blasted = true }
+            if (EXPLOSION_ON_KILL) { spawnPaneExplosion(p, camera); playExplosion(); blasted = true }
             p.phaserPhase = -1.0
             p.phaserRecoil = 0.0
             p.phaserTint?.let { runCatching { it.remove() } }

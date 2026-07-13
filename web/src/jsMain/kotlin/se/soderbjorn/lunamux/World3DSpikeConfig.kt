@@ -987,6 +987,7 @@ internal const val WORKING_PULSE_MAX = 0.30 // …travelling further before easi
 internal const val PHASER_CLOSE_ENABLED = true
 internal const val PHASER_TOTAL_FRAMES = 240.0 // ~4 s of fire before the collapse
 internal const val PHASER_COLLAPSE_FRAMES = 52.0 // ~0.87 s smooth implosion into the centre
+internal const val PHASER_BLAST_LEAD = 6.0 // detonate ~0.1 s before the implosion fully lands, so the blast + boom feel tight
 internal const val PHASER_BOLT_INTERVAL_MIN = 6 // frames between bolt volleys (min) — slower fire
 internal const val PHASER_BOLT_INTERVAL_MAX = 17 // …and max, for irregular firing
 internal const val PHASER_BOLT_LIFE = 11.0 // frames a bolt streak stays lit

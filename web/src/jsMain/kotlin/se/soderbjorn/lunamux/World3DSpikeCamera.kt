@@ -786,6 +786,7 @@ internal fun resetFrontZoom() {
 internal fun syncWorld3dRuntimeFromSettings() {
     spikeBobEnabled = isWindowBobbingEnabled()
     spikeFancyAnimations = isFancyAnimationsEnabled()
+    spikeSoundEffects = isSoundEffectsEnabled()
     val prev = spikeStatusIndication
     spikeStatusIndication = world3dStatusIndication()
     // Leaving the reactor mode: clear its lingering per-pane visuals so nothing freezes.

@@ -159,6 +159,9 @@ private const val KEY_WORLD3D_STATUS_INDICATION = "world3dStatusIndication"
 /** Persistence key for the 3D-world **fancy animations** toggle. @see isFancyAnimationsEnabled */
 private const val KEY_WORLD3D_FANCY_ANIMATIONS = "world3dFancyAnimations"
 
+/** Persistence key for the 3D-world **sound effects** toggle. @see isSoundEffectsEnabled */
+private const val KEY_WORLD3D_SOUND_EFFECTS = "world3dSoundEffects"
+
 // The opt-in "use program-set terminal titles" flag persists under
 // TERMINAL_PROGRAM_TITLE_KEY from the shared clientServer module — the server
 // reads the same constant, so the contract is compiler-enforced.
@@ -394,6 +397,18 @@ fun isWindowBobbingEnabled(): Boolean =
  */
 fun isFancyAnimationsEnabled(): Boolean =
     snapshotBoolean(KEY_WORLD3D_FANCY_ANIMATIONS, default = true)
+
+/**
+ * Whether the 3D world plays its **procedural sound effects** — the phaser barrage and
+ * explosion when a pane is closed, the wormhole a new pane arrives through, the terminal's
+ * warp-in swoosh, and the tunnel hum/whoosh of a world switch (⌥⌘O). All synthesized live in
+ * the browser via the Web Audio API (no bundled audio files). Ships **on by default**. Read at
+ * open by [syncWorld3dRuntimeFromSettings] to seed [spikeSoundEffects], and live by the in-world
+ * settings panel so a change takes effect on the running world immediately.
+ * @see KEY_WORLD3D_SOUND_EFFECTS @see spikeSoundEffects
+ */
+fun isSoundEffectsEnabled(): Boolean =
+    snapshotBoolean(KEY_WORLD3D_SOUND_EFFECTS, default = true)
 
 /**
  * The 3D world's chosen **status indication** style, one of [StatusIndication].
@@ -760,8 +775,8 @@ private fun buildOverview3dSection(): HTMLElement {
 }
 
 /**
- * Append the two **3D-world** settings controls — *Window bobbing* and *Status
- * indication* — to [container]. Shared by the App Settings sidebar's General section
+ * Append the **3D-world** settings controls — *Window bobbing*, *Fancy animations*, *Sound
+ * effects* and *Status indication* — to [container]. Shared by the App Settings sidebar's General section
  * ([buildGeneralSection]) and the in-world settings overlay (⌥⌘,,
  * [buildWorld3dSettingsPanel]), so both render identical controls that persist
  * identically.
@@ -801,6 +816,19 @@ fun buildWorld3dSettingsRows(container: HTMLElement, onChanged: () -> Unit = {})
             "stashed. Turn off to make each of those instant: the pane just appears, the " +
             "world just changes, the pane just disappears, and the stash just vanishes to " +
             "the dock.",
+    ))
+    container.appendChild(buildToggleRow(
+        labelText = "Sound effects",
+        initialValue = isSoundEffectsEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_WORLD3D_SOUND_EFFECTS, v)
+            putJsonBoolean(KEY_WORLD3D_SOUND_EFFECTS, v)
+            onChanged()
+        },
+        descriptionText = "Plays procedural sci-fi audio for the cinematic beats — the phaser " +
+            "barrage and explosion when a pane is closed, the wormhole a new pane arrives " +
+            "through, and the tunnel hum when you fly to another world (⌥⌘O). Synthesized live, " +
+            "no downloads. Turn off for a silent 3D world.",
     ))
     container.appendChild(buildChoiceRow(
         labelText = "Status indication",

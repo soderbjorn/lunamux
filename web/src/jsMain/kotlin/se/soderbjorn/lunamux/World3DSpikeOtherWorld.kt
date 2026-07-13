@@ -122,6 +122,8 @@ internal class WorldTransit(
     var tunnelRoll: Double = 0.0,
     var tunnelTravel: Double = 0.0,
     var reskinned: Boolean = false,
+    /** `true` once the tunnel hum/whoosh has fired (only when the tunnel leg begins). */
+    var playedTravel: Boolean = false,
 )
 
 /** How many warp streaks and structural rings the tunnel draws. */
@@ -377,6 +379,12 @@ internal fun enterOrExitOtherWorld() {
         lookStartY = lookStartY,
         lookStartZ = lookStartZ,
     )
+
+    // Rift creation: the exact same "wormhole appears" bloom the new-pane vortex uses — same
+    // duration (WORMHOLE_OPEN_FRAMES) so it plays at the same speed, not stretched/slowed — fired
+    // as the rift opens here at the start of the journey. The tunnel hum/whoosh then takes over as
+    // we dive into the tube ([tickWorldTransit]). @see playWormholeAppear
+    playWormholeAppear(WORMHOLE_OPEN_FRAMES / 60.0)
 }
 
 /**
@@ -406,6 +414,18 @@ internal fun tickWorldTransit(camera: PerspectiveCamera) {
     // approach's canvas only reaches full opacity at its very end and the arrive leg fades it
     // back out (both fly the camera across visible scene), so only the tunnel leg qualifies.
     spikeWorldTransitOccluding = phase >= tApproach && phase < tTunnel
+
+    // Tunnel hum + rushing whoosh — fired ONCE, timed to the *visible* tube, not the leg
+    // boundary. The tunnel canvas fades up over the last 30% of the approach, so start the whoosh
+    // there (≈ phase 180) with a fast attack so it's full as we punch into the tube at tApproach;
+    // end it when the tube has fully faded out on arrival (over the first 45% of the arrive leg),
+    // so it stops as we emerge rather than lingering across the new world. @see playWormholeTravel
+    val tunnelVisibleStart = tApproach - WORLD_TRANSIT_APPROACH_FRAMES * 0.30
+    val tunnelGone = tTunnel + WORLD_TRANSIT_ARRIVE_FRAMES * 0.25
+    if (!wt.playedTravel && phase >= tunnelVisibleStart) {
+        wt.playedTravel = true
+        playWormholeTravel((tunnelGone - phase) / 60.0)
+    }
 
     // Geometry. The rift opens at an off-to-the-side open-space point ([WORLD_TRANSIT_RIFT_*]) —
     // out beyond the ring in empty sky — so we turn toward it and fly in diagonally. The open leg
