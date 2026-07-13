@@ -461,10 +461,12 @@ internal var spikeFancyAnimations = true
  * in-world settings panel. When `false`, every effect entry point returns immediately (no audio
  * context is even created). Independent of [spikeFancyAnimations] — you can keep the visuals and
  * mute the sound — but note the sounds fire only from the cinematic effects, so turning fancy
- * animations off already silences them.
+ * animations off already silences them. Ships **off by default** (the user opts in); the real value
+ * is seeded from the persisted setting at every open, so this initial value only matters before the
+ * first sync.
  * @see isSoundEffectsEnabled @see playExplosion
  */
-internal var spikeSoundEffects = true
+internal var spikeSoundEffects = false
 
 /**
  * How working / waiting panes signal their state — the persisted **Status indication**

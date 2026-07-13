@@ -402,13 +402,13 @@ fun isFancyAnimationsEnabled(): Boolean =
  * Whether the 3D world plays its **procedural sound effects** — the phaser barrage and
  * explosion when a pane is closed, the wormhole a new pane arrives through, the terminal's
  * warp-in swoosh, and the tunnel hum/whoosh of a world switch (⌥⌘O). All synthesized live in
- * the browser via the Web Audio API (no bundled audio files). Ships **on by default**. Read at
- * open by [syncWorld3dRuntimeFromSettings] to seed [spikeSoundEffects], and live by the in-world
- * settings panel so a change takes effect on the running world immediately.
+ * the browser via the Web Audio API (no bundled audio files). Ships **off by default** — the user
+ * opts in. Read at open by [syncWorld3dRuntimeFromSettings] to seed [spikeSoundEffects], and live
+ * by the in-world settings panel so a change takes effect on the running world immediately.
  * @see KEY_WORLD3D_SOUND_EFFECTS @see spikeSoundEffects
  */
 fun isSoundEffectsEnabled(): Boolean =
-    snapshotBoolean(KEY_WORLD3D_SOUND_EFFECTS, default = true)
+    snapshotBoolean(KEY_WORLD3D_SOUND_EFFECTS, default = false)
 
 /**
  * The 3D world's chosen **status indication** style, one of [StatusIndication].

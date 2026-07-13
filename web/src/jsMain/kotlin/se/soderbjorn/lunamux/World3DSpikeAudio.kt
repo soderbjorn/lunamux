@@ -423,21 +423,111 @@ fun playTerminalMaterialize(durationSeconds: Double = 0.75) {
 }
 
 /**
- * Riding the wormhole tunnel to another world — fired by [enterOrExitOtherWorld] and held for
- * the whole transit. A looping-noise **rushing wind** through an LFO-wobbled bandpass (the
- * walls flying past) over a **dark drone** that bends with the motion and sustains the full
- * trip, fading only at the exit. The caller passes the real transit duration so the sound
- * lasts exactly as long as the journey rather than cutting out early.
+ * **Code-level** selector for which wormhole-travel sound the world plays. `false` (default) uses
+ * the **datastream** version ([travelDatastream]) — a digital, ring-modulated, stuttering
+ * cyberspace conduit. Flip to `true` to restore the original **rushing-wind + dark-drone** tunnel
+ * ([travelWindDrone]). There is no user setting for this on purpose; it's a build-time choice kept
+ * so the classic sound can be brought back with a one-line change.
+ * @see playWormholeTravel
+ */
+private const val WORMHOLE_TRAVEL_CLASSIC = false
+
+/**
+ * Riding the wormhole tunnel to another world — fired by [enterOrExitOtherWorld] and held for the
+ * whole tunnel ride (its duration is timed by the caller to the visible tube). Dispatches to the
+ * active travel-sound implementation per [WORMHOLE_TRAVEL_CLASSIC].
  *
- * @param durationSeconds the transit length in seconds (≈ 10 s for the four-leg world switch).
- * @see enterOrExitOtherWorld
+ * @param durationSeconds how long the tunnel sound should last, in seconds (the caller matches it
+ *   to the on-screen tube, ≈ 5 s for the world switch).
+ * @see travelDatastream @see travelWindDrone @see enterOrExitOtherWorld
  */
 fun playWormholeTravel(durationSeconds: Double) {
     if (!spikeSoundEffects) return
     val ac = audioContext() ?: return
     val dst = masterOut() ?: return
+    if (WORMHOLE_TRAVEL_CLASSIC) travelWindDrone(ac, dst, durationSeconds)
+    else travelDatastream(ac, dst, durationSeconds)
+}
+
+/**
+ * The **datastream** wormhole-travel sound (current default) — a digital / cyberspace conduit: a
+ * ring-modulated carrier (carrier × bipolar modulator = a clangorous, metallic timbre) rising in
+ * pitch, chopped by a fast square gate so it stutters like data streaming past, run through a
+ * bandpass + harsh saturator for a boxy synthetic edge, with scattered high "blips". A fast attack
+ * so it's full as we punch into the tube, sustaining through the ride and fading at the exit.
+ *
+ * @param ac the shared audio context. @param dst the master output node. @param dur tunnel length.
+ * @see playWormholeTravel
+ */
+private fun travelDatastream(ac: dynamic, dst: dynamic, dur: Double) {
     val t: Double = ac.currentTime
-    val dur = durationSeconds
+    val bright = 1.0
+    val pitch = 1.0
+    val rate = 1.0
+
+    // master env + bandpass "screen" for a boxy digital tone, through a harsh shaper. Held near
+    // full almost to the very end (only a short fade over the last 8%) so the stream doesn't feel
+    // like it dies out before we emerge — its gated/stuttering tail thins fast once it starts fading.
+    val g = ac.createGain()
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(0.6, t + minOf(dur * 0.12, 0.5)) // fast attack for tube entry
+    g.gain.setValueAtTime(0.6, t + dur * 0.92)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+    val bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.2
+    bp.frequency.setValueAtTime(600.0, t)
+    bp.frequency.exponentialRampToValueAtTime(2600.0 * bright, t + dur * 0.88)
+    val shaper = saturator(ac, 1.0) // harsh digital edge
+    shaper.connect(bp); bp.connect(g); g.connect(dst)
+
+    // ring modulation: carrier × bipolar modulator (gain base 0, modulator swings ±1). The pitch
+    // climb runs almost the whole ride so the stream keeps "accelerating" until we exit.
+    val rm = ac.createGain(); rm.gain.value = 0.0
+    val carrier = ac.createOscillator(); carrier.type = "sawtooth"
+    carrier.frequency.setValueAtTime(160.0 * pitch, t)
+    carrier.frequency.exponentialRampToValueAtTime(520.0 * pitch, t + dur * 0.9)
+    val mod = ac.createOscillator(); mod.type = "square"
+    mod.frequency.setValueAtTime(90.0, t)
+    mod.frequency.exponentialRampToValueAtTime(240.0, t + dur * 0.9)
+    val modG = ac.createGain(); modG.gain.value = 1.0
+    mod.connect(modG); modG.connect(rm.gain)
+    carrier.connect(rm)
+
+    // glitch gate: fast square LFO chopping the signal on/off (data stutter)
+    val gate = ac.createGain(); gate.gain.value = 0.5
+    val gateLfo = ac.createOscillator(); gateLfo.type = "square"
+    gateLfo.frequency.value = 10.0 * rate
+    val gateAmt = ac.createGain(); gateAmt.gain.value = 0.5
+    gateLfo.connect(gateAmt); gateAmt.connect(gate.gain)
+    rm.connect(gate); gate.connect(shaper)
+    carrier.start(t); mod.start(t); gateLfo.start(t)
+    carrier.stop(t + dur + 0.05); mod.stop(t + dur + 0.05); gateLfo.stop(t + dur + 0.05)
+
+    // scattered high data blips
+    val blips = (14 * rate).toInt()
+    for (i in 0 until blips) {
+        val bt = t + Random.nextDouble() * dur * 0.9
+        val b = ac.createOscillator(); b.type = "square"
+        b.frequency.value = 800.0 + Random.nextDouble() * 2600.0
+        val bg = ac.createGain()
+        bg.gain.setValueAtTime(0.14, bt)
+        bg.gain.exponentialRampToValueAtTime(0.0001, bt + 0.05)
+        b.connect(bg); bg.connect(dst)
+        b.start(bt); b.stop(bt + 0.06)
+    }
+}
+
+/**
+ * The **classic** wormhole-travel sound (kept behind [WORMHOLE_TRAVEL_CLASSIC]) — a looping-noise
+ * **rushing wind** through an LFO-wobbled bandpass (the walls flying past) over a **dark drone**
+ * that bends with the motion and sustains the whole ride, fading only at the exit. Fast attacks so
+ * both are full as we enter the tube. Preserved so the original tunnel sound can be restored with a
+ * one-line flag change.
+ *
+ * @param ac the shared audio context. @param dst the master output node. @param dur tunnel length.
+ * @see playWormholeTravel
+ */
+private fun travelWindDrone(ac: dynamic, dst: dynamic, dur: Double) {
+    val t: Double = ac.currentTime
     val bright = 1.0
     val rush = 1.0
     val pitch = 1.0
