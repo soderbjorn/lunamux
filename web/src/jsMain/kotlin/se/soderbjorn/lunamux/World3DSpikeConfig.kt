@@ -1432,6 +1432,32 @@ internal const val WAITING_GLOW_BLUR = 64.0 // px — a wide soft bloom, spottab
 internal const val WAITING_GLOW_SPREAD = 10.0 // px — pushes the bloom out past the edge
 
 // ---------------------------------------------------------------------------
+// CINEMATIC SKIP — Enter/Esc fast-forwards a playing cinematic instead of cutting it.
+// @see World3DSpikeCineSkip.kt @see cineDt @see spikeCineScale
+// ---------------------------------------------------------------------------
+
+/**
+ * How much faster the cinematic clocks run once the user asks to skip — the multiplier
+ * [cineDt] applies to [spikeDtFrames] while a skip is in effect.
+ *
+ * The cinematics run roughly 2-4s each, so 8× lands them in ~0.3-0.5s: fast enough to read as
+ * "get on with it", slow enough that the payoff (the wormhole emerging, the pane blowing up)
+ * is still legible rather than a single-frame pop. Deliberately *not* tuned so every cinematic
+ * takes the same wall-clock time to skip — they differ in length, so a flat multiplier keeps
+ * their relative weight rather than stretching the short ones.
+ *
+ * Stepping this high is safe because the cinematic clocks all accumulate linearly and clamp
+ * (`coerceAtMost`), and their one-shot triggers are latch flags ([WormholeSpawn.playedAppear],
+ * [WorldTransit.reskinned]) rather than exact-frame equality tests — so a step that jumps over
+ * a beat still fires it. The one visible cost is that [tickPhaser] spawns at most one bolt per
+ * tick, so a skipped phaser death fires fewer bolts. During a deliberate skip that reads as
+ * intentional.
+ *
+ * @see skipCinematics
+ */
+internal const val SPIKE_CINE_SKIP_SCALE = 8.0
+
+// ---------------------------------------------------------------------------
 // WARP-CORE CHARGE + AWAITING-INPUT (HOLD) — the [spikeStatusIndication] cinematic
 // reactor treatment (the `p` key), a layer-independent alternative to the working
 // dots/green-glow and the red needs-input halo. A *working* pane spools a blue

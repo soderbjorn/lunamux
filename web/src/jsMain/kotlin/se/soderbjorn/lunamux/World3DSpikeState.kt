@@ -441,16 +441,16 @@ internal var spikeShelfIndex = -1
 internal var spikeBobEnabled = true
 
 /**
- * Whether the 3D world plays its **fancy cinematic animations** — the wormhole a new pane
+ * Whether the 3D world plays its **cinematic animations** — the wormhole a new pane
  * emerges from ([wormholeSpawnEligible]), the fly-through-the-wormhole world switch
  * ([enterOrExitOtherWorld]), the phaser shoot-out that kills a pane ([confirmRemove]), and
  * the camera chase up to the cargo-ship dock when a pane/tab is stashed ([stashPane] /
  * [stashTab]). Persisted as the `world3dFancyAnimations` setting; seeded here at every open
  * by [syncWorld3dRuntimeFromSettings] and live-updated by the in-world settings panel. When
  * `false`, each of those effects is replaced by its plain instant fallback.
- * @see isFancyAnimationsEnabled
+ * @see isCinematicAnimationsEnabled
  */
-internal var spikeFancyAnimations = true
+internal var spikeCinematicAnimations = true
 
 /**
  * Whether the 3D world plays its **procedural sound effects** — the phaser barrage when a pane
@@ -459,8 +459,8 @@ internal var spikeFancyAnimations = true
  * by [World3DSpikeAudio] on the shared Web Audio context. Persisted as the `world3dSoundEffects`
  * setting; seeded here at every open by [syncWorld3dRuntimeFromSettings] and live-updated by the
  * in-world settings panel. When `false`, every effect entry point returns immediately (no audio
- * context is even created). Independent of [spikeFancyAnimations] — you can keep the visuals and
- * mute the sound — but note the sounds fire only from the cinematic effects, so turning fancy
+ * context is even created). Independent of [spikeCinematicAnimations] — you can keep the visuals and
+ * mute the sound — but note the sounds fire only from the cinematic effects, so turning cinematic
  * animations off already silences them. Ships **off by default** (the user opts in); the real value
  * is seeded from the persisted setting at every open, so this initial value only matters before the
  * first sync.
@@ -884,9 +884,24 @@ internal var spikeLastFrameMs = Double.NaN
  * in [tickPhaser], and the cinematic camera return) advance by *this* rather than a flat
  * `1.0`, so their wall-clock duration is identical on a 60Hz and a 144Hz+ display. On a
  * 60Hz display this is ~1.0 (unchanged behaviour); at 144Hz it is ~0.42, so ~2.4× as many
- * frames elapse over the same real duration. @see SPIKE_FRAME_MS
+ * frames elapse over the same real duration. @see SPIKE_FRAME_MS @see cineDt
  */
 internal var spikeDtFrames = 1.0
+
+/**
+ * Time-scale multiplier on the **cinematic** clocks only — `1.0` normally, and
+ * [SPIKE_CINE_SKIP_SCALE] from the moment the user presses Enter/Esc to fast-forward a
+ * cinematic until the last one finishes. Read via [cineDt]; never applied to [spikeDtFrames]
+ * itself, because that same delta also drives ambient motion — the warp-core charge
+ * ([tickWarpCore]), explosion debris ([tickExplosions]), [spikeWarpClock] — which must keep
+ * running at wall-clock speed while a cinematic is being skipped.
+ *
+ * Reset to `1.0` by [settleCineScale] at the top of the first frame on which no cinematic is
+ * left in flight, so it can never leak into the next one.
+ *
+ * @see cineDt @see skipCinematics @see cinematicInFlight
+ */
+internal var spikeCineScale = 1.0
 
 /** Resize listener, detached on close. */
 internal var spikeResize: ((Event) -> Unit)? = null

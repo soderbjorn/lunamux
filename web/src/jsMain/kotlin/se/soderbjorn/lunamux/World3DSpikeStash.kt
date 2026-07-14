@@ -437,10 +437,13 @@ internal fun toggleStashView() {
     // Name the framed item at the dock, matching the command center's "now showing" cue.
     centerPane?.let { showNavLabelFor(it) }
     centerBundle?.let { showNavLabelForBundle(it) }
-    // Fancy animations off, and flying **up** from the command center: snap straight to the
-    // dock rest pose — a hard cut, no fly-up. A press while already at the dock (a re-centre)
-    // keeps its brief animated move, so this only shortcuts the long climb.
-    if (!spikeFancyAnimations && !cameraAtShelf()) {
+    // Cinematic animations off: snap straight to the dock rest pose — a hard cut, no fly-up.
+    // Covers the re-centre press at the dock too, not just the long climb from the command
+    // center. [flyStationEnter] below is a *two-leg* journey (stage outside the door, then
+    // transit in), and with cinematics off [flyCamTo] lands each leg on its own frame — so
+    // routing a re-centre through it would render the staging pose, way out past the hull, for
+    // one frame before cutting to the interior. A visible pop, where the point is a clean cut.
+    if (!spikeCinematicAnimations) {
         snapCamToPose(
             if (stationBuilt()) stationChaseRestPose(centerSlot)
             else shelfArrivalPose(centerSlot, paneHalfH),
@@ -518,10 +521,10 @@ internal fun stashPane(p: RingPane) {
     // the ring in this pane's tab (the shelved pane's ring slot is left as an empty gap).
     selectNearestUnstashedInTab(p.tabOrd, p.paneOrdInTab)
 
-    // Fancy animations off: the pane just vanishes to the cargo ship. Snap its stash
+    // Cinematic animations off: the pane just vanishes to the cargo ship. Snap its stash
     // progress straight to the shelf (the render loop holds it there) and leave the camera
     // where it is — no fly-up chase, so we never see the journey up to the dock.
-    if (!spikeFancyAnimations) {
+    if (!spikeCinematicAnimations) {
         p.stashProg = 1.0
         spikeSettledIndex = -1
         return
@@ -619,11 +622,11 @@ internal fun unstashPane(p: RingPane) {
 
     spikeSettledIndex = -1
     spikeShelfIndex = -1 // slots shift after removal and we're leaving — drop the browse cursor
-    // Fancy animations off: the pane just drops back onto the ring and we're instantly back at
+    // Cinematic animations off: the pane just drops back onto the ring and we're instantly back at
     // the command center — snap its stash progress home (the render loop keeps it seated) and
     // cut the camera to the pristine pose (a single stashed pane keeps a valid tab slot, so it
     // reappears in place; its tab was only minimized, never unlisted).
-    if (!spikeFancyAnimations) {
+    if (!spikeCinematicAnimations) {
         p.stashProg = 0.0
         spikeStashChase = null
         spikeShelfPanTargetX = null

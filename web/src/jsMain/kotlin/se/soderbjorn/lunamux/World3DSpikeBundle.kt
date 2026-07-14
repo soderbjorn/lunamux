@@ -304,11 +304,11 @@ internal fun stashTab(anchor: RingPane) {
 
     leaveFrontPane() // disengage / exit selection before the tab leaves the ring
 
-    // Fancy animations off: the whole tab just vanishes to the cargo ship. Build the stack
+    // Cinematic animations off: the whole tab just vanishes to the cargo ship. Build the stack
     // already landed on its dock slot ([BundleState.PARKED], progress at 1) and unlist it at
     // once (below), so there is no merge/fly cinematic and no camera move — the tab is simply
     // gone from the ring.
-    val parkInstantly = !spikeFancyAnimations
+    val parkInstantly = !spikeCinematicAnimations
 
     val id = "bundle-${spikeBundleSeq++}"
     val startPos = mutableMapOf<String, Triple<Double, Double, Double>>()
@@ -434,12 +434,12 @@ internal fun unstashTab(b: TabBundle, moveCamera: Boolean) {
     runCatching { launchCmd(WindowCommand.SetTabHidden(tabId = b.tabId, hidden = false)) }
     b.committed = false // re-listed: the loop may run these panes and compute their ring slots
     b.state = BundleState.FLYING_DOWN
-    // Fancy animations off: skip the fly-down cinematic. Drop the stack straight to the ring
+    // Cinematic animations off: skip the fly-down cinematic. Drop the stack straight to the ring
     // (flightProg 0 → no descent) and let [tickBundles] fan it onto its slots on the very next
     // ticks as the re-list round-trip lands; snap the camera home for a user press. The bundle
     // stays alive ([RingPane.bundleId] retained, death-sweep exempt) until separation finishes,
     // so the round-trip is bridged exactly as the animated fly-down does — we just don't watch it.
-    if (!spikeFancyAnimations) {
+    if (!spikeCinematicAnimations) {
         b.flightProg = 0.0
         if (moveCamera) {
             spikeStashChase = null
@@ -496,8 +496,8 @@ internal fun unstashTab(b: TabBundle, moveCamera: Boolean) {
 @Suppress("UNUSED_PARAMETER")
 internal fun tickBundles(camera: PerspectiveCamera, selectedBundleId: String? = null) {
     if (spikeStashedTabs.isEmpty()) return
-    val mergeStep = 1.0 / BUNDLE_MERGE_FRAMES * spikeDtFrames
-    val flightStep = 1.0 / STASH_CAM_FRAMES * spikeDtFrames
+    val mergeStep = 1.0 / BUNDLE_MERGE_FRAMES * cineDt()
+    val flightStep = 1.0 / STASH_CAM_FRAMES * cineDt()
     // The dashed target-outline accent, matching the render loop's [applyTargetOutline].
     val selectAccent = spikeChromeColors?.accent ?: "#3f5f8f"
     val done = mutableListOf<TabBundle>()
@@ -536,7 +536,7 @@ internal fun tickBundles(camera: PerspectiveCamera, selectedBundleId: String? = 
                 b.flightProg = (b.flightProg - flightStep).coerceAtLeast(0.0)
                 if (b.flightProg <= 0.0) { b.state = BundleState.SEPARATING; b.sepFrame = 0.0 }
             }
-            BundleState.SEPARATING -> b.sepFrame += spikeDtFrames
+            BundleState.SEPARATING -> b.sepFrame += cineDt()
         }
 
         // Keep the front sheet's stashProg equal to the flight progress: the chase cam

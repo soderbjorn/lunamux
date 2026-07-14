@@ -230,7 +230,7 @@ internal fun applyWorldSky() {
  * Wired to the **⌥⌘O** hotkey in [buildKeyHandler]. No-op if the feature is off, a transit is
  * already running, or the scene isn't up. With fewer than two worlds there is no distinct next
  * world, so the transit still plays as a cinematic but returns to the same world (never crashes).
- * When **fancy animations are off** ([spikeFancyAnimations]) the fly-through is skipped entirely:
+ * When **cinematic animations are off** ([spikeCinematicAnimations]) the fly-through is skipped entirely:
  * the world switches instantly (theme preview + [WindowCommand.SetActiveWorld] + repaint + banner)
  * with no vortex, tunnel or camera flight.
  *
@@ -267,12 +267,12 @@ internal fun enterOrExitOtherWorld() {
     val destWorldId = if (distinctDest) destWorld?.id else null
     val destName = destWorld?.name ?: ""
 
-    // Fancy animations off: skip the fly-through cinematic and just switch worlds. This mirrors
+    // Cinematic animations off: skip the fly-through cinematic and just switch worlds. This mirrors
     // the mid-tunnel [applyWorldPalette] step — preview the destination theme so the re-skin is
     // crisp before the [WindowCommand.SetActiveWorld] round-trip lands, fire the switch, repaint
     // the sky + pane chrome, and show the arrival banner — but with no vortex, no tunnel and no
     // camera flight, so we are simply in the new world at once (never a transit to tick down).
-    if (!spikeFancyAnimations) {
+    if (!spikeCinematicAnimations) {
         spikeWorldThemePreview = destSelection
         destWorldId?.let { launchCmd(WindowCommand.SetActiveWorld(it)) }
         restyleWorldChrome()
@@ -384,7 +384,7 @@ internal fun enterOrExitOtherWorld() {
     // duration (WORMHOLE_OPEN_FRAMES) so it plays at the same speed, not stretched/slowed — fired
     // as the rift opens here at the start of the journey. The tunnel hum/whoosh then takes over as
     // we dive into the tube ([tickWorldTransit]). @see playWormholeAppear
-    playWormholeAppear(WORMHOLE_OPEN_FRAMES / 60.0)
+    playWormholeAppear(cineSeconds(WORMHOLE_OPEN_FRAMES))
 }
 
 /**
@@ -401,7 +401,7 @@ internal fun enterOrExitOtherWorld() {
  */
 internal fun tickWorldTransit(camera: PerspectiveCamera) {
     val wt = spikeWorldTransit ?: return
-    wt.phase += spikeDtFrames
+    wt.phase += cineDt()
     val phase = wt.phase
 
     val tOpen = WORLD_TRANSIT_OPEN_FRAMES
@@ -424,7 +424,7 @@ internal fun tickWorldTransit(camera: PerspectiveCamera) {
     val tunnelGone = tTunnel + WORLD_TRANSIT_ARRIVE_FRAMES * 0.25
     if (!wt.playedTravel && phase >= tunnelVisibleStart) {
         wt.playedTravel = true
-        playWormholeTravel((tunnelGone - phase) / 60.0)
+        playWormholeTravel(cineSeconds(tunnelGone - phase))
     }
 
     // Geometry. The rift opens at an off-to-the-side open-space point ([WORLD_TRANSIT_RIFT_*]) —
@@ -493,7 +493,7 @@ internal fun tickWorldTransit(camera: PerspectiveCamera) {
     wt.group.position.set(vx, vy, vz)
     g.quaternion.copy(camera.asDynamic().quaternion)
     g.rotateX(WORLD_TRANSIT_TILT)
-    wt.spin += WORMHOLE_SPIN_SPEED * spikeDtFrames
+    wt.spin += WORMHOLE_SPIN_SPEED * cineDt()
     for (i in wt.rings.indices) {
         val dir = if (i % 2 == 0) 1.0 else -1.35
         wt.rings[i].style.setProperty(
@@ -668,7 +668,7 @@ private fun drawTransitTunnel(wt: WorldTransit, colorT: Double, speed: Double, s
     val cx = w * 0.5
     val cy = h * 0.5
     val maxR = sqrt(w * w + h * h) * 0.72
-    val dt = spikeDtFrames
+    val dt = cineDt()
 
     // Advance the travel clock the spine is sampled against — the bends flow toward the viewer
     // faster the harder we're rushing (peaks mid-tube), so turns come thick in the belly.

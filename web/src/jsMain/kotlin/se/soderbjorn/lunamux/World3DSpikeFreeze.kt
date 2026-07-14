@@ -86,9 +86,9 @@ private var spikeFreezePalette: TermPalette? = null
  * @param p the pane to test.
  * @return `true` while the pane is mid-flight (freeze), `false` at rest — on the ring OR parked
  *   at the stash site.
- * @see tickPaneFreeze @see paneParkedAtStash
+ * @see tickPaneFreeze @see paneParkedAtStash @see cinematicInFlight
  */
-private fun paneInStashFlight(p: RingPane): Boolean {
+internal fun paneInStashFlight(p: RingPane): Boolean {
     val b = bundleById(p.bundleId)
     if (b != null) return b.state != BundleState.PARKED
     val target = if (p.paneId in spikeStashed) 1.0 else 0.0

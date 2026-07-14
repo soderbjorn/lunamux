@@ -112,6 +112,12 @@ internal fun startSpikeLoop() {
             spikeLastFrameMs = nowMs
         }
 
+        // Release an Enter/Esc cinematic skip once the last cinematic it was fast-forwarding
+        // has finished. Runs here — after the delta, before any tick — so it reads what the
+        // previous frame's ticks left behind and a skip can never leak into the next
+        // cinematic. A no-op on every frame where nothing is being skipped. @see skipCinematics
+        settleCineScale()
+
         // Camera: fly it if flying, ease it home if returning, else hold the pose —
         // and while still "pristine" recompute the exact default each frame so the
         // front pane stays 1:1 through window resizes.
@@ -128,7 +134,7 @@ internal fun startSpikeLoop() {
             // *faces the tour's look point* the whole way. The `c` return targets the
             // home pose looking at the origin (ending nose −Z, roof +Y — the pristine
             // pose); a stash flight targets the shelf-view pose looking at the shelf.
-            spikeCamReturnT = (spikeCamReturnT + spikeDtFrames / spikeCamTourFrames).coerceAtMost(1.0)
+            spikeCamReturnT = (spikeCamReturnT + cineDt() / spikeCamTourFrames).coerceAtMost(1.0)
             val t = spikeCamReturnT
             val s = t * t * t * (t * (t * 6.0 - 15.0) + 10.0) // smootherstep
             val u = 1.0 - s
@@ -549,11 +555,15 @@ internal fun startSpikeLoop() {
                 // curve the camera tour uses, so the camera travels in lockstep with the
                 // pane the whole slow way up / down. `stashE` (the eased progress) lerps
                 // position/rotation and lifts opacity so a shelved pane stays fully
-                // visible off the ring. @see stashShelfPos @see flyCamTo
+                // visible off the ring. Stepped by [cineDt] — the same delta the camera
+                // tour above advances by — so "lockstep" holds on a 144Hz+ display (a flat
+                // per-frame step ran the pane ~2.4× ahead of the camera) and so a skip
+                // fast-forwards the pane and its chase cam together. @see stashShelfPos
+                // @see flyCamTo @see cineDt
                 val si = spikeStashed.indexOf(p.paneId)
                 if (si >= 0) p.stashSlot = si
                 val stashTgt = if (si >= 0) 1.0 else 0.0
-                val stashStep = 1.0 / STASH_CAM_FRAMES
+                val stashStep = 1.0 / STASH_CAM_FRAMES * cineDt()
                 p.stashProg = when {
                     p.stashProg < stashTgt -> (p.stashProg + stashStep).coerceAtMost(stashTgt)
                     p.stashProg > stashTgt -> (p.stashProg - stashStep).coerceAtLeast(stashTgt)
@@ -914,7 +924,10 @@ internal fun startSpikeLoop() {
         spikeRaf = window.requestAnimationFrame { frame() }
     }
     // Fresh loop start: clear the frame-delta baseline so the first frame steps by exactly
-    // one 60fps-frame instead of a huge delta measured against a stale timestamp.
+    // one 60fps-frame instead of a huge delta measured against a stale timestamp — and drop
+    // any cinematic skip with it. [settleCineScale] only runs while the loop does, so a world
+    // closed mid-skip would otherwise reopen still fast-forwarding. @see spikeCineScale
     spikeLastFrameMs = Double.NaN
+    spikeCineScale = 1.0
     spikeRaf = window.requestAnimationFrame { frame() }
 }

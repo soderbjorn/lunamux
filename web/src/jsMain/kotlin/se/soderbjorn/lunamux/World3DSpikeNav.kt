@@ -442,10 +442,10 @@ internal fun confirmRemove() {
         leaveFrontPane()
         // Under the phaser-fire feature flag the pane isn't shrunk out at once: it
         // lingers at the front getting shot for several seconds, then [tickPhaser] sets
-        // it dying. Otherwise (or when fancy animations are turned off) it's the classic
+        // it dying. Otherwise (or when cinematic animations are turned off) it's the classic
         // optimistic shrink-out — the pane just disappears; either way the config
         // round-trip confirms the close.
-        if (PHASER_CLOSE_ENABLED && spikeFancyAnimations) startPhaserDeath(p) else p.dying = true
+        if (PHASER_CLOSE_ENABLED && spikeCinematicAnimations) startPhaserDeath(p) else p.dying = true
         launchCmd(WindowCommand.Close(p.paneId))
         return
     }

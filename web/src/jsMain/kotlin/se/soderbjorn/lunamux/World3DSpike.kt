@@ -462,7 +462,15 @@ internal fun resolveZoomPresetCodes() {
  * false) fall through and drive the modes as usual. When no tour is playing,
  * the demo-only **⌥⌘M** chord starts one ([toggleDemoMovie]).
  *
+ * A second gate follows it: a bare **Enter/Esc** while any [spikeCinematicAnimations] sequence
+ * plays fast-forwards it ([skipCinematics]) and is consumed. With nothing playing — or with a
+ * skip already running — the key falls through to the meanings above, so Esc still closes the
+ * world and a second Esc closes it mid-skip. Suppressed while [spikeEngaged] (outside a world
+ * transit, which locks the keyboard out anyway) so an Enter meant for the terminal is never
+ * eaten by a cinematic playing elsewhere in the world.
+ *
  * @return the listener to attach on `window` (capture phase).
+ * @see skipCinematics @see cinematicInFlight
  */
 internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
     val ke = ev as KeyboardEvent
@@ -482,10 +490,32 @@ internal fun buildKeyHandler(): (Event) -> Unit = handler@{ ev ->
         return@handler
     }
 
+    // Cinematic skip: Enter/Esc fast-forwards a playing cinematic ([skipCinematics] scales its
+    // clock up rather than cutting it, so it still finishes properly) instead of making the user
+    // sit through it. [skipCinematics] returns false when there is nothing playing — or when a
+    // skip is already running — and then the key falls through to its normal meaning below, so
+    // Esc still closes the world and Enter still engages the front pane. Pressing Esc twice
+    // therefore skips, then closes.
+    //
+    // Gated on `!spikeEngaged` so a cinematic that can play *while you type* — a pane arriving
+    // through a wormhole in a world you are working in — can't swallow an Enter meant for the
+    // terminal. A world transit is the exception: it already locks the keyboard out entirely
+    // (below), engaged or not, so there is no terminal input to protect.
+    //
+    // Bare keys only: ⌘/Ctrl chords stay reserved for system shortcuts, and `isTrusted` keeps
+    // the demo tour's synthetic presses ([moviePress]) from skipping its own choreography.
+    if (ke.isTrusted && !ke.metaKey && !ke.ctrlKey && !ke.altKey &&
+        (ke.key == "Enter" || ke.key == "Escape") &&
+        (!spikeEngaged || spikeWorldTransit != null)
+    ) {
+        if (skipCinematics()) { consume(); return@handler }
+    }
+
     // World-transit lockout: while flying through the wormhole to the next world
     // ([tickWorldTransit] owns the camera), every *real* key is swallowed so nothing fights the
-    // flight — except Esc, which bails out by closing the whole world. The transit is short and
-    // self-completing, so there's no key to "cancel" it mid-air.
+    // flight — except Esc, which bails out by closing the whole world. Enter/Esc reach the skip
+    // branch above first, so the first press fast-forwards the flight and only a second Esc
+    // (once the skip is already running) falls through to here and closes.
     if (spikeWorldTransit != null && ke.isTrusted) {
         consume()
         if (ke.key == "Escape") closeWorld3dSpike()

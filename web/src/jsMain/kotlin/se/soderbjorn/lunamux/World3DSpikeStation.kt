@@ -397,7 +397,10 @@ internal fun flyStationEnter(interior: CamPose, followPaneId: String?) {
  *   ends up at the station).
  * @property startX/startY/startZ the camera position the chase eases *out of*, so the
  *   trailing pose blends in from wherever the camera sat rather than snapping on frame 1.
- * @property frames how many frames the chase has run (drives the ease-in). @see armStashChase
+ * @property frames how many **cinematic** frames the chase has run (drives the ease-in) — stepped
+ *   by [cineDt], like the flight it is chasing, so the blend keeps pace with the pane on a
+ *   high-refresh display and stays proportionate when a skip fast-forwards the journey.
+ *   @see armStashChase
  */
 internal class StashChase(
     val paneId: String,
@@ -407,7 +410,7 @@ internal class StashChase(
     val startY: Double,
     val startZ: Double,
 ) {
-    var frames: Int = 0
+    var frames: Double = 0.0
 }
 
 /**
@@ -495,7 +498,10 @@ internal fun tickStashChase() {
 
     // Ease the trailing position in from the pose the chase started at, so frame 1 doesn't
     // snap the camera to the offset. After [STASH_CHASE_EASE_IN] frames it's the pure chase.
-    ch.frames += 1
+    // Stepped by [cineDt] — the same delta the chased pane's stashProg advances by — so the
+    // blend stays a fixed fraction of the journey rather than of the frame count: a flat += 1
+    // eased in over half of an 8×-skipped flight (and ran 2.4× short at 144Hz).
+    ch.frames += cineDt()
     val ein = (ch.frames / STASH_CHASE_EASE_IN).coerceIn(0.0, 1.0)
     val eb = ein * ein * (3.0 - 2.0 * ein) // smoothstep
     val cx = ch.startX + (rawCx - ch.startX) * eb

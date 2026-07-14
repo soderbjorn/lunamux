@@ -108,7 +108,7 @@ private fun smoother(t: Double): Double {
 
 /**
  * Whether a wormhole spawn may be armed for the pane(s) just built by [reconcileRing]:
- * the feature flag is on, **fancy animations are enabled** ([spikeFancyAnimations] — with
+ * the feature flag is on, **cinematic animations are enabled** ([spikeCinematicAnimations] — with
  * them off the pane just grows in on the ring, no vortex), the scene is up, **exactly one**
  * pane was newly built (a burst — e.g.
  * a workspace restore — falls back to the plain grow-in so we never fire a camera
@@ -124,7 +124,7 @@ private fun smoother(t: Double): Double {
  */
 internal fun wormholeSpawnEligible(newBornCount: Int): Boolean =
     WORMHOLE_SPAWN_ENABLED &&
-        spikeFancyAnimations &&
+        spikeCinematicAnimations &&
         newBornCount == 1 &&
         spikeWormholes.isEmpty() &&
         spikeCssScene != null &&
@@ -204,7 +204,7 @@ internal fun tickWormhole(camera: PerspectiveCamera) {
     val completed = mutableListOf<WormholeSpawn>()
 
     for (ws in spikeWormholes) {
-        ws.phase += spikeDtFrames
+        ws.phase += cineDt()
         val phase = ws.phase
         val pane = spikePanes.firstOrNull { it.paneId == ws.paneId }
 
@@ -220,7 +220,7 @@ internal fun tickWormhole(camera: PerspectiveCamera) {
         // pane begins to emerge from the throat). @see playWormholeAppear @see playTerminalMaterialize
         if (!ws.playedAppear && phase >= WORMHOLE_FOCUS_END) {
             ws.playedAppear = true
-            playWormholeAppear(WORMHOLE_OPEN_FRAMES / 60.0)
+            playWormholeAppear(cineSeconds(WORMHOLE_OPEN_FRAMES))
         }
         // Fire the swoosh a beat BEFORE the pane pops (WORMHOLE_OPEN_END): the warp-in sound
         // is a rising swoosh whose climax lands ~0.35 s after it starts, so leading the trigger
@@ -239,7 +239,7 @@ internal fun tickWormhole(camera: PerspectiveCamera) {
         g.rotateY(WORMHOLE_TILT_Y)
 
         ws.spin += (WORMHOLE_SPIN_SPEED +
-            (if (phase >= WORMHOLE_OPEN_END) WORMHOLE_SPIN_EMERGE else 0.0)) * spikeDtFrames
+            (if (phase >= WORMHOLE_OPEN_END) WORMHOLE_SPIN_EMERGE else 0.0)) * cineDt()
         for (i in ws.rings.indices) {
             // The cloud layers counter-rotate (and at different rates) so the gas churns
             // like turbulence rather than reading as one rigid spinning texture. Spun as

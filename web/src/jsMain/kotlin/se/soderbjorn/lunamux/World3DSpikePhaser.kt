@@ -131,7 +131,7 @@ internal fun tickPhaser(camera: PerspectiveCamera) {
     // --- Advance each burning pane: heat veil + irregular bolt volleys. ---
     val completed = mutableListOf<RingPane>()
     for (p in active) {
-        p.phaserPhase += spikeDtFrames
+        p.phaserPhase += cineDt()
         val prog = (p.phaserPhase / PHASER_TOTAL_FRAMES).coerceIn(0.0, 1.0)
         p.phaserTint?.let { tint ->
             val flick = 1.0 - PHASER_TINT_FLICKER * Random.nextDouble()
@@ -139,7 +139,7 @@ internal fun tickPhaser(camera: PerspectiveCamera) {
         }
         if (p.phaserPhase < PHASER_TOTAL_FRAMES) {
             // Fire only during the barrage; the collapse phase runs quietly (tint + implode).
-            p.phaserNextBolt -= spikeDtFrames
+            p.phaserNextBolt -= cineDt()
             if (p.phaserNextBolt <= 0) {
                 // Slightly more bolts per volley, and volleys a touch closer, as it peaks.
                 val volley = 1 + (Random.nextDouble() * (0.4 + prog * 1.1)).toInt()
@@ -165,7 +165,7 @@ internal fun tickPhaser(camera: PerspectiveCamera) {
         val pane = spikePanes.firstOrNull { it.paneId == b.paneId }
         val target = pane?.let { projectToScreen(it.obj, camera, w, h) }
         if (target != null) drawPhaserBolt(ctx, b, target.first, target.second)
-        b.age += spikeDtFrames
+        b.age += cineDt()
         val impacted = b.age > PHASER_BOLT_LIFE
         // A landed bolt rocks the pane: add recoil (the render loop punches bulge + scale).
         if (impacted && pane != null) {

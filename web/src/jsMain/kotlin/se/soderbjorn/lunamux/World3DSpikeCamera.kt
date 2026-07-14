@@ -80,6 +80,14 @@ internal fun toggleFlyMode() {
  * [CAM_RETURN_PULLOUT] and lifted +Y by [CAM_RETURN_RISE], so the arc pulls back to
  * reveal the scene then descends to land), and stores the target/look/land mode.
  *
+ * **Honours [spikeCinematicAnimations]**: with the setting off, every scripted journey
+ * arrives on the next frame instead of flying — the tour is armed already landed, so the
+ * caller still gets its exact target pose, roll, end-look and [then] continuation. That makes
+ * this the single gate for the camera moves the setting does not otherwise cover (`c` home,
+ * `j` tilt, `m` overview, the free-flight fly-bys); the demo tour ([spikeMovieJob]) is exempt
+ * and always flies. Callers that want a hard cut *regardless* of the setting want
+ * [snapCamToPose] instead.
+ *
  * @param tx/ty/tz the world pose the arc lands on.
  * @param lookX/lookY/lookZ the point the camera faces throughout the flight.
  * @param landPristine on arrival, `true` drops the camera to the pristine 1:1 default
@@ -169,13 +177,36 @@ internal fun flyCamTo(
 
     spikeCamTourThen = then
 
-    spikeCamReturnT = 0.0
+    // Cinematic animations off: arm the tour **already landed** rather than flying it. The
+    // render loop's next frame eases with `s = smootherstep(1) = 1`, which collapses the Bézier
+    // onto the target exactly, then runs the same landing branch — so the roll, [landRoll],
+    // [endLook], [landPristine] and the [then] continuation all apply exactly as they would at
+    // the end of a real flight. A hand-written snap per caller would have to re-derive all of
+    // that (and [snapCamToPose] cannot express roll or an end-look at all).
+    //
+    // Gating here rather than at each call site covers every scripted journey in one place: the
+    // `c` return home, the `j` tilt, the `m` overview and the free-flight pane fly-bys all just
+    // cut to their destination. The flag's own cinematics don't normally reach this — every
+    // *entry point* returns early on its instant path first — but a few of their legs are armed
+    // later, from inside a running tick (the wormhole's follow-the-pane return, the stash
+    // chase's settle, a bundle's flight up). Toggling the setting off mid-flight therefore cuts
+    // the rest of that journey short, which is the honest reading of the switch.
+    //
+    // Chained legs land one per frame, since [then] fires from the render loop rather than here.
+    // A caller whose legs stage somewhere the user should never see must snap itself instead of
+    // routing through a chain — see [toggleStashView], which cuts straight to the dock pose.
+    //
+    // The demo tour is the one exemption: it is pure camera choreography, so teleporting between
+    // its beats would leave nothing to watch. It owns the camera regardless of the setting, the
+    // same way it already owns the keyboard. @see spikeCinematicAnimations @see spikeMovieJob
+    val flyIt = spikeCinematicAnimations || spikeMovieJob != null
+    spikeCamReturnT = if (flyIt) 0.0 else 1.0
     spikeCamReturning = true
 }
 
 /**
  * **Instantly** places the camera at [pose] — the no-animation counterpart of a [flyCamTo]
- * landing, used when fancy animations are off ([spikeFancyAnimations]) so reaching the dock
+ * landing, used when cinematic animations are off ([spikeCinematicAnimations]) so reaching the dock
  * with `v` is a hard cut rather than a flight. Cancels any in-flight tour / stash chase /
  * dock dolly, marks the camera flown, and sets its position and orientation to the pose's
  * stand-point and look-point (roof eased to +Y, Gram–Schmidt'd against the nose) exactly as
@@ -213,7 +244,7 @@ internal fun snapCamToPose(pose: CamPose) {
  * Kicks off the **cinematic `c` return** to the pristine 1:1 pose — a [flyCamTo] home
  * (target the home pose, face the origin, land pristine). No-op if the camera is
  * already home. Returning to the ring (camera low) is also what makes Space stash
- * again rather than unstash. When fancy animations are off ([spikeFancyAnimations]) the
+ * again rather than unstash. When cinematic animations are off ([spikeCinematicAnimations]) the
  * dock → command-center return is an instant cut instead of the flight.
  * @see cameraAtShelf @see CAM_RETURN_FRAMES
  */
@@ -223,9 +254,9 @@ internal fun resetCamera() {
     if (!spikeCamFlown) return
     val homeZ = RING_R + perspDistance(window.innerHeight)
     if (cameraAtShelf()) {
-        // Fancy off: snap straight back to the pristine command-center pose — the render
+        // Cinematics off: snap straight back to the pristine command-center pose — the render
         // loop recomputes the 1:1 home framing whenever the camera is not flown.
-        if (!spikeFancyAnimations) {
+        if (!spikeCinematicAnimations) {
             spikeCamReturning = false
             spikeCamFlown = false
             return
@@ -774,18 +805,18 @@ internal fun resetFrontZoom() {
 
 /**
  * Re-reads the persisted 3D-world settings into the live runtime flags — window bobbing
- * ([spikeBobEnabled]), fancy animations ([spikeFancyAnimations]) and status indication
+ * ([spikeBobEnabled]), cinematic animations ([spikeCinematicAnimations]) and status indication
  * ([spikeStatusIndication]). Called once at [openWorld3dSpike] to seed them, and again from
  * the in-world settings panel (⌥⌘,) on every change so an edit takes effect on the running
  * world immediately (the render loop and the animation triggers read the flags live). Bob is
  * also cleared of any lingering reactor visuals when the mode leaves REACTOR, so a pane can't
  * freeze mid-glow.
- * @see isWindowBobbingEnabled @see isFancyAnimationsEnabled @see world3dStatusIndication
+ * @see isWindowBobbingEnabled @see isCinematicAnimationsEnabled @see world3dStatusIndication
  * @see resetWarpCoreVisuals
  */
 internal fun syncWorld3dRuntimeFromSettings() {
     spikeBobEnabled = isWindowBobbingEnabled()
-    spikeFancyAnimations = isFancyAnimationsEnabled()
+    spikeCinematicAnimations = isCinematicAnimationsEnabled()
     spikeSoundEffects = isSoundEffectsEnabled()
     val prev = spikeStatusIndication
     spikeStatusIndication = world3dStatusIndication()

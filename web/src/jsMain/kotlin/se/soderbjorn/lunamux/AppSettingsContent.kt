@@ -156,8 +156,16 @@ private const val KEY_WORLD3D_WINDOW_BOBBING = "world3dWindowBobbing"
  */
 private const val KEY_WORLD3D_STATUS_INDICATION = "world3dStatusIndication"
 
-/** Persistence key for the 3D-world **fancy animations** toggle. @see isFancyAnimationsEnabled */
-private const val KEY_WORLD3D_FANCY_ANIMATIONS = "world3dFancyAnimations"
+/**
+ * Persistence key for the 3D-world **cinematic animations** toggle.
+ *
+ * The stored key is still `world3dFancyAnimations` — the setting's former name. Renaming it would
+ * orphan every persisted value, silently switching the toggle back on for anyone who had already
+ * turned it off, so the wire name stays frozen while the code and UI say "cinematic".
+ *
+ * @see isCinematicAnimationsEnabled
+ */
+private const val KEY_WORLD3D_CINEMATIC_ANIMATIONS = "world3dFancyAnimations"
 
 /** Persistence key for the 3D-world **sound effects** toggle. @see isSoundEffectsEnabled */
 private const val KEY_WORLD3D_SOUND_EFFECTS = "world3dSoundEffects"
@@ -385,18 +393,18 @@ fun isWindowBobbingEnabled(): Boolean =
     snapshotBoolean(KEY_WORLD3D_WINDOW_BOBBING, default = true)
 
 /**
- * Whether the 3D world plays its **fancy cinematic animations** — the wormhole a new
+ * Whether the 3D world plays its **cinematic animations** — the wormhole a new
  * pane emerges from, the fly-through-the-wormhole world switch (⌥⌘O), the phaser
  * shoot-out that kills a pane, and the camera chase that follows a pane/tab up to the
  * cargo-ship dock when it is stashed. Ships **on by default**. When turned off, each of
  * those plays its plain instant fallback instead (the pane just appears / the world just
  * changes / the pane just disappears / the stash just vanishes to the dock). Read at open
- * by [syncWorld3dRuntimeFromSettings] to seed [spikeFancyAnimations], and live by the
+ * by [syncWorld3dRuntimeFromSettings] to seed [spikeCinematicAnimations], and live by the
  * in-world settings panel so a change takes effect on the running world immediately.
- * @see KEY_WORLD3D_FANCY_ANIMATIONS @see spikeFancyAnimations
+ * @see KEY_WORLD3D_CINEMATIC_ANIMATIONS @see spikeCinematicAnimations
  */
-fun isFancyAnimationsEnabled(): Boolean =
-    snapshotBoolean(KEY_WORLD3D_FANCY_ANIMATIONS, default = true)
+fun isCinematicAnimationsEnabled(): Boolean =
+    snapshotBoolean(KEY_WORLD3D_CINEMATIC_ANIMATIONS, default = true)
 
 /**
  * Whether the 3D world plays its **procedural sound effects** — the phaser barrage and
@@ -775,7 +783,7 @@ private fun buildOverview3dSection(): HTMLElement {
 }
 
 /**
- * Append the **3D-world** settings controls — *Window bobbing*, *Fancy animations*, *Sound
+ * Append the **3D-world** settings controls — *Window bobbing*, *Cinematic animations*, *Sound
  * effects* and *Status indication* — to [container]. Shared by the App Settings sidebar's General section
  * ([buildGeneralSection]) and the in-world settings overlay (⌥⌘,,
  * [buildWorld3dSettingsPanel]), so both render identical controls that persist
@@ -803,11 +811,11 @@ fun buildWorld3dSettingsRows(container: HTMLElement, onChanged: () -> Unit = {})
             "flight, makes the spaceship camera bob so it feels like it's hovering.",
     ))
     container.appendChild(buildToggleRow(
-        labelText = "Fancy animations",
-        initialValue = isFancyAnimationsEnabled(),
+        labelText = "Cinematic animations",
+        initialValue = isCinematicAnimationsEnabled(),
         onChange = { v ->
-            updateSnapshotBoolean(KEY_WORLD3D_FANCY_ANIMATIONS, v)
-            putJsonBoolean(KEY_WORLD3D_FANCY_ANIMATIONS, v)
+            updateSnapshotBoolean(KEY_WORLD3D_CINEMATIC_ANIMATIONS, v)
+            putJsonBoolean(KEY_WORLD3D_CINEMATIC_ANIMATIONS, v)
             onChanged()
         },
         descriptionText = "Plays the cinematic touches — new panes arriving through a " +
