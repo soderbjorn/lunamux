@@ -62,12 +62,96 @@ fun attachDragDrop(container: HTMLElement, term: Terminal) {
 }
 
 /**
+ * Debounced automatic PTY size vote carrying [entry]'s current grid.
+ *
+ * Fired by the shared `term.onResize` handler (registered once per xterm
+ * instance in [ensureTerminal]) and by [connectPane]'s open handler. Reads
+ * [TerminalEntry.socket] at call time instead of closing over a specific
+ * connection: xterm.js offers no listener unsubscribe through our bindings,
+ * so a per-connection closure would leave one extra `onResize` listener
+ * behind on every reconnect and multiply each vote. The debounce handle
+ * lives on the entry ([TerminalEntry.pendingResizeTimer]) for the same
+ * reason.
+ *
+ * The grid is sampled synchronously (`term.cols/rows` at call time) so the
+ * vote carries the freshly fitted size even though the send itself is
+ * debounced; the socket is re-read at fire time so a vote scheduled just
+ * before a reconnect lands on the new connection.
+ *
+ * @param entry the terminal whose grid to vote.
+ * @see ensureTerminal
+ * @see forceReassert
+ */
+fun sendResize(entry: TerminalEntry) {
+    if (entry.applyingServerSize) return
+    // Per-pane "stop automatic reflow": when off, never push a resize to
+    // the PTY automatically. This is the single chokepoint every
+    // automatic local refit funnels through (via `term.onResize`), so
+    // gating here freezes the remote PTY size regardless of which
+    // geometry path triggered the local fit. The manual Reformat button
+    // bypasses this by calling `forceReassert`, which sends a
+    // `ForceResize` directly. See [TerminalEntry.autoReflow].
+    if (!entry.autoReflow) return
+    if (!entryOpen(entry)) return
+    val cols = entry.term.cols; val rows = entry.term.rows
+    // While the pane rides a 3D-world plane, this automatic vote lands on the
+    // *same* socket/clientId as the 3D world's explicit vote — fired by
+    // `term.onResize` the instant `setPaneGrid` resizes the grid, and again on
+    // every fresh socket-open re-seed. Vote at the pane's **tier** so it
+    // *reinforces* rather than clobbers: a pane carrying a `grid3d` override
+    // re-votes THREE_D at the same grid (a plain NORMAL Resize here would
+    // silently drop the override to the NORMAL tier — the "counter-voted back"
+    // failure the `isRidingSpikePlane` doc describes), while any other riding
+    // pane, and every 2D pane, votes NORMAL. The circular fit that would ratchet
+    // the grid down is suppressed separately (ResizeObserver / onopen guards), so
+    // `cols`/`rows` here is always PTY-truth, never a fit proposal. Muting the
+    // vote entirely instead would strand a pane that reconnects or re-mounts in
+    // 3D with no size vote at all (blank on world round-trip).
+    // @see setPaneGrid @see isRidingSpikePlane @see SizePriority
+    val priority =
+        if (isRidingSpikePlane(entry) && entry.paneId in spikeGrid3dByPane) SizePriority.THREE_D
+        else SizePriority.NORMAL
+    entry.pendingResizeTimer?.let { window.clearTimeout(it) }
+    entry.pendingResizeTimer = window.setTimeout({
+        entry.pendingResizeTimer = null
+        val socket = entry.socket
+        if (socket != null && entryOpen(entry)) {
+            socket.send(
+                windowJson.encodeToString<PtyControl>(
+                    PtyControl.Resize(cols = cols, rows = rows, priority = priority)
+                )
+            )
+        }
+    }, 50)
+}
+
+/**
+ * Whether [entry]'s current socket exists and is in the OPEN ready state.
+ * Shared guard for [sendResize] and the input path.
+ */
+private fun entryOpen(entry: TerminalEntry): Boolean =
+    entry.socket?.readyState?.toInt() == org.w3c.dom.WebSocket.OPEN.toInt()
+
+/**
  * Establishes a WebSocket connection to the server's PTY endpoint for a terminal pane.
  *
  * Handles bidirectional data flow: user keystrokes are sent as binary data to the
  * server, and PTY output (binary) and control messages (JSON) are received and
  * written to the xterm.js terminal. Automatically reconnects on close (unless the
  * pane has been removed), and shows a device-rejected overlay on auth failure (code 1008).
+ *
+ * The first binary frame of every connection is the server's scrollback
+ * replay: on a reconnect the terminal is reset (RIS) before it is written —
+ * parity with the native client's `RealPtySocket` — so the replay replaces
+ * the previous connection's transcript instead of appending a duplicate
+ * copy, and input is gated while xterm parses it (see
+ * [TerminalEntry.replaying]).
+ *
+ * Note: `term.onData`/`term.onResize` are deliberately NOT registered here —
+ * xterm.js offers no unsubscribe through our bindings, so per-connection
+ * registration would accumulate one listener per reconnect (N reconnects →
+ * every keystroke sent N times). They are registered once per xterm instance
+ * in [ensureTerminal].
  *
  * @param entry the [TerminalEntry] containing the terminal, session ID, and connection state
  * @see ensureTerminal
@@ -89,48 +173,6 @@ fun connectPane(entry: TerminalEntry) {
 
     fun isOpen(): Boolean = socket.readyState.toInt() == org.w3c.dom.WebSocket.OPEN.toInt()
 
-    var pendingResize: Int? = null
-    fun sendResize() {
-        if (entry.applyingServerSize) return
-        // Per-pane "stop automatic reflow": when off, never push a resize to
-        // the PTY automatically. This is the single chokepoint every
-        // automatic local refit funnels through (via `term.onResize`), so
-        // gating here freezes the remote PTY size regardless of which
-        // geometry path triggered the local fit. The manual Reformat button
-        // bypasses this by calling `forceReassert`, which sends a
-        // `ForceResize` directly. See [TerminalEntry.autoReflow].
-        if (!entry.autoReflow) return
-        if (!isOpen()) return
-        val cols = entry.term.cols; val rows = entry.term.rows
-        // While the pane rides a 3D-world plane, this automatic vote lands on the
-        // *same* socket/clientId as the 3D world's explicit vote — fired by
-        // `term.onResize` the instant `setPaneGrid` resizes the grid, and again on
-        // every fresh socket-open re-seed. Vote at the pane's **tier** so it
-        // *reinforces* rather than clobbers: a pane carrying a `grid3d` override
-        // re-votes THREE_D at the same grid (a plain NORMAL Resize here would
-        // silently drop the override to the NORMAL tier — the "counter-voted back"
-        // failure the `isRidingSpikePlane` doc describes), while any other riding
-        // pane, and every 2D pane, votes NORMAL. The circular fit that would ratchet
-        // the grid down is suppressed separately (ResizeObserver / onopen guards), so
-        // `cols`/`rows` here is always PTY-truth, never a fit proposal. Muting the
-        // vote entirely instead would strand a pane that reconnects or re-mounts in
-        // 3D with no size vote at all (blank on world round-trip).
-        // @see setPaneGrid @see isRidingSpikePlane @see SizePriority
-        val priority =
-            if (isRidingSpikePlane(entry) && entry.paneId in spikeGrid3dByPane) SizePriority.THREE_D
-            else SizePriority.NORMAL
-        pendingResize?.let { window.clearTimeout(it) }
-        pendingResize = window.setTimeout({
-            pendingResize = null
-            if (!isOpen()) return@setTimeout
-            socket.send(
-                windowJson.encodeToString<PtyControl>(
-                    PtyControl.Resize(cols = cols, rows = rows, priority = priority)
-                )
-            )
-        }, 50)
-    }
-
     fun sendInput(data: String) {
         if (!isOpen()) return
         val encoder = js("new TextEncoder()")
@@ -138,12 +180,14 @@ fun connectPane(entry: TerminalEntry) {
         socket.send(bytes.buffer as org.khronos.webgl.ArrayBuffer)
     }
 
+    // Reassigned (not accumulated) per connection: the one-time `onData`
+    // handler in [ensureTerminal] routes through this slot, so a reconnect
+    // just swaps which socket keystrokes go to.
     entry.sendInput = ::sendInput
-    entry.term.onData { data -> sendInput(data) }
-    entry.term.onResize { _ -> sendResize(); updateOobOverlay(entry) }
 
     socket.onopen = { _: org.w3c.dom.events.Event ->
         entry.connected = true
+        entry.awaitingSnapshot = true
         connectionState[entry.sessionId] = "connected"
         updateAggregateStatus()
         // Fit to our container and cast a *soft* size vote on every fresh
@@ -184,9 +228,9 @@ fun connectPane(entry: TerminalEntry) {
                 if (!isRidingSpikePlane(entry)) {
                     try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
                 }
-                sendResize()
+                sendResize(entry)
             } else {
-                window.setTimeout({ sendResize() }, 0)
+                window.setTimeout({ sendResize(entry) }, 0)
             }
         }
     }
@@ -200,10 +244,36 @@ fun connectPane(entry: TerminalEntry) {
         } else {
             val buf = data as org.khronos.webgl.ArrayBuffer
             val bytes = org.khronos.webgl.Uint8Array(buf)
-            // Write while holding the viewport when the user has scrolled up
-            // (pause), and advertising "New output" on the pill. Falls back to
-            // a normal auto-following write at the bottom.
-            writeHoldingScroll(entry, bytes)
+            if (entry.awaitingSnapshot) {
+                // First binary frame of this connection = the server's
+                // scrollback replay (the /pty protocol sends Size → snapshot
+                // → live output, and WebSocket frames are ordered). On a
+                // reconnect the grid still holds the previous connection's
+                // transcript and the replay would append a second full copy,
+                // so reset the terminal first (RIS) — parity with the native
+                // client, which prepends ESC c on reconnect. A first attach
+                // writes into an empty grid and needs no reset. Scroll
+                // holding is irrelevant on both paths (empty or just-reset
+                // grid), hence the direct write.
+                entry.awaitingSnapshot = false
+                if (entry.everConnected) entry.term.write("\u001bc")
+                entry.everConnected = true
+                // Gate keystrokes while xterm parses the replay: a query
+                // sequence in replayed bytes would be answered via onData
+                // and injected into the live shell as phantom input. The
+                // server strips known query families; this closes the
+                // window for anything it doesn't know about.
+                entry.replaying = true
+                entry.term.asDynamic().write(bytes) {
+                    entry.replaying = false
+                    updateScrollButton(entry)
+                }
+            } else {
+                // Write while holding the viewport when the user has scrolled
+                // up (pause), and advertising "New output" on the pill. Falls
+                // back to a normal auto-following write at the bottom.
+                writeHoldingScroll(entry, bytes)
+            }
             if (containsShowCursor(bytes)) {
                 val term = entry.term
                 window.requestAnimationFrame {
@@ -214,6 +284,10 @@ fun connectPane(entry: TerminalEntry) {
     }
     socket.onclose = { event ->
         entry.connected = false
+        // A replay write whose completion callback never fired (socket died
+        // mid-parse, pane torn down) must not leave input gated forever.
+        entry.replaying = false
+        entry.awaitingSnapshot = false
         if (terminals[entry.paneId] === entry) {
             connectionState[entry.sessionId] = "disconnected"
             updateAggregateStatus()
@@ -387,6 +461,27 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
     terminals[paneId] = entry
     connectionState[sessionId] = "connecting"
     updateAggregateStatus()
+
+    // Input/resize handlers are registered exactly ONCE per xterm instance,
+    // here — never in [connectPane]. xterm.js offers no listener unsubscribe
+    // through our bindings, so per-connection registration accumulated one
+    // extra listener per reconnect: after N reconnects every keystroke (and
+    // every resize vote) was delivered to the PTY N times. Both handlers
+    // resolve the *current* connection at call time — `onData` through the
+    // [TerminalEntry.sendInput] slot (reassigned by each connectPane), and
+    // [sendResize] through [TerminalEntry.socket] — so a reconnect swaps the
+    // transport without touching the registrations. The `replaying` gate
+    // drops input while a snapshot replay is being parsed, so terminal-query
+    // answers xterm emits for replayed bytes never reach the live shell (see
+    // [TerminalEntry.replaying]). The resize handler also forwards demo-mode
+    // grid changes ([pushDemoSessionResize], a no-op outside demo mode —
+    // this is the single registration demo panes rely on too).
+    term.onData { data -> if (!entry.replaying) entry.sendInput?.invoke(data) }
+    term.onResize { _ ->
+        sendResize(entry)
+        pushDemoSessionResize(entry)
+        updateOobOverlay(entry)
+    }
 
     // Keep the pill in sync with the user's scroll position, and let it
     // resume auto-follow on click. `onScroll` fires for both user scrolling

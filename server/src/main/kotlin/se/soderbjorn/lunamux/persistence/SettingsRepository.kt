@@ -118,11 +118,23 @@ class SettingsRepository(dbFile: File) {
                 CREATE TABLE IF NOT EXISTS pane_scrollback (
                     leaf_id    TEXT NOT NULL PRIMARY KEY,
                     bytes      BLOB NOT NULL,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    cols       INTEGER,
+                    rows       INTEGER
                 )
             """.trimIndent(),
             parameters = 0,
         )
+        // Same no-.sqm story for columns added to an existing table: bring
+        // pre-existing DBs up to the current shape. SQLite has no
+        // ADD COLUMN IF NOT EXISTS, so the "duplicate column name" error on
+        // an already-migrated DB is expected and swallowed.
+        runCatching {
+            driver.execute(null, "ALTER TABLE pane_scrollback ADD COLUMN cols INTEGER", 0)
+        }
+        runCatching {
+            driver.execute(null, "ALTER TABLE pane_scrollback ADD COLUMN rows INTEGER", 0)
+        }
     }
 
     /**
@@ -324,23 +336,58 @@ class SettingsRepository(dbFile: File) {
     }
 
     /**
+     * A persisted scrollback blob plus the terminal grid size it was rendered
+     * at. Raw PTY bytes only reconstruct correctly when replayed into a grid
+     * of the same width they were produced for (a TUI's absolute-cursor
+     * repaints land on the wrong cells otherwise), so the saver records the
+     * session's effective size alongside the bytes and the restore path seeds
+     * the fresh session with it.
+     *
+     * A deliberate plain class, not a data class: the [bytes] payload has no
+     * meaningful equals/hashCode and records are never compared.
+     *
+     * @property bytes the raw ring-buffer bytes as persisted.
+     * @property cols the grid columns at save time, or null on rows written
+     *   by servers that predate size recording.
+     * @property rows the grid rows at save time, or null on legacy rows.
+     * @see loadScrollback
+     * @see saveScrollback
+     */
+    class ScrollbackRecord(val bytes: ByteArray, val cols: Int?, val rows: Int?)
+
+    /**
      * Load the persisted scrollback ring buffer for a pane.
      *
+     * Called by `WindowState.rehydrate` when re-creating a pane's session
+     * after a server restart.
+     *
      * @param leafId the leaf node id whose scrollback to load
-     * @return the raw scrollback bytes, or null if none have been saved
+     * @return the scrollback bytes plus the grid size they were captured at
+     *   (null cols/rows on legacy rows), or null if none have been saved
      */
-    fun loadScrollback(leafId: String): ByteArray? =
-        database.settingsQueries.selectScrollback(leafId).executeAsOneOrNull()
+    fun loadScrollback(leafId: String): ScrollbackRecord? =
+        database.settingsQueries.selectScrollback(leafId).executeAsOneOrNull()?.let {
+            ScrollbackRecord(it.bytes, it.cols?.toInt(), it.rows?.toInt())
+        }
 
     /**
      * Persist the scrollback ring buffer for a pane.
      *
+     * Called by [ScrollbackSaver.saveAll], which samples the session's
+     * effective grid size alongside the snapshot so a later restore can
+     * replay the bytes at the width they were rendered for.
+     *
      * @param leafId the leaf node id to save scrollback for
      * @param bytes the raw ring buffer bytes to persist
+     * @param cols the session's effective grid columns at save time
+     * @param rows the session's effective grid rows at save time
      */
-    suspend fun saveScrollback(leafId: String, bytes: ByteArray) = withContext(Dispatchers.IO) {
-        database.settingsQueries.upsertScrollback(leafId, bytes, System.currentTimeMillis())
-    }
+    suspend fun saveScrollback(leafId: String, bytes: ByteArray, cols: Int?, rows: Int?) =
+        withContext(Dispatchers.IO) {
+            database.settingsQueries.upsertScrollback(
+                leafId, bytes, System.currentTimeMillis(), cols?.toLong(), rows?.toLong(),
+            )
+        }
 
     /**
      * Delete the persisted scrollback for a pane (used during GC of stale leaves).

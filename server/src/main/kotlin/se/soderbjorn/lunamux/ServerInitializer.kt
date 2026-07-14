@@ -48,7 +48,10 @@ class ScrollbackSaver internal constructor(
     /**
      * Iterate over every leaf in the live config and persist its ring buffer
      * snapshot when [force] is `true` or when the leaf's [TerminalSession.bytesWritten]
-     * has advanced since the previous save.
+     * has advanced since the previous save. The session's effective grid size
+     * is sampled alongside the snapshot so a restore can replay the bytes at
+     * the width they were rendered for (raw PTY output only reconstructs
+     * correctly in a same-width grid).
      */
     suspend fun saveAll(force: Boolean) {
         fun collect(leaf: LeafNode, out: MutableList<Pair<String, String>>) {
@@ -68,8 +71,12 @@ class ScrollbackSaver internal constructor(
             val session = TerminalSessions.get(sessionId) ?: continue
             val current = session.bytesWritten()
             if (!force && lastSavedBytes[leafId] == current) continue
+            // Sample the size before the snapshot: a resize racing in between
+            // is at worst off by one resize and gets corrected by the client's
+            // post-restore reassert.
+            val (cols, rows) = session.sizeEvents.value
             val snapshot = session.snapshot()
-            runCatching { repo.saveScrollback(leafId, snapshot) }
+            runCatching { repo.saveScrollback(leafId, snapshot, cols, rows) }
                 .onSuccess { lastSavedBytes[leafId] = current }
                 .onFailure { LoggerFactory.getLogger("ScrollbackPersistence").warn("Failed to save scrollback for $leafId", it) }
         }

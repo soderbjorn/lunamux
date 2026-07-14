@@ -47,7 +47,7 @@ import se.soderbjorn.lunamux.PtyServerMessage
 /**
  * Live WebSocket connection to `/pty/{sessionId}`. See [PtySocket] for the
  * consumer contract; this class adds the Ktor WebSocket transport, including
- * the server's 64 KB ring-buffer replay as the first frames on [output] and
+ * the server's 128 kB ring-buffer replay as the first frames on [output] and
  * reconnect-with-reset on connection loss.
  */
 class RealPtySocket internal constructor(

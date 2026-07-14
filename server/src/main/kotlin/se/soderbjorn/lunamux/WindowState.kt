@@ -341,8 +341,14 @@ object WindowState {
                 // client is gone), so a persisted agent pane is dropped.
                 is AgentContent -> null
                 is TerminalContent, null -> {
-                    val priorScrollback = runCatching { repo.loadScrollback(leaf.id) }.getOrNull()
-                    val freshSession = TerminalSessions.create(leaf.cwd, priorScrollback)
+                    // Seed the fresh session with the persisted grid size so
+                    // the raw scrollback bytes replay at the width they were
+                    // rendered for; legacy records without a size fall back
+                    // to the session default.
+                    val prior = runCatching { repo.loadScrollback(leaf.id) }.getOrNull()
+                    val freshSession = TerminalSessions.create(
+                        leaf.cwd, prior?.bytes, prior?.cols, prior?.rows,
+                    )
                     leaf.copy(sessionId = freshSession, content = TerminalContent(freshSession))
                 }
             }

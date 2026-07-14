@@ -6,7 +6,7 @@
  * `s<n>` ids, and torn down when the last referencing pane closes.
  *
  * [TerminalSession] is a single PTY-backed session: it owns the
- * `PtyProcess`, replays a 64 kB ring buffer to reconnecting clients, runs
+ * `PtyProcess`, replays a 128 kB ring buffer to reconnecting clients, runs
  * a headless [ScreenEmulator] in parallel for AI-state detection, and
  * negotiates a per-PTY winsize as the minimum across all attached
  * clients (tmux-style semantics).
@@ -43,6 +43,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import se.soderbjorn.lunamux.pty.OscScanner
 import se.soderbjorn.lunamux.pty.ProcessCwdReader
+import se.soderbjorn.lunamux.pty.ReplaySanitizer
 import se.soderbjorn.lunamux.pty.ShellInitFiles
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -226,12 +227,27 @@ object TerminalSessions {
      */
     val programTitlesEnabled = MutableStateFlow(false)
 
-    /** Create a fresh session and return its newly minted id (nonce-suffixed
-     *  once [idNonce] is assigned — see its kdoc). */
-    fun create(initialCwd: String? = null, initialScrollback: ByteArray? = null): String {
+    /**
+     * Create a fresh session and return its newly minted id (nonce-suffixed
+     * once [idNonce] is assigned — see its kdoc).
+     *
+     * @param initialCwd starting working directory, or null for the home dir.
+     * @param initialScrollback a persisted scrollback blob to replay to
+     *   attaching clients, or null for a clean session.
+     * @param initialCols grid columns the scrollback was captured at (from
+     *   the persisted record); null falls back to the session default.
+     * @param initialRows grid rows the scrollback was captured at; null falls
+     *   back to the session default.
+     */
+    fun create(
+        initialCwd: String? = null,
+        initialScrollback: ByteArray? = null,
+        initialCols: Int? = null,
+        initialRows: Int? = null,
+    ): String {
         val n = idCounter.incrementAndGet()
         val id = if (idNonce.isEmpty()) "s$n" else "s$n-$idNonce"
-        val session = TerminalSession.create(initialCwd, initialScrollback)
+        val session = TerminalSession.create(initialCwd, initialScrollback, initialCols, initialRows)
         sessions[id] = session
         watchJobs[id] = watchScope.launch {
             launch {
@@ -364,6 +380,8 @@ object TerminalSessions {
 class TerminalSession private constructor(
     private val pty: PtyProcess,
     initialScrollback: ByteArray? = null,
+    initialCols: Int = DEFAULT_COLS,
+    initialRows: Int = DEFAULT_ROWS,
 ) : TermSession {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -398,7 +416,7 @@ class TerminalSession private constructor(
         onTitle = { title -> _programTitle.value = title },
     )
 
-    private val screen = ScreenEmulator(initialCols = 120, initialRows = 32)
+    private val screen = ScreenEmulator(initialCols = initialCols, initialRows = initialRows)
 
     // Ring buffer of recent bytes for reconnect replay.
     private val ringCapacity = 128 * 1024
@@ -414,7 +432,12 @@ class TerminalSession private constructor(
 
     init {
         if (initialScrollback != null && initialScrollback.isNotEmpty()) {
-            appendToRing(initialScrollback)
+            // Blobs persisted by older server versions still contain terminal
+            // query sequences (DSR, DA, OSC color reads, …); strip them once
+            // at ingestion so every future replay of this ring is clean.
+            // Newly persisted blobs are already sanitized (the saver persists
+            // [snapshot], which strips on the way out).
+            appendToRing(ReplaySanitizer.stripQueries(initialScrollback))
             // The restored scrollback may contain DECSET sequences from a
             // full-screen app (vim, htop, …) that died with the old server:
             // mouse tracking, focus reporting, bracketed paste, application
@@ -500,7 +523,7 @@ class TerminalSession private constructor(
     }
 
     private val clientSizes = ConcurrentHashMap<String, SizeVote>()
-    private val _sizeEvents = MutableStateFlow(Pair(120, 32))
+    private val _sizeEvents = MutableStateFlow(Pair(initialCols, initialRows))
     override val sizeEvents: StateFlow<Pair<Int, Int>> = _sizeEvents.asStateFlow()
 
     /** Register the declared terminal size for [clientId] at [priority]. */
@@ -587,7 +610,13 @@ class TerminalSession private constructor(
         false
     }
 
-    /** Return a copy of the ring buffer contents for reconnect replay. */
+    /**
+     * Return a copy of the ring buffer contents for reconnect replay, with
+     * terminal *query* sequences stripped ([ReplaySanitizer.stripQueries]):
+     * replaying a recorded query would make the client terminal answer it
+     * again, injecting the answer into the shell as phantom input. The live
+     * output stream is never filtered — only this replay copy.
+     */
     override fun snapshot(): ByteArray {
         val ringBytes = synchronized(ringLock) {
             if (ringSize == 0) return@synchronized ByteArray(0)
@@ -605,7 +634,7 @@ class TerminalSession private constructor(
         // (ESC[?25l) and no matching show. Append a show to the replay tail;
         // a TUI that genuinely wants the cursor hidden will re-hide it on its
         // next frame.
-        return ringBytes + SHOW_CURSOR_SUFFIX
+        return ReplaySanitizer.stripQueries(ringBytes) + SHOW_CURSOR_SUFFIX
     }
 
     private fun appendToRing(chunk: ByteArray) = synchronized(ringLock) {
@@ -653,7 +682,38 @@ class TerminalSession private constructor(
         private const val MIN_FORCE_COLS = 20
         private const val MIN_FORCE_ROWS = 5
 
-        fun create(initialCwd: String? = null, initialScrollback: ByteArray? = null): TerminalSession {
+        /**
+         * Default grid until a client registers a real size — also the
+         * fallback for restored sessions whose persisted scrollback predates
+         * size recording. Seeds the PTY, the headless [ScreenEmulator] and
+         * [sizeEvents] identically so all three views of the session agree.
+         */
+        private const val DEFAULT_COLS = 120
+        private const val DEFAULT_ROWS = 32
+
+        /**
+         * Spawn the user's shell on a fresh PTY and wrap it in a session.
+         *
+         * Called by [TerminalSessions.create]; [initialCols]/[initialRows]
+         * come from the persisted scrollback record on the restore path so
+         * the replayed bytes reconstruct in a grid of the width they were
+         * rendered for (see `SettingsRepository.ScrollbackRecord`), and are
+         * null everywhere else.
+         *
+         * @param initialCwd starting working directory, or null for home.
+         * @param initialScrollback persisted scrollback to seed the ring, or null.
+         * @param initialCols initial grid columns; null → [DEFAULT_COLS].
+         * @param initialRows initial grid rows; null → [DEFAULT_ROWS].
+         * @return the running session.
+         */
+        fun create(
+            initialCwd: String? = null,
+            initialScrollback: ByteArray? = null,
+            initialCols: Int? = null,
+            initialRows: Int? = null,
+        ): TerminalSession {
+            val cols = initialCols?.takeIf { it > 0 } ?: DEFAULT_COLS
+            val rows = initialRows?.takeIf { it > 0 } ?: DEFAULT_ROWS
             val shell = System.getenv("SHELL") ?: "/bin/bash"
             val home = System.getProperty("user.home")
             val startDir = initialCwd
@@ -670,10 +730,10 @@ class TerminalSession private constructor(
             val pty = PtyProcessBuilder(arrayOf(shell, "-l"))
                 .setDirectory(startDir)
                 .setEnvironment(env)
-                .setInitialColumns(120)
-                .setInitialRows(32)
+                .setInitialColumns(cols)
+                .setInitialRows(rows)
                 .start()
-            return TerminalSession(pty, initialScrollback)
+            return TerminalSession(pty, initialScrollback, cols, rows)
         }
     }
 }

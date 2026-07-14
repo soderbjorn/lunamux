@@ -72,6 +72,23 @@ external class ResizeObserver(callback: (dynamic, dynamic) -> Unit) {
  *   per-pane override (the "this window" toggle, including its config echo).
  *   Defaults to `true` so a pane behaves as "reflow on" until told otherwise.
  *   See [forceReassert] (the manual path, which ignores this flag).
+ * @property everConnected whether this entry has completed at least one
+ *   snapshot replay — gates the reconnect-time terminal reset in
+ *   [connectPane]'s message handler (a first attach writes into an empty
+ *   grid; a reconnect must clear the previous connection's transcript
+ *   first or the replay appends a duplicate copy)
+ * @property awaitingSnapshot true from socket open until the first binary
+ *   frame of that connection arrives — identifies the server's snapshot
+ *   replay frame (the `/pty` protocol sends Size → snapshot → live output,
+ *   and WebSocket frames are ordered)
+ * @property replaying true while xterm.js is parsing a snapshot replay
+ *   frame; the shared `onData` handler drops input during this window so
+ *   any terminal-query answer xterm emits for replayed bytes is not
+ *   injected into the live shell as phantom keystrokes
+ * @property pendingResizeTimer debounce timer handle for [sendResize], or
+ *   null when no vote is pending (lives on the entry, not in a
+ *   per-connection closure, so the handler can be registered once per
+ *   xterm instance)
  */
 class TerminalEntry(
     val paneId: String,
@@ -92,6 +109,10 @@ class TerminalEntry(
     var wasContainerVisible: Boolean = false,
     var demoJob: kotlinx.coroutines.Job? = null,
     var autoReflow: Boolean = true,
+    var everConnected: Boolean = false,
+    var awaitingSnapshot: Boolean = false,
+    var replaying: Boolean = false,
+    var pendingResizeTimer: Int? = null,
 )
 
 /**

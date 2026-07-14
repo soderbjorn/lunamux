@@ -233,23 +233,18 @@ internal fun connectDemoPane(entry: TerminalEntry) {
     fun sendInput(data: String) {
         session.inputText(data)
     }
+    // Route input through the [TerminalEntry.sendInput] slot only — the
+    // one-time `onData` handler registered in [ensureTerminal] invokes it, so
+    // registering another `onData` here would double-send every keystroke.
     entry.sendInput = ::sendInput
-    entry.term.onData { data -> sendInput(data) }
 
     // Notify size-aware sessions (the IRC TUI reflows its frame to fill the pane;
     // fixed-frame shell/Claude sessions ignore it) of the terminal's live cell
     // grid — the web demo attaches straight to the DemoSession and never goes
-    // through DemoPtySocket, so this is where the resize has to be forwarded.
-    // Push the current size once now, then on every refit.
-    fun pushResize(cols: Int, rows: Int) {
-        if (cols > 0 && rows > 0) GlobalScope.launch { session.resize(cols, rows) }
-    }
-    pushResize(entry.term.cols, entry.term.rows)
-    entry.term.onResize { size ->
-        val d = size.asDynamic()
-        pushResize((d.cols as? Number)?.toInt() ?: entry.term.cols, (d.rows as? Number)?.toInt() ?: entry.term.rows)
-        updateOobOverlay(entry)
-    }
+    // through DemoPtySocket. Push the current size once now; subsequent refits
+    // are forwarded by the one-time `onResize` handler in [ensureTerminal]
+    // (via [pushDemoSessionResize]).
+    pushDemoSessionResize(entry)
 
     entry.demoJob = GlobalScope.launch {
         session.output().collect { bytes ->
