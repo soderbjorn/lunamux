@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import se.soderbjorn.darkness.core.Persister
 import se.soderbjorn.darkness.core.PersistKeys
+import se.soderbjorn.darkness.core.ThemeSnapshotV2
 import se.soderbjorn.lunamux.client.viewmodel.AppBackingViewModel
 import se.soderbjorn.lunamux.client.viewmodel.SettingsPersister
 
@@ -65,22 +66,55 @@ class SettingsPersisterAdapter(
         // appearance + slot names into the appVm immediately (no server-echo
         // wait) so Lunamux's own painters (xterm, `--t-*` CSS vars) stay
         // in lockstep with the chrome.
-        if (key == PersistKeys.THEME_V2_SELECTION) {
-            kotlinx.browser.window.asDynamic().console
-                .log("[settings-adapter] write THEME_V2_SELECTION; appVm.appearance before=" +
-                    appVm.stateFlow.value.appearance.name + " blob=" + value)
-            appVm.applyToolkitUiSettingsBlob(value)
-            kotlinx.browser.window.asDynamic().console
-                .log("[settings-adapter] applyToolkitUiSettingsBlob returned; " +
-                    "appVm.appearance now=" + appVm.stateFlow.value.appearance.name)
+        val outgoing = if (key == PersistKeys.THEME_V2_SELECTION) {
+            val pinned = pinSelectionSlotsToDefaultWorld(value)
+            appVm.applyToolkitUiSettingsBlob(pinned)
+            pinned
         } else {
-            kotlinx.browser.window.asDynamic().console
-                .log("[settings-adapter] write key=$key (len=${value.length})")
+            value
         }
         // Alias the default world's per-world layout key onto flat LAYOUT_STATE
         // (non-default worlds and non-layout keys pass through) so old clients
         // and existing saved data keep reading the default world's layout under
         // the legacy key. See [WorldLayoutKeys.serverKeyForToolkitKey].
-        settingsPersister.putSetting(serverKeyForToolkitKey(key), value)
+        settingsPersister.putSetting(serverKeyForToolkitKey(key), outgoing)
+    }
+
+    /**
+     * Keep the global `THEME_V2_SELECTION` key's **slot names** pinned to the
+     * default world's pair, while preserving the incoming blob's **appearance**.
+     *
+     * `THEME_V2_SELECTION` is the legacy global blob (`{darkThemeName,
+     * lightThemeName, appearance}`) that pre-1.9 clients read, and its slots are
+     * the *default world's* pair (server-maintained via
+     * `SettingsRepository.mirrorDefaultWorldThemePair`). Per-world theme picks
+     * never reach this adapter — they route through
+     * [LunamuxThemeManagerHost.setDarkThemeName] → `SetWorldTheme`. This write
+     * only fires from the toolkit's own `persistUi` (an appearance change), and
+     * the blob it emits carries the **active** world's slots (because
+     * `refreshAndApplyActiveTheme` pushes the active world's pair into the
+     * toolkit snapshot for chrome repaint). If the active world is a *non-default*
+     * world, letting those slots through would overwrite the global compat value
+     * and the global `appVm` base with the wrong world's theme (issue #127).
+     *
+     * So: for a non-default active world, swap the blob's slots back to the
+     * default world's pair (falling back to the current global `appVm` slots when
+     * the default world follows global); appearance passes through unchanged. For
+     * the default world — or a world-less (pre-1.9 server) config — the blob is
+     * already correct and returned as-is.
+     *
+     * @param blob the toolkit's `THEME_V2_SELECTION` JSON string.
+     * @return the blob with its slots pinned to the default world's pair when the
+     *   active world is non-default; otherwise the input unchanged.
+     */
+    private fun pinSelectionSlotsToDefaultWorld(blob: String): String {
+        val cfg = lunamuxClient.windowState.config.value ?: return blob
+        val defaultWorld = cfg.worlds.firstOrNull() ?: return blob
+        val activeWorld = cfg.activeWorldOrNull() ?: return blob
+        if (activeWorld.id == defaultWorld.id) return blob
+        val snap = ThemeSnapshotV2.fromStrings(selectionJson = blob, customThemesJson = null)
+        val dark = defaultWorld.themeSelection?.darkThemeName ?: appVm.stateFlow.value.darkThemeName
+        val light = defaultWorld.themeSelection?.lightThemeName ?: appVm.stateFlow.value.lightThemeName
+        return snap.copy(darkThemeName = dark, lightThemeName = light).selectionJson()
     }
 }

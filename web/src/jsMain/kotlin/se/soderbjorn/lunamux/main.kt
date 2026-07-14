@@ -93,13 +93,6 @@ internal fun isSystemDark(): Boolean {
  * @see se.soderbjorn.lunamux.client.viewmodel.resolvedTheme
  */
 internal fun refreshAndApplyActiveTheme() {
-    val s = appVm.stateFlow.value
-    console.log(
-        "[theme] refresh done —" +
-            " light=${s.lightThemeName} dark=${s.darkThemeName}" +
-            " appearance=${s.appearance}" +
-            " custom=${s.customThemes.size}"
-    )
     applyAll()
     // Re-tint the 3D world's pane chrome/beacons if it is open — its colours
     // are otherwise baked at overlay-open time (no-op when closed).

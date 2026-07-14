@@ -114,6 +114,9 @@ fun main() {
     }
 
     installWindowConfigPersister(persistenceScope, repo)
+    // Fast-path flush for per-world theme picks so they survive a hard kill
+    // inside the 2 s config-persist window (issue #127 follow-up).
+    installWorldThemePersister(persistenceScope, repo)
     val scrollbackSaver = installScrollbackSaver(persistenceScope, repo)
     val sessionStates = installSessionStatePoller(persistenceScope)
     val sharedThemesWatch = installSharedThemesWatcher(repo)

@@ -59,6 +59,22 @@ fun isBackgroundLight(bg: String): Boolean {
 internal var activeWorldTheme: se.soderbjorn.lunamux.WorldThemeSelection? = null
 
 /**
+ * The id of the world [activeWorldTheme] was last resolved for. Tracked
+ * alongside the pair so [applyActiveWorldTheme] can key its repaint on the
+ * *active world identity* changing, not just on the pair *value* changing.
+ *
+ * This is the fix for issue #127 ("loses track of theme per world"): two
+ * worlds can legitimately carry an equal [WorldThemeSelection] (a new world is
+ * seeded from the world it was created in, and every follow-global world shares
+ * `null`). A pure value-dedup would then treat a world *switch* between them as
+ * a no-op and leave the previous world's paint on screen — or, worse, skip the
+ * repaint when a config echo for the switch arrives before the target world's
+ * own `SetWorldTheme` write has landed. Keying on the world id as well makes the
+ * restore deterministic: switching worlds always re-applies.
+ */
+private var activeWorldThemeWorldId: String? = null
+
+/**
  * The effective theme snapshot to paint with: the global [appVm] snapshot,
  * with its dark/light slot names overridden by [activeWorldTheme] when a
  * world carries its own pair. Appearance + custom themes + favorites come
@@ -92,14 +108,22 @@ fun currentResolvedTheme(): ResolvedTheme =
  * on every server config push from the tab-source collector: switching
  * worlds carries a new [WorldConfig.themeSelection], which this overlays
  * onto the global selection and applies via [refreshAndApplyActiveTheme].
- * No-op when the override is unchanged, so ordinary config pushes (a pane
- * moved, a title ticked) don't repaint the theme.
+ *
+ * Repaints when **either** the active world identity **or** the overlaid pair
+ * changed, so a world *switch* always re-applies even when the two worlds share
+ * an equal (or equally `null`) pair — see [activeWorldThemeWorldId] for why a
+ * pure value-dedup was unreliable (issue #127). No-op when both the world id and
+ * the pair are unchanged, so ordinary config pushes (a pane moved, a title
+ * ticked) still don't repaint the theme.
  *
  * @param config the freshly-pushed server config.
  */
 internal fun applyActiveWorldTheme(config: WindowConfig) {
-    val newOverride = config.activeWorldOrNull()?.themeSelection
-    if (newOverride == activeWorldTheme) return
+    val world = config.activeWorldOrNull()
+    val newWorldId = world?.id
+    val newOverride = world?.themeSelection
+    if (newWorldId == activeWorldThemeWorldId && newOverride == activeWorldTheme) return
+    activeWorldThemeWorldId = newWorldId
     activeWorldTheme = newOverride
     refreshAndApplyActiveTheme()
 }

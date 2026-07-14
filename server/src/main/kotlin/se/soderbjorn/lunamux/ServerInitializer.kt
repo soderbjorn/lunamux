@@ -17,7 +17,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -89,6 +91,39 @@ internal fun installWindowConfigPersister(scope: CoroutineScope, repo: SettingsR
             .collectLatest { cfg ->
                 runCatching { repo.saveWindowConfig(cfg.withBlankSessionIds()) }
                     .onFailure { LoggerFactory.getLogger("WindowPersistence").warn("Failed to persist window config", it) }
+            }
+    }
+}
+
+/**
+ * Launch a fast-path persister for per-world theme changes.
+ *
+ * [installWindowConfigPersister] coalesces bursts at 2 s, which is right for
+ * high-churn events (cwd / title / pane geometry) but leaves a window where a
+ * low-churn, high-value theme pick can be lost to a hard kill before it reaches
+ * disk (issue #127 follow-up: "persistence seems unreliable"). This collector
+ * watches only the worlds' theme pairs (`distinctUntilChanged` so ordinary
+ * config churn is ignored) and flushes the whole config within 250 ms of a
+ * change — long enough to coalesce a dark+light double-write, short enough that
+ * a theme selection survives an abrupt exit. The write is idempotent with the
+ * 2 s persister (both upsert the full config under the same key), so the two
+ * coexisting is harmless.
+ *
+ * @param scope the persistence coroutine scope (shared with the 2 s persister).
+ * @param repo  the settings repository the full config is upserted through.
+ * @see installWindowConfigPersister
+ */
+@OptIn(FlowPreview::class)
+internal fun installWorldThemePersister(scope: CoroutineScope, repo: SettingsRepository) {
+    scope.launch {
+        WindowState.config
+            .map { cfg -> cfg.worlds.map { it.themeSelection } }
+            .distinctUntilChanged()
+            .drop(1)
+            .debounce(250.milliseconds)
+            .collectLatest {
+                runCatching { repo.saveWindowConfig(WindowState.config.value.withBlankSessionIds()) }
+                    .onFailure { LoggerFactory.getLogger("WindowPersistence").warn("Failed to persist world theme", it) }
             }
     }
 }
