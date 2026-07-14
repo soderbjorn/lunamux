@@ -138,8 +138,9 @@ struct HostsView: View {
         ContentUnavailableView {
             Label("No Hosts", systemImage: "qrcode.viewfinder")
         } description: {
-            Text("On your Mac: Lunamux > Settings > Server & Security… > Devices > "
-                 + "Pair a device, then scan the code here.")
+            Text("On your Mac: Go to \"Lunamux > Settings > Server & Security… > Devices\" "
+                 + "and tick \"Allow connections from other devices\" and then press "
+                 + "\"Pair via QR Code\" - and then scan the code here.")
         } actions: {
             Button { showScanSheet = true } label: {
                 Text("Scan pairing code")

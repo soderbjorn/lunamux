@@ -522,8 +522,9 @@ private fun EmptyState(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "On your Mac: Lunamux > Settings > Server & Security… > Devices > " +
-                "Pair a device, then scan the code here.",
+            "On your Mac: Go to \"Lunamux > Settings > Server & Security… > Devices\" " +
+                "and tick \"Allow connections from other devices\" and then press " +
+                "\"Pair via QR Code\" - and then scan the code here.",
             style = MaterialTheme.typography.bodyMedium,
             color = SidebarTextSecondary,
             textAlign = TextAlign.Center,
