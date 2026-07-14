@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.ThumbUp
@@ -31,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalUriHandler
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_DISCUSSIONS_URL
+import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_DOCS_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_GITHUB_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_PLAY_STORE_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_PRIVACY_URL
@@ -99,6 +101,16 @@ fun AboutMenu() {
 @Composable
 fun AboutMenuItems(onItemSelected: () -> Unit) {
     val uriHandler = LocalUriHandler.current
+    DropdownMenuItem(
+        text = { Text("Documentation") },
+        leadingIcon = {
+            Icon(Icons.Outlined.MenuBook, contentDescription = null)
+        },
+        onClick = {
+            onItemSelected()
+            uriHandler.openUri(LUNAMUX_DOCS_URL)
+        },
+    )
     DropdownMenuItem(
         text = { Text("Support Forum") },
         leadingIcon = {

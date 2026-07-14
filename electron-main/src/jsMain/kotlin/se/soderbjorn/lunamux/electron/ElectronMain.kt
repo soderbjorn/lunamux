@@ -23,6 +23,7 @@ package se.soderbjorn.lunamux.electron
 
 import kotlin.js.Promise
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_DISCUSSIONS_URL
+import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_DOCS_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_GITHUB_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_PRIVACY_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_SITE_URL
@@ -779,11 +780,16 @@ private fun buildAppMenu() {
     }
 
     // Help menu (all platforms): links that open in the user's default browser
-    // via shell.openExternal — the marketing site, the community support forum,
-    // the GitHub repo (to star), and the published privacy policy / terms of
-    // service (the legal pair mirror the links in the mobile top-bar info menu).
+    // via shell.openExternal — the user manual, the marketing site, the
+    // community support forum, the GitHub repo (to star), and the published
+    // privacy policy / terms of service (the legal pair mirror the links in the
+    // mobile top-bar info menu). Documentation leads: it is the item someone
+    // opening the Help menu is most often actually after.
     // Every URL is read from the shared client `LUNAMUX_*_URL` constants so the
     // desktop menu bar can never drift from the mobile and renderer clients.
+    val docsItem: dynamic = js("({})")
+    docsItem.label = "Documentation"
+    docsItem.click = { shell.openExternal(LUNAMUX_DOCS_URL) }
     val websiteItem: dynamic = js("({})")
     websiteItem.label = "Lunamux Website"
     websiteItem.click = { shell.openExternal(LUNAMUX_SITE_URL) }
@@ -804,7 +810,8 @@ private fun buildAppMenu() {
     helpMenu.label = "Help"
     helpMenu.role = "help"
     helpMenu.submenu = arrayOf<dynamic>(
-        websiteItem, forumItem, gitHubItem, helpSeparator, privacyItem, termsItem,
+        docsItem, websiteItem, forumItem, gitHubItem, helpSeparator,
+        privacyItem, termsItem,
     )
     template.add(helpMenu)
 

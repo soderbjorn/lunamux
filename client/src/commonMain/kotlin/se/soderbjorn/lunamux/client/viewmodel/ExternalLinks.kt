@@ -1,9 +1,9 @@
 /**
  * Canonical external-link URLs surfaced across every Lunamux client.
  *
- * All of the app's outward-facing links — the marketing/download site, the
- * published legal pages, the community support forum, the GitHub repository, and
- * the two app-store listings — live here as shared `const val`s in the common
+ * All of the app's outward-facing links — the marketing/download site, the user
+ * manual, the published legal pages, the community support forum, the GitHub
+ * repository, and the two app-store listings — live here as shared `const val`s in the common
  * client module rather than being hardcoded per platform. This is the single
  * source of truth: the Android top-bar [se.soderbjorn.lunamux.android.ui.AboutMenu]
  * imports these directly, the iOS `AboutMenu` reads them via the generated
@@ -43,6 +43,17 @@ const val LUNAMUX_PRIVACY_URL: String = "https://www.lunamux.dev/privacy.html"
  * that surfaces the terms points at the same canonical URL.
  */
 const val LUNAMUX_TERMS_URL: String = "https://www.lunamux.dev/terms.html"
+
+/**
+ * The user manual (the site's Docs tab), surfaced as a "Documentation" link in
+ * the top-bar info menu on Android and in the desktop Help menu / About dialog.
+ *
+ * Kept as a shared constant alongside [LUNAMUX_SITE_URL] so every client points
+ * at the same manual. Note the hash route: the site is a single page whose
+ * router reads `#/docs`, so the fragment is load-bearing rather than an anchor
+ * — dropping it lands the user on the marketing home page instead.
+ */
+const val LUNAMUX_DOCS_URL: String = "https://lunamux.dev/#/docs"
 
 /**
  * The community support forum, surfaced as a prominent "Support Forum" link in

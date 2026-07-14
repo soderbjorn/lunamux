@@ -4,7 +4,8 @@
  * The dialog is split into two tabs:
  * - **About** (main): copyright, the desktop app version (when hosted in
  *   Electron), the machine's LAN address so the user knows which host to add
- *   from the Android and iOS clients, and a link to the project website.
+ *   from the Android and iOS clients, and links to the user manual and the
+ *   project website.
  * - **Licensing**: third-party libraries, bundled fonts, and a pointer to the
  *   NOTICE file with the full license texts.
  *
@@ -21,6 +22,7 @@ import org.w3c.dom.HTMLAnchorElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
 import org.w3c.dom.events.KeyboardEvent
+import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_DOCS_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_GITHUB_URL
 import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_SITE_URL
 
@@ -28,11 +30,19 @@ import se.soderbjorn.lunamux.client.viewmodel.LUNAMUX_SITE_URL
 private const val COPYRIGHT = "Copyright \u00A9 2026 Robert S\u00F6derbjorn"
 
 /**
- * Project website URL, shown as the sole external link on the About tab.
+ * Project website URL, shown as an external link on the About tab.
  * Aliased from the shared [LUNAMUX_SITE_URL] so the desktop about box can never
  * drift from the other clients' canonical site link.
  */
 private const val WEBSITE_URL = LUNAMUX_SITE_URL
+
+/**
+ * The user manual. Aliased from the shared [LUNAMUX_DOCS_URL] so the About box
+ * can never drift from the Help menu and the mobile clients. Shown beside the
+ * website link — this dialog is where a browser user (who has no macOS menu
+ * bar, and so no Help menu) can still reach the docs.
+ */
+private const val DOCS_URL = LUNAMUX_DOCS_URL
 
 /**
  * Link to the NOTICE file on GitHub (main branch), used for the "full license
@@ -204,7 +214,12 @@ private fun buildMainTab(): HTMLElement {
         populateLanAddress(electronApi, grid)
     }
 
-    // Website link.
+    // Documentation + website links.
+    val docsRow = document.createElement("p") as HTMLElement
+    docsRow.className = "about-link-row"
+    docsRow.appendChild(buildLink(DOCS_URL, "Documentation"))
+    panel.appendChild(docsRow)
+
     val linkRow = document.createElement("p") as HTMLElement
     linkRow.className = "about-link-row"
     linkRow.appendChild(buildLink(WEBSITE_URL, displayUrl(WEBSITE_URL)))

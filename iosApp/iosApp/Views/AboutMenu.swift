@@ -61,6 +61,10 @@ struct AboutMenu: View {
 /// - SeeAlso: `AboutMenu`
 /// - SeeAlso: `TreeView`
 struct AboutMenuItems: View {
+    /// The user manual (the site's Docs tab). Read from the shared Kotlin
+    /// `LUNAMUX_DOCS_URL` constant.
+    private let docsURL = URL(string: ExternalLinksKt.LUNAMUX_DOCS_URL)!
+
     /// GitHub Discussions board used as the community support forum. Read from
     /// the shared Kotlin `LUNAMUX_DISCUSSIONS_URL` constant.
     private let discussionsURL = URL(string: ExternalLinksKt.LUNAMUX_DISCUSSIONS_URL)!
@@ -86,6 +90,9 @@ struct AboutMenuItems: View {
     private let termsURL = URL(string: ExternalLinksKt.LUNAMUX_TERMS_URL)!
 
     var body: some View {
+        Link(destination: docsURL) {
+            Label("Documentation", systemImage: "book")
+        }
         Link(destination: discussionsURL) {
             Label("Support Forum", systemImage: "questionmark.circle")
         }
