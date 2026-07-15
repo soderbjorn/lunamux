@@ -28,7 +28,7 @@ private struct CloseTarget: Identifiable {
 }
 
 /// Displays the window layout tree — tabs and their panes with state dots —
-/// under a large, collapsing "Sessions" title that mirrors the Hosts screen.
+/// under a compact, title-less navigation bar carrying the action cluster.
 /// Tabs the user hid from the sidebar (`TabConfig.isHiddenFromSidebar`) are
 /// excluded from the list by default (issue #52); a "Show hidden tabs" link
 /// reveals them at the bottom under a "Hidden" headline, and "Hide hidden tabs"
@@ -99,30 +99,21 @@ struct TreeView: View {
 
     var body: some View {
         screenContent
-            .navigationTitle("Sessions")
-            // Large, collapsing title — mirrors the Hosts screen so the
-            // session list reads as a peer landing screen. It collapses to an
-            // inline title as the pane list scrolls under the bar.
-            .navigationBarTitleDisplayMode(.large)
+            // No navigation title at all. A large "Sessions" headline reserved a
+            // title's worth of vertical space above the list — on a compact
+            // iPhone that is most of the screen's top third, spent restating the
+            // screen the user just tapped into (issue #136). `.inline` with no
+            // title holds the bar at its compact height and draws nothing, so
+            // the toolbar's action cluster *is* the header.
+            .navigationBarTitleDisplayMode(.inline)
             // The bar's content scheme must follow the *theme's* surface, not a
             // hard-coded `.dark` — on light themes a forced-dark bar renders its
-            // title white-on-light (issue #95). NOTE: do *not* add
-            // `.toolbarBackground(.visible, …)` here — forcing the bar
-            // background visible suppresses the large title entirely (it
-            // reserves the title's space but never draws the text). Verified on
-            // the simulator: with `.visible` the "Sessions" headline is blank;
-            // without it the large title renders and still collapses on scroll.
+            // content white-on-light (issue #95).
             .toolbarBackground(Palette.background, for: .navigationBar)
             .toolbarColorScheme(
                 Palette.backgroundIsDark(systemIsDark: colorScheme == .dark) ? .dark : .light,
                 for: .navigationBar
             )
-            // Colour the large "Sessions" title from the theme. `.toolbarColorScheme`
-            // above only recolours the *collapsed* title; the expanded large title
-            // otherwise falls back to the system label colour and reads near-white
-            // on a light theme in device dark mode (issue #49). Keyed on the theme
-            // generation so an in-app theme switch re-stamps the colour.
-            .themedNavigationBar(generation: themeStore.generation)
             .toolbar { toolbarItems }
             .navigationBarBackButtonHidden(true)
             .onAppear { viewModel.subscribe() }
@@ -190,8 +181,11 @@ struct TreeView: View {
                 // secondary action into three taps.
                 Image(systemName: "chevron.backward")
                     // Same tint as every other bar action — mixed per-icon
-                    // tints read as a bug on light themes (issue #96).
-                    .foregroundStyle(Palette.textPrimary)
+                    // tints read as a bug on light themes (issue #96). That
+                    // shared tint is the theme accent, which is what the news
+                    // bell has always used and what the rest of the cluster now
+                    // matches (issue #136).
+                    .foregroundStyle(Palette.headerAccent)
             }
             .accessibilityLabel("Servers")
         }
@@ -246,7 +240,7 @@ struct TreeView: View {
                 }
             } label: {
                 PlusIcon()
-                    .foregroundStyle(Palette.textPrimary)
+                    .foregroundStyle(Palette.headerAccent)
             }
             .accessibilityLabel("Add")
         }
@@ -259,7 +253,7 @@ struct TreeView: View {
                     showLayoutSheet = true
                 } label: {
                     LayoutGridIcon()
-                        .foregroundStyle(Palette.textPrimary)
+                        .foregroundStyle(Palette.headerAccent)
                 }
                 .accessibilityLabel("Layout")
             }
@@ -324,7 +318,7 @@ struct TreeView: View {
             AboutMenuItems()
         } label: {
             Image(systemName: "ellipsis.circle")
-                .foregroundStyle(Palette.textPrimary)
+                .foregroundStyle(Palette.headerAccent)
         }
         .accessibilityLabel("More")
     }
@@ -378,15 +372,15 @@ struct TreeView: View {
             }
         } label: {
             Image(systemName: "globe")
-                .foregroundStyle(Palette.textPrimary)
+                .foregroundStyle(Palette.headerAccent)
         }
         .accessibilityLabel("Workspaces")
     }
 
     /// The body's content area: the graphical overview when the toolbar toggle
     /// selects it (issue #44), otherwise the flat session list. Both render
-    /// under the same "Sessions" navigation bar, so toggling swaps only the
-    /// content below the title. The overview is handed the same drill-in
+    /// under the same navigation bar, so toggling swaps only the content
+    /// beneath it. The overview is handed the same drill-in
     /// callbacks as the list rows, so tapping a pane miniature opens that pane's
     /// existing full-screen route.
     @ViewBuilder
@@ -417,13 +411,11 @@ struct TreeView: View {
     /// each expression small enough for SwiftUI's type checker.
     private var content: some View {
         // The List is *always* the top-level content so the scroll view keeps a
-        // stable identity from the very first frame. The window config streams
-        // in asynchronously (rows start empty), and an earlier version swapped
-        // between a non-scrollable "Connecting…" placeholder and this List —
-        // that structural swap reset the navigation bar and made the large
-        // "Sessions" title flash in and immediately collapse. Showing the
-        // placeholder as an overlay instead keeps the title attached to one
-        // unchanging scroll view, so it stays expanded until the user scrolls.
+        // stable identity from the very first frame — the window config streams
+        // in asynchronously, so rows start empty. Swapping between a
+        // non-scrollable "Connecting…" placeholder and this List would be a
+        // structural change that resets the navigation bar mid-connect; the
+        // placeholder is an overlay instead.
         List {
             ForEach(viewModel.rows) { row in
                 rowView(row)
@@ -433,11 +425,9 @@ struct TreeView: View {
         // Taller minimum rows give the iPad's bigger pointer/touch targets room.
         .environment(\.defaultMinListRowHeight, hSize.pick(44, 56))
         .scrollContentBackground(.hidden)
-        // Only bleed the themed background into the *bottom* safe area. Letting
-        // it ignore the top safe area too painted opaque black over the large
-        // title's region (which sits at the top of the scroll content), hiding
-        // the "Sessions" headline entirely. The top is covered by the themed
-        // toolbar background instead, so the bar and list still read as one.
+        // Only bleed the themed background into the *bottom* safe area; the top
+        // is covered by the themed toolbar background, so the bar and list read
+        // as one without this painting under the bar as well.
         .background { Palette.background.ignoresSafeArea(edges: .bottom) }
         .overlay {
             if viewModel.rows.isEmpty {

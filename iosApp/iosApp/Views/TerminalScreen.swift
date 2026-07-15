@@ -126,7 +126,22 @@ struct TerminalScreen: View {
                 }
             }
         }
+        // Without this the pushed screen inherits the *pushing* screen's title
+        // display mode. That used to be `.large`, so this screen reserved a
+        // full large-title band and left it empty — this screen's title is the
+        // `.principal` item above, not a navigation title (issue #136).
+        .navigationBarTitleDisplayMode(.inline)
+        // Name the bar's fill. `.visible` alone only forces the bar to *have* a
+        // background, and the one it picks is the system material — which is
+        // white on a light-mode device and read as a white band above the dark
+        // terminal (issue #136). The scheme follows the theme's surface for the
+        // same reason it does on the Sessions bar (issue #95).
+        .toolbarBackground(Palette.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(
+            Palette.backgroundIsDark(systemIsDark: colorScheme == .dark) ? .dark : .light,
+            for: .navigationBar
+        )
         .onAppear {
             setupTerminal()
             UIApplication.shared.isIdleTimerDisabled = true
