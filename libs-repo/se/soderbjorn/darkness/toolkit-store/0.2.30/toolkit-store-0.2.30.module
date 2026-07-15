@@ -1,0 +1,324 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-store",
+    "version": "0.2.30",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "metadataApiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.platform.type": "common"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.30"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-store-metadata-0.2.30.jar",
+          "url": "toolkit-store-0.2.30.jar",
+          "size": 6241,
+          "sha512": "141e6eb60c0d63d0e633cf38e74ed5810ceaccd0632b07a89b3da6acdef1c958d8c4a2346bd0ad2e5327716b5533b3e066f383f3828cce35b8e6af32abe232b1",
+          "sha256": "7cc3c37b2410b755aa599f336352cba5c77a1016e94e4ac0ad2952bebd6b9c9e",
+          "sha1": "bedb2f0a31a8632cb00250a5d1eb840ef90cef90",
+          "md5": "c4b0e9415c536ce35fcf52c214db7a73"
+        }
+      ]
+    },
+    {
+      "name": "metadataSourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.platform.type": "common"
+      },
+      "files": [
+        {
+          "name": "toolkit-store-kotlin-0.2.30-sources.jar",
+          "url": "toolkit-store-0.2.30-sources.jar",
+          "size": 17779,
+          "sha512": "e368f5922954c0d615efd98116181d5d6d188a8e77fa4b11105619b7be2f61d16295f7641b685359a19a2380f5985bc90a1007b1344e7f6abbead9134b1ac732",
+          "sha256": "5ec51961d08e1e1b21d9c68b77afb828f97cb49e706bfb48e4cd6ba169061f43",
+          "sha1": "c7435f63f50dd097a8622835a7fb1dfbc601e8e0",
+          "md5": "ea60827e70a45d28b6600e1c37c30216"
+        }
+      ]
+    },
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-android/0.2.30/toolkit-store-android-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-android",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-android/0.2.30/toolkit-store-android-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-android",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-android/0.2.30/toolkit-store-android-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-android",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "iosArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-iosarm64/0.2.30/toolkit-store-iosarm64-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-iosarm64",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "iosArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-iosarm64/0.2.30/toolkit-store-iosarm64-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-iosarm64",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "iosArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-iosarm64/0.2.30/toolkit-store-iosarm64-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-iosarm64",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "iosSimulatorArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-iossimulatorarm64/0.2.30/toolkit-store-iossimulatorarm64-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-iossimulatorarm64",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "iosSimulatorArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-iossimulatorarm64/0.2.30/toolkit-store-iossimulatorarm64-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-iossimulatorarm64",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "iosSimulatorArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-iossimulatorarm64/0.2.30/toolkit-store-iossimulatorarm64-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-iossimulatorarm64",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jsApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-js/0.2.30/toolkit-store-js-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-js",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jsRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-js/0.2.30/toolkit-store-js-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-js",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jsSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-js/0.2.30/toolkit-store-js-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-js",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jvmApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-jvm/0.2.30/toolkit-store-jvm-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-jvm",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jvmRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-jvm/0.2.30/toolkit-store-jvm-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-jvm",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jvmSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-store-jvm/0.2.30/toolkit-store-jvm-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-store-jvm",
+        "version": "0.2.30"
+      }
+    }
+  ]
+}
