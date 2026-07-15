@@ -8,8 +8,11 @@
  * [TerminalSession] is a single PTY-backed session: it owns the
  * `PtyProcess`, replays a 128 kB ring buffer to reconnecting clients, runs
  * a headless [ScreenEmulator] in parallel for AI-state detection, and
- * negotiates a per-PTY winsize as the minimum across all attached
- * clients (tmux-style semantics).
+ * negotiates a per-PTY winsize via latest-active-client arbitration
+ * (tmux `window-size latest` semantics — see
+ * [se.soderbjorn.lunamux.pty.ClientSizeArbiter]), falling back to the
+ * tiered "highest tier wins, min() within it" aggregation when no client
+ * activity has been observed.
  *
  * @see WindowState
  * @see ScreenEmulator
@@ -41,6 +44,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import se.soderbjorn.lunamux.pty.ClientSizeArbiter
 import se.soderbjorn.lunamux.pty.OscScanner
 import se.soderbjorn.lunamux.pty.ProcessCwdReader
 import se.soderbjorn.lunamux.pty.ReplaySanitizer
@@ -84,7 +88,8 @@ internal data class SizeVote(val cols: Int, val rows: Int, val priority: SizePri
  * "smallest attached viewport wins".
  *
  * Pure and side-effect free so the tiering is unit-testable in isolation;
- * `TerminalSession.applyEffectiveSize` calls it with the live votes.
+ * [se.soderbjorn.lunamux.pty.ClientSizeArbiter] calls it for the 3D-tier
+ * override and as the no-activity fallback (see its class kdoc).
  *
  * @param votes the live per-client votes (may be empty).
  * @return the effective `(cols, rows)`, or `null` when there are no votes.
@@ -115,6 +120,20 @@ interface TermSession {
     /** Deliver user input bytes into the session. */
     fun write(bytes: ByteArray)
 
+    /**
+     * Record that [clientId] just delivered user input; drives the
+     * latest-active-client size arbitration (typing on a client makes it the
+     * size governor — see [se.soderbjorn.lunamux.pty.ClientSizeArbiter]).
+     *
+     * Called by the `/pty` route for every inbound binary frame, *alongside*
+     * [write] rather than inside it: [write] is also used by MCP tools and
+     * agent plumbing that carry no client identity and must not perturb
+     * sizing. Default no-op so PTY-less sessions (`AgentSession`) ignore it.
+     *
+     * @param clientId the per-connection client id that sent the input.
+     */
+    fun noteClientInput(clientId: String) {}
+
     /** Broadcast mode-reset sequences to attached clients (see issue #91). */
     fun resetTerminalModes()
 
@@ -123,9 +142,13 @@ interface TermSession {
 
     /**
      * Register [clientId]'s viewport size vote at the given [priority] tier.
-     * The effective grid is the `min()` within the single highest tier present
-     * across all clients (see [SizePriority]); an all-[SizePriority.NORMAL] set
-     * of votes reduces to the classic "smallest attached viewport wins".
+     * The vote feeds the latest-active-client arbitration (see
+     * [se.soderbjorn.lunamux.pty.ClientSizeArbiter]): it applies immediately
+     * when [clientId] is the governing client (or when it is a
+     * [SizePriority.MOBILE] vote, which claims governance — a phone must be
+     * readable the moment it attaches); otherwise it is stored and takes
+     * effect if the client later becomes the governor. With no recorded
+     * activity the classic tiered min() aggregation decides.
      */
     fun setClientSize(
         clientId: String,
@@ -135,9 +158,11 @@ interface TermSession {
     )
 
     /**
-     * Force the grid to [clientId]'s size, evicting other clients' votes. The
-     * pinned entry keeps [priority] so a later higher-tier vote (e.g. a mobile
-     * client) can still take over.
+     * Force the grid to [clientId]'s size, evicting other clients' votes and
+     * making it the governing client — an explicit user action (Reformat)
+     * always wins. Other clients re-vote on their next automatic refit, but
+     * ambient re-votes no longer steal the size back (see
+     * [se.soderbjorn.lunamux.pty.ClientSizeArbiter]).
      */
     fun forceClientSize(
         clientId: String,
@@ -522,54 +547,56 @@ class TerminalSession private constructor(
         scope.cancel()
     }
 
-    private val clientSizes = ConcurrentHashMap<String, SizeVote>()
+    private val sizeArbiter = ClientSizeArbiter(initialCols, initialRows)
     private val _sizeEvents = MutableStateFlow(Pair(initialCols, initialRows))
     override val sizeEvents: StateFlow<Pair<Int, Int>> = _sizeEvents.asStateFlow()
 
     /** Register the declared terminal size for [clientId] at [priority]. */
     override fun setClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
-        clientSizes[clientId] = SizeVote(max(1, cols), max(1, rows), priority)
-        applyEffectiveSize()
+        applySize(sizeArbiter.setSize(clientId, SizeVote(max(1, cols), max(1, rows), priority)))
     }
 
     /**
      * "Reformat" handler: evict every other client's entry, pin this
-     * client's cols/rows (at [priority]), and apply immediately.
+     * client's cols/rows (at [priority]), make it the governing client, and
+     * apply immediately.
      *
      * The dims are clamped to a usable floor ([MIN_FORCE_COLS]×[MIN_FORCE_ROWS]),
      * not just ≥1: a forced size is broadcast to and obeyed by **every** attached
      * client, so a degenerate value from an unmeasured/hidden view (e.g. a 3D
      * preview mid-layout proposing ~1×1) would collapse all of them at once.
-     * Regular [setClientSize] votes keep the ≥1 clamp — the tiered min() across
+     * Regular [setClientSize] votes keep the ≥1 clamp — arbitration across
      * clients already bounds their effect.
      */
     override fun forceClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
         val only = SizeVote(max(MIN_FORCE_COLS, cols), max(MIN_FORCE_ROWS, rows), priority)
-        clientSizes.clear()
-        clientSizes[clientId] = only
-        applyEffectiveSize()
+        applySize(sizeArbiter.forceSize(clientId, only))
     }
 
     /** Unregister a client's size entry when its WebSocket disconnects. */
     override fun removeClient(clientId: String) {
-        if (clientSizes.remove(clientId) != null) applyEffectiveSize()
+        applySize(sizeArbiter.remove(clientId))
     }
 
     /**
-     * Recompute and apply the effective PTY grid from the live client votes.
-     *
-     * The rule is **highest tier wins, `min()` within it**: pick the single
-     * greatest [SizePriority] present among all live votes, then take the
-     * smallest cols/rows among the votes at that tier. A higher tier therefore
-     * fully overrides lower ones instead of being clamped by them — this is
-     * what lets the 3D world enlarge a pane ([SizePriority.THREE_D]) past a
-     * smaller 2D viewport ([SizePriority.NORMAL]), while a connected mobile
-     * client ([SizePriority.MOBILE]) still overrides even that. Because every
-     * vote is tied to a live socket, a closed/crashed view drops out here with
-     * no explicit teardown and the tier below takes over automatically.
+     * Record inbound user input from [clientId]: typing on a client makes it
+     * the size governor, so one keystroke on the desktop reclaims the grid
+     * from a phone that was merely peeking (or from a dead client whose
+     * ping-eviction hasn't fired yet). See [ClientSizeArbiter].
      */
-    private fun applyEffectiveSize() {
-        val (c, r) = pickEffectiveSize(clientSizes.values) ?: return
+    override fun noteClientInput(clientId: String) {
+        applySize(sizeArbiter.noteInput(clientId))
+    }
+
+    /**
+     * Apply an arbitrated size change to the PTY, the headless emulator and
+     * the broadcast [sizeEvents] flow. No-op for null (the arbiter reports
+     * null when the effective size is unchanged — the per-keystroke guard).
+     *
+     * @param next the new effective grid, or null when nothing changed.
+     */
+    private fun applySize(next: Pair<Int, Int>?) {
+        val (c, r) = next ?: return
         try {
             pty.winSize = WinSize(c, r)
         } catch (_: Throwable) {

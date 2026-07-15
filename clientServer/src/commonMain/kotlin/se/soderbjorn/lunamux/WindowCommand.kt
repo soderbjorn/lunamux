@@ -829,11 +829,14 @@ sealed class PtyControl {
      * left alone.
      *
      * The [priority] tier decides how this vote competes with other clients'
-     * (see [SizePriority]): a [SizePriority.NORMAL] vote is the classic
-     * "smallest attached viewport wins" behaviour, while the 3D world sends
-     * [SizePriority.THREE_D] to assert a pane's [Pane.grid3d] override over the
-     * 2D clients. Old clients omit the field, so it defaults to
-     * [SizePriority.NORMAL] and their votes behave exactly as before.
+     * (see [SizePriority]): the server arbitrates latest-active-client-wins
+     * — a [SizePriority.NORMAL] vote applies when this client is the one the
+     * user most recently used (typed on / reformatted), the 3D world sends
+     * [SizePriority.THREE_D] to assert a pane's [Pane.grid3d] override over
+     * the 2D clients, and a [SizePriority.MOBILE] vote claims the size
+     * immediately so the terminal is readable the moment a phone opens it.
+     * With no recorded activity the classic tiered min() decides. Old
+     * clients omit the field, so it defaults to [SizePriority.NORMAL].
      */
     @Serializable
     @SerialName("resize")
@@ -846,9 +849,11 @@ sealed class PtyControl {
     /**
      * "Reformat" from the client's UI: force the PTY to this client's
      * cols/rows, evicting every *other* client's size entry from the
-     * aggregation. The next auto-resize those clients send will
-     * re-populate the map and min() takes over again — this is a
-     * momentary override, not a permanent mode switch.
+     * aggregation and making this client the size governor. The next
+     * auto-resize those clients send re-populates their votes, but ambient
+     * re-votes no longer steal the size back — governance moves when the
+     * user acts on another client (types there, reformats there, or opens
+     * the session on a phone).
      */
     @Serializable
     @SerialName("forceResize")

@@ -58,6 +58,28 @@ internal var lastFocusedTerminalId: String? = null
  */
 internal var lastPointerDownPaneId: String? = null
 
+/**
+ * True while the user is dragging a pane-resize surface — a `.dt-pane-separator`
+ * split bar or a `.dt-pane-corner-resize` handle (the toolkit's stable resize
+ * chrome classes; if the toolkit ever renames them, detection degrades
+ * gracefully to [sendResize]'s trailing debounce).
+ *
+ * While set, [sendResize] suppresses automatic PTY size votes: local grid
+ * refits continue for visual feedback, but the transient intermediate widths
+ * of the drag never reach the PTY. Programs hard-wrap their output at
+ * whatever COLUMNS they see, and xterm.js cannot reflow hard-wrapped lines,
+ * so every mid-drag width that reached the PTY used to leave a permanent
+ * half-width scar in the scrollback — worst during split-bar drags, which
+ * feed redistributed (briefly very narrow) widths to *both* neighbour panes.
+ *
+ * Set by the capture-phase document `pointerdown` listener in `main.kt`;
+ * cleared (with a follow-up size flush) by the matching `pointerup` /
+ * `pointercancel` / window-`blur` listeners. The committed final geometry is
+ * separately asserted by the toolkit's `onGeometryChanged` → `forceReassert`,
+ * which bypasses the gate by design.
+ */
+internal var resizeGestureActive = false
+
 /** Map of paneId → string PTY connection state ("connected", "disconnected", …). */
 internal val connectionState = HashMap<String, String>()
 

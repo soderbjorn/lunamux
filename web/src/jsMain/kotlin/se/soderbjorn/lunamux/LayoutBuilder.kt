@@ -92,6 +92,15 @@ fun sendResize(entry: TerminalEntry) {
     // bypasses this by calling `forceReassert`, which sends a
     // `ForceResize` directly. See [TerminalEntry.autoReflow].
     if (!entry.autoReflow) return
+    // Mid-gesture suppression: while the user drags a split bar or resize
+    // corner, local refits keep the grid visually responsive but nothing is
+    // voted to the PTY — programs hard-wrap output at whatever transient
+    // COLUMNS they see, and xterm.js cannot reflow hard-wrapped lines, so a
+    // mid-drag width that reaches the PTY leaves a permanent half-width
+    // scar in scrollback. The final size is asserted on release (the
+    // gesture-end flush in main.kt, plus the toolkit's onGeometryChanged →
+    // forceReassert, which bypasses this gate). See [resizeGestureActive].
+    if (resizeGestureActive) return
     if (!entryOpen(entry)) return
     val cols = entry.term.cols; val rows = entry.term.rows
     // While the pane rides a 3D-world plane, this automatic vote lands on the
@@ -112,6 +121,11 @@ fun sendResize(entry: TerminalEntry) {
         if (isRidingSpikePlane(entry) && entry.paneId in spikeGrid3dByPane) SizePriority.THREE_D
         else SizePriority.NORMAL
     entry.pendingResizeTimer?.let { window.clearTimeout(it) }
+    // 200 ms trailing debounce. This is the only transient-width mitigation
+    // for resize paths that have no drag gesture to gate on (OS window-edge
+    // drags, sidebar toggles): long enough to coalesce a continuous drag's
+    // intermediate widths into (mostly) the final one, short enough that a
+    // settled size still feels immediate.
     entry.pendingResizeTimer = window.setTimeout({
         entry.pendingResizeTimer = null
         val socket = entry.socket
@@ -122,7 +136,7 @@ fun sendResize(entry: TerminalEntry) {
                 )
             )
         }
-    }, 50)
+    }, 200)
 }
 
 /**

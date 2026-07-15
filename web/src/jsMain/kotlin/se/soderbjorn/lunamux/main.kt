@@ -735,6 +735,12 @@ private fun start() {
         // SetFocusedPane and kicking off the selection flicker loop.
         val pane = if (node != null) node.closest(".dt-pane, .dt-sidebar-row") as? HTMLElement else null
         lastPointerDownPaneId = pane?.getAttribute("data-pane-id")
+        // A press on a pane-resize surface starts a resize gesture: gate
+        // automatic PTY size votes until release so mid-drag transient
+        // widths never reach the PTY (see [resizeGestureActive]).
+        if (node != null && node.closest(".dt-pane-corner-resize, .dt-pane-separator") != null) {
+            resizeGestureActive = true
+        }
         val insideMenu = node != null && node.closest(
             ".tab-bar-menu, .tab-bar-menu-list, .pane-menu, .pane-split-flyout, .pane-flyout-wrap"
         ) != null
@@ -746,6 +752,26 @@ private fun start() {
             (openMenus.item(i) as HTMLElement).classList.remove("open")
         }
     }, js("({ capture: true })"))
+
+    // End of a pane-resize gesture: the pointer released or was cancelled
+    // anywhere in the document (capture phase, so pane-internal handlers
+    // that stopPropagation can't hide it), or the window lost focus with the
+    // button still down (release outside the window). Clearing the flag
+    // re-opens the [sendResize] gate; the flush below is belt-and-braces for
+    // gestures that end *without* a committed geometry change — the normal
+    // path is the toolkit's onGeometryChanged → forceReassert, which sends
+    // the final size regardless of this gate.
+    val endResizeGesture: (dynamic) -> Unit = { _: dynamic ->
+        if (resizeGestureActive) {
+            resizeGestureActive = false
+            for (entry in terminals.values) {
+                if (entry.autoReflow && entry.container.offsetParent != null) sendResize(entry)
+            }
+        }
+    }
+    document.asDynamic().addEventListener("pointerup", endResizeGesture, js("({ capture: true })"))
+    document.asDynamic().addEventListener("pointercancel", endResizeGesture, js("({ capture: true })"))
+    window.asDynamic().addEventListener("blur", endResizeGesture)
 
     // Swallow stray drops that escape pane-internal handlers (file drag
     // anywhere on the page should not navigate the renderer).

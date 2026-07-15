@@ -99,7 +99,14 @@ internal fun Route.ptyRoutes(settingsRepo: SettingsRepository) {
         try {
             for (frame in incoming) {
                 when (frame) {
-                    is Frame.Binary -> session.write(frame.readBytes())
+                    is Frame.Binary -> {
+                        // Input marks this client as the most recently active
+                        // one for size arbitration (latest-active wins) —
+                        // recorded here, not inside write(), because write()
+                        // is also used by MCP tools with no client identity.
+                        session.noteClientInput(clientId)
+                        session.write(frame.readBytes())
+                    }
                     is Frame.Text -> handleControl(session, clientId, mobile, frame.readText())
                     else -> Unit
                 }
