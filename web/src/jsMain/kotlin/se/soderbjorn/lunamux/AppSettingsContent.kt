@@ -26,8 +26,11 @@
  *         icons directly.
  *  2. A **General** section with persisted toggles for stable,
  *     enabled-by-default features that have graduated out of Experimental:
- *       - **Enable 3D app switcher** (ships on) plus its dependent **style**
- *         picker, shown only while the switcher is on.
+ *       - **Desktop notifications**: raise an OS notification when a session
+ *         needs input or finishes. Ships **off on macOS, on elsewhere** — the
+ *         one platform-dependent default here. Lived in the toolkit's
+ *         Appearance sidebar until it moved here; it keeps the same
+ *         persistence key so existing choices still apply.
  *       - **Use program-set terminal titles** (ships on): panes take the
  *         title the running program sets via OSC 0/2 (consumed
  *         server-side); its explanation lives behind a "?" help popover
@@ -49,6 +52,8 @@
  *   - `experimental3dSwitcherStyle` (String, default "rotunda") — which 3D
  *     switcher style the picker selects; only shown while the switcher is on.
  *   - `terminalProgramTitle` (Boolean, default true)
+ *   - `desktopNotifications` (Boolean, default `!isMacPlatform()`) — may also
+ *     be stored as the string "true"/"false" by older client builds.
  *
  * Reads consult [toolkitSettingsSnapshot] (already mirrored from the
  * server's payload via [updateToolkitSettingsSnapshot]); writes
@@ -61,6 +66,7 @@
  * @see isExperimentalFileBrowserEnabled
  * @see isExperimentalGitViewEnabled
  * @see isTerminalProgramTitleEnabled
+ * @see isDesktopNotificationsEnabled
  */
 package se.soderbjorn.lunamux
 
@@ -75,6 +81,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
+import se.soderbjorn.darkness.web.hotkey.isMacPlatform
 
 /** Persistence key for the experimental file-browser flag. */
 private const val KEY_EXPERIMENTAL_FILE_BROWSER = "experimentalFileBrowser"
@@ -172,6 +179,19 @@ private const val KEY_WORLD3D_SOUND_EFFECTS = "world3dSoundEffects"
 // The opt-in "use program-set terminal titles" flag persists under
 // TERMINAL_PROGRAM_TITLE_KEY from the shared clientServer module — the server
 // reads the same constant, so the contract is compiler-enforced.
+
+/**
+ * Persistence key for the **desktop notifications** toggle.
+ *
+ * Deliberately the same key the toolkit's Appearance sidebar used before this
+ * row moved here, so a value a user already chose there keeps applying. Older
+ * values were written by the client view-model as the *strings* `"true"` /
+ * `"false"`; [snapshotBoolean] reads both shapes, and writes from this row now
+ * land as real JSON Booleans via [putJsonBoolean].
+ *
+ * @see isDesktopNotificationsEnabled
+ */
+private const val KEY_DESKTOP_NOTIFICATIONS = "desktopNotifications"
 
 /**
  * Tooltip/`title` of the toolkit's topbar Theme Manager (palette) button.
@@ -385,6 +405,28 @@ fun experimental3dSwitcherStyle(): String =
  */
 fun isTerminalProgramTitleEnabled(): Boolean =
     snapshotBoolean(TERMINAL_PROGRAM_TITLE_KEY, default = true)
+
+/**
+ * Whether a session going to "waiting" / finishing should raise an OS desktop
+ * notification. Read to seed the toggle in [buildGeneralSection], and on every
+ * state push by [checkStateNotifications] — which still gates on the browser's
+ * own `Notification.permission` on top of this preference.
+ *
+ * The default is **platform-dependent**: off on macOS-class user-agents, on
+ * everywhere else. macOS already surfaces its own notification affordances and
+ * the alerts read as noise there, so the Mac opts in rather than out. Note that
+ * [isMacPlatform] also matches iPhone / iPad, which is intentional — web
+ * notifications on those need a home-screen install to work at all, so
+ * defaulting them off costs nothing.
+ *
+ * A user who flips the toggle persists an explicit value, which overrides the
+ * default on every platform.
+ *
+ * @return `true` when notifications should fire, defaulting to `!isMacPlatform()`.
+ * @see KEY_DESKTOP_NOTIFICATIONS
+ */
+fun isDesktopNotificationsEnabled(): Boolean =
+    snapshotBoolean(KEY_DESKTOP_NOTIFICATIONS, default = !isMacPlatform())
 
 /**
  * Whether the 3D world's idle **window bobbing** (and the free-flight spaceship
@@ -659,8 +701,8 @@ fun openAppSettingsSidebar() {
  * before it in [buildAppSettingsContent].
  *
  * Contains:
- *  - **Enable 3D app switcher** (ships on) plus its dependent **style** picker,
- *    shown/hidden in lock-step with the toggle.
+ *  - **Desktop notifications** (ships off on macOS, on elsewhere) with its "?"
+ *    help popover.
  *  - **Use program-set terminal titles** (ships on) with its "?" help popover.
  *
  * @return the freshly-built section element.
@@ -674,6 +716,19 @@ private fun buildGeneralSection(): HTMLElement {
     title.className = "lunamux-app-settings-section-title"
     title.textContent = "General"
     section.appendChild(title)
+
+    section.appendChild(buildToggleRow(
+        labelText = "Desktop notifications",
+        initialValue = isDesktopNotificationsEnabled(),
+        onChange = { v ->
+            updateSnapshotBoolean(KEY_DESKTOP_NOTIFICATIONS, v)
+            putJsonBoolean(KEY_DESKTOP_NOTIFICATIONS, v)
+        },
+        descriptionText = "Raises an OS notification when a session starts " +
+            "waiting for input or finishes what it was doing. Your browser " +
+            "must also have granted notification permission. Off by default on " +
+            "macOS, on by default elsewhere.",
+    ))
 
     section.appendChild(buildToggleRow(
         labelText = "Use program-set terminal titles",

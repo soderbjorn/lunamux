@@ -137,7 +137,6 @@ internal class SettingsViewModel(
             sidebarCollapsed = bool("sidebarCollapsed") ?: cur.sidebarCollapsed,
             headerCollapsed = bool("headerCollapsed") ?: cur.headerCollapsed,
             usageBarCollapsed = bool("usageBarCollapsed") ?: cur.usageBarCollapsed,
-            desktopNotifications = bool("desktopNotifications") ?: cur.desktopNotifications,
             electronCustomTitleBar = bool("electronCustomTitleBar") ?: cur.electronCustomTitleBar,
             uiSettingsHydrated = true,
             lightThemeName = lightName,

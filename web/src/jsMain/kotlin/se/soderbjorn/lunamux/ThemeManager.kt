@@ -154,8 +154,6 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
         get() = effectiveFontKey(appVm.stateFlow.value.paneHeaderFontFamily)
     override val paneHeaderFontSizePx: Int?
         get() = effectiveChromeSize(appVm.stateFlow.value.paneHeaderFontSizePx)
-    override val desktopNotifications: Boolean
-        get() = appVm.stateFlow.value.desktopNotifications
     override val useCustomTitleBar: Boolean
         get() = appVm.stateFlow.value.electronCustomTitleBar
 
@@ -182,9 +180,6 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
     }
     override fun setPaneHeaderFontSizePx(value: Int?) {
         if (value != null) launch { appVm.setPaneHeaderFontSizePx(value) }
-    }
-    override fun setDesktopNotifications(value: Boolean) {
-        launch { appVm.setDesktopNotifications(value) }
     }
     override fun setUseCustomTitleBar(value: Boolean) {
         launch { appVm.setElectronCustomTitleBar(value) }

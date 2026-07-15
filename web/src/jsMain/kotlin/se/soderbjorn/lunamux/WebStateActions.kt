@@ -465,7 +465,7 @@ internal fun wireMarkdownAnchorLinks(container: HTMLElement) {
  * Checks for session state transitions that warrant desktop notifications.
  */
 private fun checkStateNotifications(sessionStates: Map<String, String?>) {
-    if (!appVm.stateFlow.value.desktopNotifications) return
+    if (!isDesktopNotificationsEnabled()) return
     if (js("typeof Notification === 'undefined'") as Boolean) return
     if ((js("Notification.permission") as String) != "granted") return
 

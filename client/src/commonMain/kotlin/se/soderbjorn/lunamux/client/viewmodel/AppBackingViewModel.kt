@@ -70,7 +70,6 @@ class AppBackingViewModel(
      * @property sidebarCollapsed   whether the sidebar is currently collapsed.
      * @property headerCollapsed    whether the app header is currently hidden.
      * @property usageBarCollapsed  whether the Claude usage bar is hidden.
-     * @property desktopNotifications whether desktop notifications are enabled.
      * @property electronCustomTitleBar whether the Electron window hides the
      *   native title bar in favour of themed chrome.
      * @property uiSettingsHydrated `true` once the server has pushed at least
@@ -105,7 +104,6 @@ class AppBackingViewModel(
         val sidebarCollapsed: Boolean = false,
         val headerCollapsed: Boolean = false,
         val usageBarCollapsed: Boolean = false,
-        val desktopNotifications: Boolean = true,
         val electronCustomTitleBar: Boolean = false,
         val uiSettingsHydrated: Boolean = false,
         val lightThemeName: String = DEFAULT_LIGHT_THEME,
@@ -246,13 +244,6 @@ class AppBackingViewModel(
     suspend fun setUsageBarCollapsed(collapsed: Boolean) {
         emit(_stateFlow.value.copy(usageBarCollapsed = collapsed))
         settings.persistSetting("usageBarCollapsed", collapsed.toString())
-    }
-
-    /** Enable or disable desktop notifications and persist the preference. */
-    @Throws(CancellationException::class, Exception::class)
-    suspend fun setDesktopNotifications(enabled: Boolean) {
-        emit(_stateFlow.value.copy(desktopNotifications = enabled))
-        persistFonts()
     }
 
     /** Enable or disable the custom Electron title bar and persist it. */
@@ -498,7 +489,6 @@ class AppBackingViewModel(
             s.tabbarFontSizePx?.let { put("tabbarFontSizePx", it.toString()) }
             s.paneHeaderFontFamily?.let { put("paneHeaderFontFamily", it) }
             s.paneHeaderFontSizePx?.let { put("paneHeaderFontSizePx", it.toString()) }
-            put("desktopNotifications", s.desktopNotifications.toString())
             put("electronCustomTitleBar", s.electronCustomTitleBar.toString())
         })
     }
