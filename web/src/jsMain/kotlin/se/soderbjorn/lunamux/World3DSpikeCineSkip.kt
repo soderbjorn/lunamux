@@ -63,9 +63,10 @@ internal fun cineSeconds(frames: Double): Double = frames / 60.0 / spikeCineScal
  * fall through to its normal meaning if not), and by [settleCineScale] each frame to decide when
  * to drop the time-scale back to 1.0.
  *
- * Covers the world-switch fly-through, a pane's arrival wormhole, any scripted camera tour or
- * live stash chase, a phaser death mid-barrage, a tab bundle anywhere but at rest on the dock,
- * and a pane still travelling on its stash flight. That last check is what keeps the scale alive
+ * Covers the entry cinematic that tilts the 2D shell away on open, the world-switch fly-through,
+ * a pane's arrival wormhole, any scripted camera tour or live stash chase, a phaser death
+ * mid-barrage, a tab bundle anywhere but at rest on the dock, and a pane still travelling on its
+ * stash flight. That last check is what keeps the scale alive
  * until the pane physically lands, since the camera can finish its tour a frame or two before the
  * pane settles — and it defers to [paneInStashFlight] rather than comparing [RingPane.stashProg]
  * to a target here, because a pane in a *parked* bundle rests at `stashProg == 1.0` while no
@@ -80,7 +81,8 @@ internal fun cineSeconds(frames: Double): Double = frames / 60.0 / spikeCineScal
  * @see skipCinematics @see settleCineScale @see paneInStashFlight
  */
 internal fun cinematicInFlight(): Boolean =
-    spikeWorldTransit != null ||
+    spikeIntro != null ||
+        spikeWorldTransit != null ||
         spikeWormholes.isNotEmpty() ||
         spikeCamReturning ||
         spikeStashChase != null ||

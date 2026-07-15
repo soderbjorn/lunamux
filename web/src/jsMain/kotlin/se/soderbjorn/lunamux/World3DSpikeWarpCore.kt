@@ -293,8 +293,17 @@ internal fun tickWarpCore(p: RingPane, phaseIdx: Int, working: Boolean, waiting:
         )
         // A hailing pane never fades or dims — stay fully lit so you can't miss it. (Full
         // opacity also keeps its preserve-3d children painting; see the implementation prompt.)
-        p.wrapper.style.setProperty("opacity", "1")
-        p.wrapper.style.setProperty("display", "")
+        //
+        // Suspended while the entry cinematic ([spikeIntro]) plays — it owns pane opacity outright.
+        // This pass runs *after* `css.render`, which makes it the last writer in the frame and so
+        // beats both the veil and the flights: a hailing pane would sit fully lit at its ring slot
+        // right through the reveal, and then get flown in on top of itself. Nothing is really lost
+        // by waiting — the cinematic is a few seconds, the pane is in flight for most of them, and
+        // the hail lights up the instant it lands. @see spikeIntroPaneVeil
+        if (spikeIntro == null) {
+            p.wrapper.style.setProperty("opacity", "1")
+            p.wrapper.style.setProperty("display", "")
+        }
         p.dim.style.opacity = "0"
     } else {
         // CHARGING / idle / discharging: blue reactor breathing at the calm hum cadence,

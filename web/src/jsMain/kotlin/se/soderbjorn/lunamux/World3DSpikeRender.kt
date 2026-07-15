@@ -312,7 +312,13 @@ internal fun startSpikeLoop() {
             // presented pose only, never the stored spikeCam* state, so flight momentum
             // and the cinematic return math are unaffected. Suppressed during a return so
             // landings stay dead level, mirroring the panes' holdStill suppression.
-            val camBob = if (spikeBobEnabled && !spikeCamReturning)
+            //
+            // Also suppressed for the whole entry cinematic ([spikeIntro]): its replica of the 2D
+            // shell is sold entirely on being pixel-identical and dead still, and a bobbing camera
+            // would slide the whole screen up and down through the one beat where the promise is
+            // "nothing moved". (It would stay 1:1 — the bob is a pure Y translation and doesn't
+            // change the replica's camera-space depth — but it would visibly drift.)
+            val camBob = if (spikeBobEnabled && !spikeCamReturning && spikeIntro == null)
                 sin(spikeBobPhase) * BOB_AMPLITUDE else 0.0
             val bx = spikeCamX
             val by = spikeCamY + camBob
@@ -670,7 +676,14 @@ internal fun startSpikeLoop() {
                         else -> vis * (1.0 - spikeChaseFocus * (1.0 - STASH_CHASE_OTHER_OPACITY))
                     }
                 }
-                p.wrapper.style.setProperty("opacity", vis.toString())
+                // Entry cinematic: hold the whole ring dark behind the 1:1 replica of the 2D
+                // shell, then fade it up as the replica tilts clear. Folded in as a plain
+                // multiplier on the final opacity — it must NOT feed the `display:none` cut
+                // below, since a fully veiled pane is still being laid out and re-fitted by
+                // postOpenLayout on these very frames. 1.0 whenever no intro is playing.
+                // @see spikeIntroPaneVeil
+                val visIntro = vis * spikeIntroPaneVeil
+                p.wrapper.style.setProperty("opacity", visIntro.toString())
                 p.wrapper.style.setProperty("display", if (vis <= 0.01) "none" else "")
 
                 val isFront = settled && i == fi
@@ -899,6 +912,12 @@ internal fun startSpikeLoop() {
             // the home and other command centers. Owns the camera + moves the vortex disc, so
             // it must run BEFORE render (like tickWormhole) for its writes to take this frame.
             tickWorldTransit(camera)
+            // Entry cinematic: tilt the 1:1 replica of the 2D shell away to reveal the ring.
+            // Before render like the two above, since it moves a real CSS3D object. It also owns
+            // [spikeIntroPaneVeil], which the per-pane loop above already consumed this frame, so
+            // the veil written here lands on the NEXT frame's opacity — one frame of lag on a
+            // ~2.5s dissolve, which is not perceptible. @see tickWorld3dIntro
+            tickWorld3dIntro()
             // While riding the opaque tunnel ([spikeWorldTransitOccluding]) the whole 3D scene
             // is hidden behind the full-screen tunnel canvas, so skip the CSS3D render and the
             // screen-space overlays entirely — re-compositing hundreds of hidden 3D-transformed

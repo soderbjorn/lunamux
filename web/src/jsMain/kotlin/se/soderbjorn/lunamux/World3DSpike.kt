@@ -265,9 +265,27 @@ internal fun openWorld3dSpike() {
             "justify-content:center;color:#8ea3c2;font:15px ui-monospace,Menlo,monospace;"
         overlay.appendChild(notice)
     } else {
+        // Entry cinematic: clone the 2D shell onto a 1:1 plane so the world opens on a replica of
+        // the screen the user was already looking at, then tilt it away to reveal the ring.
+        //
+        // The call site is pinned between two hard constraints. It must come AFTER
+        // [syncWorld3dRuntimeFromSettings] above, which is what seeds [spikeCinematicAnimations]
+        // from persisted settings — arming any earlier reads a stale flag and plays the cinematic
+        // for users who turned it off. And it must come BEFORE [buildRingPane] below, which
+        // reparents the live terminals out of the 2D shell — clone any later and it is a snapshot
+        // of a screen full of holes.
+        //
+        // No-ops (and the world opens with today's hard cut) when the setting is off, or when
+        // there is no shell to clone. @see armWorld3dIntro
+        armWorld3dIntro(scene)
         specs.forEach { buildRingPane(it, n, scene, chrome) }
         emptyTabs.forEach { (id, title, ord) -> buildEmptyTabCard(id, title, ord, scene, chrome) }
         buildRingChrome(overlay)
+        // The legends are built shown; reconcile them against the entry cinematic armed just above,
+        // so they stay out of the way until it has landed rather than flashing up over the reveal.
+        // A no-op (they simply stay shown) when the "Cinematic" setting is off and nothing armed.
+        // @see updateLegendVisibility
+        updateLegendVisibility()
         // Land on the active tab's focused pane so you start where you left off; if
         // the world is all empty tabs, land on the first tab's placeholder card.
         // Panes seeded onto the shelf are skipped — the fronted slot must never be
@@ -794,11 +812,45 @@ internal val FLY_KEY_CODES = setOf(
 )
 
 /**
- * Closes the spike: restores every reparented **real** terminal to its original
- * place in the 2D layout, tears down every **mirror** preview, then removes the
- * overlay and listeners.
+ * Closes the spike — playing the exit cinematic first, if it is enabled.
+ *
+ * The gate in front of [finishCloseWorld3dSpike]. Every way out of the world (Esc, the ✕, the
+ * topbar cube, the hotkey) comes through here, so they all get the cinematic without knowing
+ * anything about it. [armWorld3dOutro] flies the panes back onto a replica of the 2D shell and
+ * tilts it up to 1:1; when it lands it calls [finishCloseWorld3dSpike] itself, and the swap to the
+ * real shell is invisible because both are at 1:1.
+ *
+ * Closes immediately, exactly as it always did, when the "Cinematic" setting is off or the outro
+ * can't be armed.
+ *
+ * Closes immediately **while any cinematic is already playing**, in either direction. Asking to
+ * leave during a performance means you want out, not another performance: mid-entry it would
+ * otherwise turn round and fly everything back, and mid-exit it would restart. Combined with the
+ * Enter/Esc skip this gives the same two-press shape as the rest of the world — the first Esc is
+ * eaten by [skipCinematics] and fast-forwards, the second lands here and leaves.
+ *
+ * @see armWorld3dOutro
+ * @see finishCloseWorld3dSpike
  */
 internal fun closeWorld3dSpike() {
+    if (!spikeOpen) return
+    if (spikeIntro != null) {
+        finishCloseWorld3dSpike()
+        return
+    }
+    if (armWorld3dOutro()) return
+    finishCloseWorld3dSpike()
+}
+
+/**
+ * Closes the spike for real: restores every reparented **real** terminal to its original
+ * place in the 2D layout, tears down every **mirror** preview, then removes the
+ * overlay and listeners.
+ *
+ * Reached either straight from [closeWorld3dSpike] (cinematics off) or from the exit cinematic's
+ * final frame. Not to be called directly from UI — go through [closeWorld3dSpike].
+ */
+internal fun finishCloseWorld3dSpike() {
     if (!spikeOpen) return
     spikeOpen = false
     // Leaving the 3D world: drop any destination preview *now* (2D always shows the live active
@@ -840,6 +892,14 @@ internal fun closeWorld3dSpike() {
     // sockets are still live here so the NORMAL vote lands. A crash that skips this
     // still reverts, since the closing sockets drop their THREE_D votes server-side.
     revertGrid3dOverridesOnClose()
+    // Drop the entry/exit cinematic's replica if the world is closed mid-flight — otherwise the
+    // clone is stranded in the scene and, worse, [spikeIntroPaneVeil] stays where it stopped and
+    // the NEXT open would come up with an invisible ring. Idempotent; a no-op once it has finished
+    // on its own. [spikeIntroSettling] is cleared alongside it: closing during the entry's closing
+    // approach means its `then` continuation will never fire, and a stuck flag would leave the
+    // shortcuts legend hidden for the rest of the session. @see disposeWorld3dIntro
+    disposeWorld3dIntro()
+    spikeIntroSettling = false
     for (p in spikePanes) disposeRingPane(p)
     spikePanes = mutableListOf()
     for (c in spikeEmptyTabs) disposeEmptyCard(c)

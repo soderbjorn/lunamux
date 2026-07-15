@@ -611,10 +611,19 @@ internal val SHELF_SHORTCUT_IDS: Set<String> = setOf(
  */
 internal fun updateLegendVisibility() {
     val engaged = spikeEngaged
-    val navVisible = !spikeLegendHidden && !spikeFlyMode && !engaged
+    // No key hints over either entry/exit cinematic. Arriving, they would pop a wall of text over a
+    // reveal that is still playing and land it on a chore; leaving, they should be gone the instant
+    // you ask to go, not ride the 2D shell back down. [spikeIntro] covers both directions — it is
+    // non-null for the whole entry and again the moment the exit arms — and [spikeIntroSettling]
+    // extends the entry across the camera's closing approach, which the cinematic itself does not
+    // stay alive for. @see spikeIntroSettling
+    val cinematic = spikeIntro != null || spikeIntroSettling
+    val navVisible = !spikeLegendHidden && !spikeFlyMode && !engaged && !cinematic
     spikeLegendPanel?.style?.display = if (navVisible) "" else "none"
-    spikeFlyLegendPanel?.style?.display = if (!spikeLegendHidden && spikeFlyMode && !engaged) "" else "none"
-    spikeEngageLegendPanel?.style?.display = if (!spikeLegendHidden && engaged) "" else "none"
+    spikeFlyLegendPanel?.style?.display =
+        if (!spikeLegendHidden && spikeFlyMode && !engaged && !cinematic) "" else "none"
+    spikeEngageLegendPanel?.style?.display =
+        if (!spikeLegendHidden && engaged && !cinematic) "" else "none"
     if (navVisible) {
         val atShelf = cameraAtShelf()
         for ((id, row) in spikeLegendRows) {
