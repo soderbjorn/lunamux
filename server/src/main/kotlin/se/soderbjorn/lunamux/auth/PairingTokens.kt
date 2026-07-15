@@ -72,31 +72,35 @@ object PairingTokens {
     }
 
     /**
-     * Spend [candidate] on behalf of the device identified by [deviceHash].
-     * Comparison is constant-time on the hash and stale entries are evicted
-     * first.
+     * Claim [candidate] for the device identified by [deviceHash], granting it
+     * trust exactly once. Comparison is constant-time on the hash and stale
+     * entries are evicted first.
      *
-     * The first caller claims the token for its device. Later calls from that
-     * *same* device succeed idempotently until the entry expires; calls from
-     * any other device fail. This is deliberate: a scanning client attaches
-     * its `pairToken` to every request until the connect succeeds, so `/window`,
-     * `/api/ui-settings` and the `/pty` sockets routinely present one token
-     * concurrently. Removing the entry on first spend made all but one of those
-     * race the trusted-device write and fall through to the approval dialog —
-     * a spurious prompt in the middle of a pairing that had already succeeded.
-     * Claiming rather than removing keeps the single-use guarantee where it
-     * actually matters (a second device cannot replay a photographed QR) while
-     * letting one device's own parallel requests agree.
+     * Returns `true` only for the call that *first* claims a live token; every
+     * later presentation returns `false`, whoever makes it. A scanning client
+     * attaches its `pairToken` to every request until the connect succeeds, so
+     * `/window`, `/api/ui-settings` and the `/pty` sockets routinely present
+     * one token at once — but the losers of that race don't need a second
+     * grant, because [DeviceAuth] has already persisted the device as trusted
+     * by the time they get here and they pass on the ordinary trusted lookup.
+     * Granting trust once, and only once, is what keeps a revoke from being
+     * undone by a token the device is still replaying.
+     *
+     * Unlike a plain remove-on-spend, the entry survives its claim (until
+     * [TTL_MS] or [invalidate]) so [isClaimed] can tell "already spent" apart
+     * from "expired" and the panel can replace a dead QR.
      *
      * Called by [DeviceAuth]'s pairing approval path on every connect that
      * carries a `pairToken`.
      *
      * @param candidate the raw token string received from the client.
-     * @param deviceHash sha256 of the connecting device's token; the identity
-     *   the claim is bound to.
+     * @param deviceHash sha256 of the connecting device's token; recorded as
+     *   the claimant so logs can tie a QR to the device that redeemed it.
      * @param nowMs the current clock, injectable for tests.
-     * @return `true` if this device may pair with [candidate] right now.
+     * @return `true` on the one call that claims [candidate]; `false` if it is
+     *   unknown, expired, blank, or already claimed.
      * @see mint
+     * @see isClaimed
      */
     @Synchronized
     fun consume(candidate: String, deviceHash: String, nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -107,22 +111,16 @@ object PairingTokens {
             MessageDigest.isEqual(it.toByteArray(), hash.toByteArray())
         } ?: return false
         val entry = pending.getValue(match)
-        val claimedBy = entry.claimedBy
-        if (claimedBy == null) {
-            entry.claimedBy = deviceHash
-            log.info("PairingTokens: pairing token claimed by device {}", deviceHash.take(10))
-            return true
+        if (entry.claimedBy != null) {
+            log.info(
+                "PairingTokens: pairing token already claimed; refusing re-grant to {}",
+                deviceHash.take(10),
+            )
+            return false
         }
-        if (MessageDigest.isEqual(claimedBy.toByteArray(), deviceHash.toByteArray())) {
-            // Same device presenting its own token again: no new grant, just
-            // agreement with the claim it already holds.
-            return true
-        }
-        log.info(
-            "PairingTokens: refusing pairing token already claimed by another device (requester {})",
-            deviceHash.take(10),
-        )
-        return false
+        entry.claimedBy = deviceHash
+        log.info("PairingTokens: pairing token claimed by device {}", deviceHash.take(10))
+        return true
     }
 
     /**

@@ -5,7 +5,9 @@
  * Dismissal used to be indistinguishable from a denial — the dialog returned a
  * Boolean and its `onCloseRequest` passed `false` — so closing the window
  * permanently banned the device. These tests pin the distinction: only an
- * explicit deny persists, and a dismissal leaves the device exactly as it was.
+ * explicit deny writes the device down, while a dismissal leaves its status
+ * open so a later attempt can still prompt. A dismissal is still the user
+ * deciding, though, so it spends the first-decision latch like the other two.
  *
  * The interactive path is driven through [DeviceAuth.approvalPrompt] and
  * [DeviceAuth.headlessCheck]; the real dialog can't be clicked headlessly.
@@ -19,6 +21,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DeviceAuthApprovalChoiceTest {
@@ -41,6 +44,13 @@ class DeviceAuthApprovalChoiceTest {
         hostname = "phone",
         selfReportedIp = address,
         remoteAddress = address,
+    )
+
+    private fun loopbackClient() = DeviceAuth.ClientInfo(
+        type = "Web",
+        hostname = null,
+        selfReportedIp = null,
+        remoteAddress = "127.0.0.1",
     )
 
     @BeforeTest
@@ -95,6 +105,38 @@ class DeviceAuthApprovalChoiceTest {
 
         assertEquals(DeviceAuth.Decision.APPROVED, decision)
         assertEquals(1, DeviceAuth.listTrustedDevices(repo).size)
+    }
+
+    /**
+     * A dismissal decides nothing about the *device*, but it is still the user
+     * making a call, so it spends the clean-slate loopback shortcut.
+     *
+     * This pins a rule, not a live hole. In practice the shortcut is almost
+     * always gone before any dialog can appear: the desktop app's own loopback
+     * client is auto-trusted on first connect, which latches, and allow-remote
+     * — without which no LAN device reaches the prompt — can only be turned on
+     * from the UI that client is serving. The narrow real case is a token-less
+     * loopback request (a curl before first launch), which skips the
+     * token-requiring auto-approve and prompts with the latch still armed.
+     */
+    @Test
+    fun `dismissing the dialog spends the clean-slate shortcut`() {
+        val repo = tempRepo()
+        repo.setAllowRemoteConnections(true)
+        DeviceAuth.approvalPrompt = { DeviceAuth.ApprovalChoice.DISMISS }
+        runBlocking { DeviceAuth.authorize("device-dismiss-latch", clientAt("192.168.44.50"), repo) }
+        DeviceAuth.clearTransientSuppressions()
+
+        // Both device lists are still empty — the only thing standing between
+        // a fresh loopback token and silent trust is the latch.
+        assertTrue(DeviceAuth.listTrustedDevices(repo).isEmpty())
+        assertTrue(DeviceAuth.listDeniedDevices(repo).isEmpty())
+
+        // null = "must prompt". APPROVED here would mean auto-trusted, no dialog.
+        assertNull(
+            DeviceAuth.checkFastPath("device-loopback-after-dismiss", loopbackClient(), repo),
+            "a dismissed prompt must leave the clean-slate auto-trust disarmed",
+        )
     }
 
     @Test

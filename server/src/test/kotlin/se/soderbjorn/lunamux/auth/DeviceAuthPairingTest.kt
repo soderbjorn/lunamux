@@ -253,6 +253,39 @@ class DeviceAuthPairingTest {
         assertEquals(1, DeviceAuth.listTrustedDevices(repo).size, "the device must be trusted exactly once")
     }
 
+    /**
+     * A paired client keeps sending its pairToken for the rest of the token's
+     * TTL. Those requests must land on the trusted lookup — the path that
+     * refreshes the device's history — rather than being short-circuited by
+     * the pairing shortcut, which would freeze last-seen at the pairing
+     * instant for as long as the QR stayed live.
+     */
+    @Test
+    fun `later requests still re-sending the pairing token refresh device history`() {
+        val repo = tempRepo()
+        repo.setAllowRemoteConnections(true)
+        val pairToken = PairingTokens.mint()
+
+        assertEquals(
+            DeviceAuth.Decision.APPROVED,
+            DeviceAuth.checkFastPath("device-history", remoteClient("192.168.1.70"), repo, pairToken),
+        )
+        val afterPairing = DeviceAuth.listTrustedDevices(repo).single()
+
+        // Same live pairToken, new address — as a phone moving networks would.
+        assertEquals(
+            DeviceAuth.Decision.APPROVED,
+            DeviceAuth.checkFastPath("device-history", remoteClient("192.168.1.71"), repo, pairToken),
+        )
+
+        val afterReconnect = DeviceAuth.listTrustedDevices(repo).single()
+        assertEquals("192.168.1.71", afterReconnect.lastIp, "last-seen IP must track the live connection")
+        assertTrue(
+            afterReconnect.connections.size > afterPairing.connections.size,
+            "the second connection must be recorded, not swallowed by the pairing shortcut",
+        )
+    }
+
     @Test
     fun `a second device cannot claim an already-claimed pairing token`() {
         val repo = tempRepo()

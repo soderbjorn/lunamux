@@ -61,7 +61,6 @@ import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberDialogState
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -91,6 +90,19 @@ object DeviceAuth {
     // pop two dialogs at once — the user should see them one at a time.
     private val approvalMutex = Mutex()
 
+    // Makes claiming a pairing token and persisting the resulting trust one
+    // atomic step. Without it a sibling request can look up the trusted list
+    // in the gap between the two and decide it needs a dialog, prompting in
+    // the middle of a pairing that has already succeeded.
+    private val pairingLock = Any()
+
+    // Guards [recentDecisions] and [recentIpDenials]. A plain monitor rather
+    // than [approvalMutex] because these are also touched from outside any
+    // coroutine — revokeTrustedDevice runs on the settings dialog's EDT — and
+    // because approvalMutex is held for the entire lifetime of an open dialog,
+    // which is far too long to make anything else wait on.
+    private val suppressionLock = Any()
+
     // On boot the client opens /api/ui-settings + /window + one /pty/{id} per
     // pre-existing session in parallel, all with the same unknown token. The
     // mutex alone isn't enough: it serializes the prompts, but each waiter
@@ -98,17 +110,24 @@ object DeviceAuth {
     // a single APPROVED/REJECTED decision for a given token hash cover every
     // queued-up duplicate within a short window. Entries auto-expire so a
     // user who clicks Deny by mistake can retry by reloading shortly after.
-    // All access happens inside [approvalMutex] so no extra locking is needed.
+    // All access happens inside [suppressionLock].
     private data class CachedDecision(val decision: Decision, val expiresAtMs: Long)
     private val recentDecisions = HashMap<String, CachedDecision>()
     private const val RECENT_DECISION_TTL_MS: Long = 10_000
+
+    // How long "Not now" quiets a device for. Longer than
+    // [RECENT_DECISION_TTL_MS] because a dismissal has no persisted record to
+    // fall back on: an auto-reconnecting client would otherwise re-pop the
+    // dialog every ten seconds. Long enough not to nag, short enough that
+    // "not now" still plainly means "ask me again".
+    private const val DISMISS_SUPPRESSION_MS: Long = 60_000
 
     // Prompt cooldown per remote IP: after the user denies a non-loopback
     // device, further unknown tokens from the same address are rejected
     // without a dialog for a short window, so a port scanner cycling random
     // tokens can't turn into desktop dialog spam. Keyed by observed remote
     // address → denial epoch-millis; all access happens inside
-    // [approvalMutex] and entries are evicted alongside [recentDecisions].
+    // [suppressionLock] and entries are evicted alongside [recentDecisions].
     private val recentIpDenials = HashMap<String, Long>()
     private const val IP_DENIAL_COOLDOWN_MS: Long = 30_000
 
@@ -216,11 +235,15 @@ object DeviceAuth {
      * What the user did with the approval dialog.
      *
      * [DISMISS] exists so closing the window is not silently equivalent to
-     * [DENY]: only [APPROVE] and [DENY] persist anything, while [DISMISS]
-     * rejects the connection at hand and leaves the device's status untouched
-     * so a later attempt prompts again.
+     * [DENY]. It rejects the connection in hand and records nothing *about the
+     * device* — no trust, no denial — so a later attempt prompts again rather
+     * than being banned by an accident. It is still a decision by the user
+     * though, and spends the first-decision latch like the other two: someone
+     * was asked, which is what the clean-slate shortcut assumes hasn't
+     * happened.
      *
      * @see promptOrReject
+     * @see markFirstDecisionMade
      */
     internal enum class ApprovalChoice { APPROVE, DENY, DISMISS }
 
@@ -258,11 +281,9 @@ object DeviceAuth {
      * exists so tests can stand for "…and later, once they had", and so that
      * this object's process-wide state can't leak between them.
      */
-    internal fun clearTransientSuppressions() = runBlocking {
-        approvalMutex.withLock {
-            recentDecisions.clear()
-            recentIpDenials.clear()
-        }
+    internal fun clearTransientSuppressions() = synchronized(suppressionLock) {
+        recentDecisions.clear()
+        recentIpDenials.clear()
     }
 
     /**
@@ -520,7 +541,7 @@ object DeviceAuth {
         if (wasInteractive) markFirstDecisionMade(repo)
         // Invalidate any cached APPROVED decision so a queued duplicate
         // connection within the short TTL window still has to re-prompt.
-        if (removed) recentDecisions.remove(tokenHash)
+        if (removed) synchronized(suppressionLock) { recentDecisions.remove(tokenHash) }
         return removed
     }
 
@@ -562,7 +583,7 @@ object DeviceAuth {
         }
         if (removed) {
             markFirstDecisionMade(repo)
-            recentDecisions.remove(tokenHash)
+            synchronized(suppressionLock) { recentDecisions.remove(tokenHash) }
         }
         return removed
     }
@@ -907,24 +928,38 @@ object DeviceAuth {
      *
      * Caller context: [checkFastPath] and [authorize], immediately *after*
      * the network-scope gate — a remote pairing attempted while allow-remote
-     * is off is rejected there and never reaches this. A failed
-     * spend (expired, reused, or foreign token) returns `null` and the
-     * caller falls through to the normal flow — reconnects that re-send a
-     * consumed token then simply hit the trusted-device lookup and pass.
+     * is off is rejected there and never reaches this. Only the connect that
+     * *claims* the pairing token is approved here; anything else (expired,
+     * foreign, or already-claimed token) returns `null` and falls through to
+     * the caller's normal flow.
+     *
+     * That fall-through is load-bearing, not a leftover. A scanning client
+     * re-sends its `pairToken` on every request until the connect succeeds, so
+     * the requests racing the claim — and every request for the rest of the
+     * token's TTL — land here again. Returning `null` puts them back on the
+     * ordinary trusted-device lookup, which is the path that refreshes
+     * last-seen/IP history and honours a revoke. Approving them here instead
+     * would freeze the device's history for as long as the QR stays live.
+     *
+     * The claim and the trust write happen together under [pairingLock] so a
+     * racing sibling can't read the trusted list in the window between them
+     * and wrongly conclude it needs a dialog.
      *
      * @param token the device-auth token to persist as trusted.
      * @param pairToken the raw pairing token from the QR scan, or `null`.
      * @param client the connecting client's metadata for history/logging.
      * @param repo the settings repository to persist trust state into.
-     * @return [Decision.APPROVED] when the pairing token spent, else `null`.
-     * @see PairingTokens
+     * @return [Decision.APPROVED] for the connect that claims [pairToken],
+     *   else `null` — including for later requests from the device that
+     *   already claimed it.
+     * @see PairingTokens.consume
      */
     private fun tryPairingTokenApproval(
         token: String?,
         pairToken: String?,
         client: ClientInfo,
         repo: SettingsRepository,
-    ): Decision? {
+    ): Decision? = synchronized(pairingLock) {
         if (token.isNullOrBlank() || pairToken.isNullOrBlank()) return null
         // A denial outranks the QR: scanning must not re-admit a device the
         // user explicitly denied — "Unban" in settings is the only undo.
@@ -943,10 +978,12 @@ object DeviceAuth {
             )
             return null
         }
+        // Not the claiming connect: hand it back to the trusted lookup, which
+        // is where a device that already paired belongs.
         if (!PairingTokens.consume(pairToken, deviceHash)) return null
         val hash = persistTrustedDevice(token, client, repo, TRUSTED_VIA_QR)
         log.info(
-            "DeviceAuth: pairing token consumed; trusted device from {} hashPrefix={}",
+            "DeviceAuth: pairing token claimed; trusted device from {} hashPrefix={}",
             client.remoteAddress,
             hash.take(10),
         )
@@ -1016,8 +1053,10 @@ object DeviceAuth {
         val now = clock()
 
         // Evict expired cache entries so the maps don't grow without bound.
-        recentDecisions.entries.removeAll { it.value.expiresAtMs <= now }
-        recentIpDenials.entries.removeAll { it.value + IP_DENIAL_COOLDOWN_MS <= now }
+        synchronized(suppressionLock) {
+            recentDecisions.entries.removeAll { it.value.expiresAtMs <= now }
+            recentIpDenials.entries.removeAll { it.value + IP_DENIAL_COOLDOWN_MS <= now }
+        }
 
         // A previous waiter inside this same mutex session may have just
         // persisted this exact token as trusted (common at boot, when
@@ -1033,14 +1072,16 @@ object DeviceAuth {
             // what makes a single "Deny" click on boot also deny the other
             // in-flight connections from the same browser instead of popping
             // a fresh dialog for each.
-            recentDecisions[hash]?.let { cached ->
+            synchronized(suppressionLock) { recentDecisions[hash] }?.let { cached ->
                 return@withLock cached.decision
             }
         }
 
         // Per-IP prompt cooldown: a non-loopback address the user denied
         // moments ago is rejected outright instead of re-prompting.
-        if (!isLoopback(remoteAddress) && recentIpDenials.containsKey(remoteAddress)) {
+        if (!isLoopback(remoteAddress) &&
+            synchronized(suppressionLock) { recentIpDenials.containsKey(remoteAddress) }
+        ) {
             log.info(
                 "DeviceAuth: rejecting {} without prompting (address denied within the last {} s)",
                 remoteAddress,
@@ -1066,37 +1107,47 @@ object DeviceAuth {
         // appended its own duplicate denial.
         val decidedAt = clock()
 
-        // Dismissal is not a denial. The user closed the window without
-        // deciding, so reject the connection in hand but persist nothing: no
-        // denied entry, no first-decision latch. The in-memory suppressions
-        // below still apply — they expire on their own, which is exactly the
-        // "not now" this means — so the sibling requests racing this one
-        // (/window + /api/ui-settings + several /pty sockets on a single boot)
-        // don't each pop their own dialog.
-        if (choice == ApprovalChoice.DISMISS) {
-            log.info("User dismissed the approval dialog for {}; no decision persisted", remoteAddress)
-            if (!isLoopback(remoteAddress)) {
-                recentIpDenials[remoteAddress] = decidedAt
+        if (choice != ApprovalChoice.APPROVE) {
+            // Both refusals quiet the sibling requests racing this one
+            // (/window + /api/ui-settings + several /pty sockets on a single
+            // boot) so they don't each pop their own dialog. What separates
+            // them is what outlives that: a denial is written down, a
+            // dismissal is not.
+            val dismissed = choice == ApprovalChoice.DISMISS
+            if (dismissed) {
+                log.info("User dismissed the approval dialog for {}; no denial persisted", remoteAddress)
+            } else {
+                log.info("User denied device from {}", remoteAddress)
             }
-            if (hash != null) {
-                recentDecisions[hash] = CachedDecision(
-                    Decision.REJECTED,
-                    decidedAt + RECENT_DECISION_TTL_MS,
-                )
-            }
-            return@withLock Decision.REJECTED
-        }
 
-        if (choice == ApprovalChoice.DENY) {
-            log.info("User denied device from {}", remoteAddress)
-            if (!isLoopback(remoteAddress)) {
-                recentIpDenials[remoteAddress] = decidedAt
+            // Refusing to choose is still a choice, and the latch records the
+            // human rather than the device: someone was sitting here, saw a
+            // prompt, and declined to bless it. That is exactly the evidence
+            // the clean-slate loopback shortcut needs to *not* have — it grants
+            // trust with no prompt at all on the theory that nobody has been
+            // asked anything yet, which stops being true the moment this
+            // dialog goes up. Unlike the denial below, this doesn't depend on
+            // there being a token worth writing down.
+            markFirstDecisionMade(repo)
+
+            // The per-IP cooldown is a denial's blast radius: it silences every
+            // token from that address, which is what stops a scanner cycling
+            // random tokens from becoming dialog spam. A dismissal hasn't
+            // accused anyone of anything, so it only quiets the device it was
+            // about — otherwise "Not now" would lock out the very phone the
+            // user is about to retry from, and any other device sharing its IP.
+            if (!dismissed && !isLoopback(remoteAddress)) {
+                synchronized(suppressionLock) { recentIpDenials[remoteAddress] = decidedAt }
             }
             if (hash != null) {
-                recentDecisions[hash] = CachedDecision(
-                    Decision.REJECTED,
-                    decidedAt + RECENT_DECISION_TTL_MS,
-                )
+                val quietFor = if (dismissed) DISMISS_SUPPRESSION_MS else RECENT_DECISION_TTL_MS
+                synchronized(suppressionLock) {
+                    recentDecisions[hash] = CachedDecision(Decision.REJECTED, decidedAt + quietFor)
+                }
+            }
+            if (dismissed) return@withLock Decision.REJECTED
+
+            if (hash != null) {
                 // Persist the denial so the next attempt from this token
                 // doesn't re-prompt. The entry is revocable from the settings
                 // dialog ("Unban") in case of a misclick.
@@ -1135,10 +1186,6 @@ object DeviceAuth {
                         DeniedDevices(current.devices + added)
                     }
                 }
-                // A deny is a decision too: the user was here and said no, so
-                // this install is no longer fresh even if the denial is later
-                // unbanned and the list goes empty again.
-                markFirstDecisionMade(repo)
                 log.info("DeviceAuth: persisted denial for hashPrefix={}", hash.take(10))
             }
             return@withLock Decision.REJECTED
@@ -1152,10 +1199,12 @@ object DeviceAuth {
             return@withLock Decision.APPROVED
         }
         persistTrustedDevice(tokenToPersist, client, repo, TRUSTED_VIA_DIALOG)
-        recentDecisions[hash] = CachedDecision(
-            Decision.APPROVED,
-            decidedAt + RECENT_DECISION_TTL_MS,
-        )
+        synchronized(suppressionLock) {
+            recentDecisions[hash] = CachedDecision(
+                Decision.APPROVED,
+                decidedAt + RECENT_DECISION_TTL_MS,
+            )
+        }
         // Read back immediately and log what we just persisted so we can
         // tell mid-debug if the write/read round-trip is broken.
         val roundTrip = loadDevices(repo)

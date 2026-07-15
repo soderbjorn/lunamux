@@ -5,6 +5,7 @@
 package se.soderbjorn.lunamux.auth
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -41,17 +42,19 @@ class PairingTokensTest {
     }
 
     /**
-     * The race this whole design exists for: one device attaches its pairing
-     * token to /window, /api/ui-settings and several /pty sockets at once, and
-     * every one of them must agree rather than fall through to the dialog.
+     * A token grants trust once and never again — not even to the device that
+     * claimed it. Those later presentations are expected (the client re-sends
+     * its pairToken until the connect succeeds); they simply aren't a second
+     * grant, so they fall through to DeviceAuth's trusted lookup, which is
+     * what refreshes the device's history and honours a revoke.
      */
     @Test
-    fun claimingDeviceMayConsumeRepeatedly() {
+    fun claimingDeviceGetsNoSecondGrant() {
         val now = 1_100_000L
         val token = PairingTokens.mint(nowMs = now)
         assertTrue(PairingTokens.consume(token, deviceA, nowMs = now + 1))
-        assertTrue(PairingTokens.consume(token, deviceA, nowMs = now + 2))
-        assertTrue(PairingTokens.consume(token, deviceA, nowMs = now + 3))
+        assertFalse(PairingTokens.consume(token, deviceA, nowMs = now + 2))
+        assertFalse(PairingTokens.consume(token, deviceA, nowMs = now + 3))
     }
 
     /** Single-use where it matters: a photographed QR can't pair a 2nd device. */
@@ -61,14 +64,6 @@ class PairingTokensTest {
         val token = PairingTokens.mint(nowMs = now)
         assertTrue(PairingTokens.consume(token, deviceA, nowMs = now + 1))
         assertFalse(PairingTokens.consume(token, deviceB, nowMs = now + 2))
-    }
-
-    @Test
-    fun claimDoesNotSurviveTtl() {
-        val now = 1_300_000L
-        val token = PairingTokens.mint(nowMs = now)
-        assertTrue(PairingTokens.consume(token, deviceA, nowMs = now + 1))
-        assertFalse(PairingTokens.consume(token, deviceA, nowMs = now + PairingTokens.TTL_MS + 1))
     }
 
     @Test
@@ -101,6 +96,33 @@ class PairingTokensTest {
         assertTrue(PairingTokens.consume(token, deviceA, nowMs = now + 1))
         PairingTokens.invalidate(token)
         assertFalse(PairingTokens.consume(token, deviceA, nowMs = now + 2))
+        assertFalse(PairingTokens.isClaimed(token, nowMs = now + 3), "an invalidated token is gone, not claimed")
+    }
+
+    /**
+     * Concurrent presentations of one fresh token must produce exactly one
+     * grant — the claim is what authorizes the pairing, so two winners would
+     * mean two devices trusted off a single QR.
+     */
+    @Test
+    fun onlyOneOfManyRacingCallersClaimsTheToken() {
+        val token = PairingTokens.mint()
+        val n = 16
+        val ready = java.util.concurrent.CountDownLatch(n)
+        val go = java.util.concurrent.CountDownLatch(1)
+        val wins = java.util.concurrent.atomic.AtomicInteger()
+        val threads = (0 until n).map { i ->
+            kotlin.concurrent.thread {
+                ready.countDown()
+                go.await()
+                if (PairingTokens.consume(token, "device-$i".repeat(4))) wins.incrementAndGet()
+            }
+        }
+        ready.await()
+        go.countDown()
+        threads.forEach { it.join() }
+
+        assertEquals(1, wins.get(), "exactly one caller may claim a token")
     }
 
     @Test
