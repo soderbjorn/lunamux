@@ -181,6 +181,13 @@ internal fun startSidebarPaneRename(labelEl: HTMLElement, paneId: String) {
     input.value = current
     input.setAttribute("draggable", "false")
     parent.replaceChild(input, labelEl)
+    // Drop any clipped-label tooltip the toolkit put on the row (it only sets
+    // one while hovering a row too narrow for its label — see
+    // `wireSidebarRowClipTooltip`). It is computed on mouseenter, and the
+    // pointer is already inside the row here, so without this the old name
+    // would hang over the rename input until the pointer left and came back.
+    // The toolkit re-evaluates on the next hover either way.
+    (parent.closest(".dt-sidebar-row") as? HTMLElement)?.removeAttribute("title")
     input.focus()
     input.select()
 

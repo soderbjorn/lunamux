@@ -1,0 +1,174 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "se.soderbjorn.darkness",
+    "module": "toolkit-compose",
+    "version": "0.2.30",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "metadataApiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.platform.type": "common"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.darkness",
+          "module": "toolkit-core",
+          "version": {
+            "requires": "0.2.30"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "toolkit-compose-metadata-0.2.30.jar",
+          "url": "toolkit-compose-0.2.30.jar",
+          "size": 762,
+          "sha512": "6e9cf83233f838a52f0fde57e0061644b8118693dac1377750c9b465b6afb238fdd93e3eb70afebb14e0e708d8410e53bb083acb680e2ace0cfc1c45e1ad29b2",
+          "sha256": "318be4b86b8be76a3ed8db53200f4807f3e440e204bb74e2fbb4772825940f43",
+          "sha1": "48fc930f225af1239a8cc35a43530c58e180647b",
+          "md5": "8f4d7f3f6749dfd226854428bccce65c"
+        }
+      ]
+    },
+    {
+      "name": "metadataSourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.platform.type": "common"
+      },
+      "files": [
+        {
+          "name": "toolkit-compose-kotlin-0.2.30-sources.jar",
+          "url": "toolkit-compose-0.2.30-sources.jar",
+          "size": 5669,
+          "sha512": "d93db2949e9df9eab1bf563b596e18cafc4dfbd5baaeb35d9c987ad6136673bc4cac7a06173681185b28b036448941cfc7074aa7c238484ec292209af54cf8fb",
+          "sha256": "63f3b5242c5e608956c9a8f96af68d23ed896148ef497db1cf54b18554204500",
+          "sha1": "64273cc6434e071397d92128916ba7e00838dc61",
+          "md5": "3d59fc60d49d0ec209e5599d22a3877f"
+        }
+      ]
+    },
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-compose-android/0.2.30/toolkit-compose-android-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-android",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-compose-android/0.2.30/toolkit-compose-android-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-android",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-compose-android/0.2.30/toolkit-compose-android-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-android",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jvmApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-compose-jvm/0.2.30/toolkit-compose-jvm-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-jvm",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jvmRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-compose-jvm/0.2.30/toolkit-compose-jvm-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-jvm",
+        "version": "0.2.30"
+      }
+    },
+    {
+      "name": "jvmSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../toolkit-compose-jvm/0.2.30/toolkit-compose-jvm-0.2.30.module",
+        "group": "se.soderbjorn.darkness",
+        "module": "toolkit-compose-jvm",
+        "version": "0.2.30"
+      }
+    }
+  ]
+}
