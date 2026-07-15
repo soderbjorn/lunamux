@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,6 +78,8 @@ fun MiniTerminalPane(
     }
 
     val palette = rememberTerminalPalette(client, sessionId)
+    val context = LocalContext.current
+    val terminalFontFamily = remember(context) { FontFamily(TerminalFont.typeface(context)) }
     val linesFlow = remember(registry, sessionId) { registry.linesFor(sessionId) }
     val lines by linesFlow.collectAsStateWithLifecycle()
 
@@ -93,7 +96,11 @@ fun MiniTerminalPane(
             Text(
                 text = line,
                 color = Color(palette.text),
-                fontFamily = FontFamily.Monospace,
+                // The shared terminal face, not FontFamily.Monospace: the system mono
+                // font carries no Iosevka fallback, so the terminal symbols JetBrains Mono
+                // lacks (⏺, ⎿, …) fall through to Noto Color Emoji and the miniature fills
+                // with emoji buttons (#141).
+                fontFamily = terminalFontFamily,
                 fontSize = MINI_TERMINAL_FONT_SP.sp,
                 lineHeight = (MINI_TERMINAL_FONT_SP + 2).sp,
             )

@@ -267,14 +267,15 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     private static let minFontSize: CGFloat = 6
     private static let maxFontSize: CGFloat = 32
 
-    /// Returns the bundled JetBrains Mono face (matches the Android app) at
-    /// the requested size, falling back to the system monospace font if the
-    /// custom font failed to register. JetBrains Mono carries proper
-    /// monospace glyphs for the geometric, technical, and box-drawing blocks
-    /// that SF Mono leaves to a proportional fallback (●, ○, ⏸, └, …).
+    /// The face the terminal draws with, at `size`. See ``TerminalFont`` for why
+    /// it is shared with the overview previews rather than built here.
+    ///
+    /// Called for the initial font and on every pinch-to-zoom step.
+    ///
+    /// - Parameter size: point size for the returned face.
+    /// - Returns: the terminal face, per-glyph fallback chain attached.
     private static func terminalFont(size: CGFloat) -> UIFont {
-        UIFont(name: "JetBrainsMono-Regular", size: size)
-            ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        TerminalFont.uiFont(size: size)
     }
 
     init(ptySocket: Client.PtySocket, client: Client.LunamuxClient, sessionId: String) {

@@ -88,6 +88,7 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>JetBrainsMono-Regular.ttf</string>
+		<string>IosevkaTerm-Extended.ttf</string>
 	</array>
 </dict>
 </plist>

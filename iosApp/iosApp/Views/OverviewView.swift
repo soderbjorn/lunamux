@@ -912,7 +912,11 @@ private struct MiniTerminalPane: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                         Text(line)
-                            .font(.system(size: hSize.scaled(9), design: .monospaced))
+                            // The shared terminal face, not `.system(design: .monospaced)`:
+                            // SF Mono carries no cascade list, so the terminal symbols the
+                            // primary face lacks (⏺, ⎿, …) fall through to Apple Color Emoji
+                            // and the preview fills with emoji buttons (#141).
+                            .font(TerminalFont.swiftUI(size: hSize.scaled(9)))
                             .foregroundStyle(fg)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }

@@ -27,7 +27,8 @@ terminal-view module (modified fork)
 BUNDLED FONTS
 ================================================================================
 
-Android (androidApp/src/main/assets/fonts/):
+Android (androidApp/src/main/assets/fonts/)
+and iOS (iosApp/iosApp/Resources/Fonts/):
 
 JetBrains Mono
   Copyright 2020 The JetBrains Mono Project Authors
@@ -35,11 +36,16 @@ JetBrains Mono
   License: SIL Open Font License 1.1
   See:     androidApp/src/main/assets/fonts/JetBrainsMono-OFL.txt
 
-Iosevka
+Iosevka Term Extended
   Copyright 2015-2024 Renzhi Li (aka. Belleve Invis)
   Source:  https://github.com/be5invis/Iosevka
+           Unmodified IosevkaTerm-Extended.ttf from the PkgTTF-IosevkaTerm-32.2.1
+           release. Used as the terminal fallback face for the code points
+           JetBrains Mono has no glyph for. The Term variant gives every glyph
+           exactly one terminal cell, and the Extended width gives it the same
+           0.6em advance as JetBrains Mono, so fallback glyphs need no scaling.
   License: SIL Open Font License 1.1
-  See:     androidApp/src/main/assets/fonts/Iosevka-OFL.txt
+  See:     androidApp/src/main/assets/fonts/IosevkaTerm-OFL.txt
 
 Web / Electron (web/src/jsMain/resources/fonts/):
 

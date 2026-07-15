@@ -21,7 +21,6 @@ package se.soderbjorn.lunamux.android.ui
 
 import se.soderbjorn.darkness.core.*
 
-import android.graphics.Typeface
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -469,12 +468,7 @@ fun TerminalScreen(
                         val view = TerminalView(context, null)
                         val currentTextSize = intArrayOf(30)
                         view.setTextSize(currentTextSize[0])
-                        view.setTypeface(
-                            runCatching { Typeface.createFromAsset(context.assets, "fonts/JetBrainsMono-Regular.ttf") }
-                                .getOrDefault(Typeface.MONOSPACE),
-                        )
-                        runCatching { Typeface.createFromAsset(context.assets, "fonts/Iosevka-Regular.ttf") }
-                            .getOrNull()?.let { view.setFallbackTypeface(it) }
+                        view.setTypeface(TerminalFont.typeface(context))
                         view.isFocusable = true
                         view.isFocusableInTouchMode = true
                         var lastSent: Pair<Int, Int>? = null
