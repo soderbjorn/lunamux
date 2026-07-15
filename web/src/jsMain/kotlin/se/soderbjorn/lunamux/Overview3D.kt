@@ -374,7 +374,10 @@ internal fun ensureOverlay(): HTMLElement {
 internal fun openOverview3d() {
     if (ovOpen) return
     val cfg = latestWindowConfig ?: return
-    val tabs = cfg.tabs.filter { !it.isHidden }
+    // [effectiveTabs], never the flat `cfg.tabs`: that field is a legacy mirror the server pins to
+    // `worlds.first()` for pre-1.9 clients and does NOT track the active world, so the switcher
+    // showed the DEFAULT world's tabs whichever world you were actually in. @see effectiveTabs
+    val tabs = cfg.effectiveTabs.filter { !it.isHidden }
 
     ovOpen = true
     ovDiveStart = Double.NaN
@@ -413,7 +416,9 @@ internal fun openOverview3d() {
     // sources, pane tiles for all pane types), then seed the selection on the
     // active tab and its focused pane so the first ↑/↓/Tab steps to a neighbour.
     buildCards(tabs, fg, bg, accent)
-    ovSelected = tabs.indexOfFirst { it.id == cfg.activeTabId }.takeIf { it >= 0 } ?: 0
+    // [effectiveActiveTabId] to match the [effectiveTabs] `tabs` list above — pairing one with the
+    // other's legacy mirror would search for a tab that isn't in the list and silently land on 0.
+    ovSelected = tabs.indexOfFirst { it.id == cfg.effectiveActiveTabId }.takeIf { it >= 0 } ?: 0
     ovPaneSelected = focusedTileIndex(ovSelected)
 
     // Hand off to the chosen style: it arranges the cards/tiles in the scene

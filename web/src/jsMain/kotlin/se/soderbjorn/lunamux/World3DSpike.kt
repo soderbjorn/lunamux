@@ -292,7 +292,10 @@ internal fun openWorld3dSpike() {
         // a shelved pane (same invariant stashFront maintains) — with a last-resort
         // fallback to a stashed pane when *everything* is stashed.
         val cfg = latestWindowConfig
-        val focusId = cfg?.tabs?.firstOrNull { it.id == cfg.activeTabId }?.focusedPaneId
+        // [effectiveTabs]/[effectiveActiveTabId], never the flat legacy mirrors: those track the
+        // DEFAULT world, so in any other world this looked up a tab that isn't in the ring and the
+        // landing pane fell back to "first interactive". @see collectPaneSpecs
+        val focusId = cfg?.effectiveTabs?.firstOrNull { it.id == cfg.effectiveActiveTabId }?.focusedPaneId
         val start = spikePanes.firstOrNull { it.paneId == focusId && !isStashed(it) }
             ?: spikePanes.firstOrNull { it.interactive && !isStashed(it) }
             ?: spikePanes.firstOrNull { !isStashed(it) }

@@ -125,11 +125,17 @@ internal fun loadFrontZoom() {
  * @see loadFrontZoom @see zoomFront @see resetFrontZoom
  */
 internal fun seedZoomFromConfig(cfg: WindowConfig) {
-    for (tab in cfg.tabs) for (pane in tab.panes) {
+    fun seed(pane: Pane) {
         if (pane.zoom != 1.0 && pane.leaf.id !in spikeZoomByPane) {
             spikeZoomByPane[pane.leaf.id] = pane.zoom
         }
     }
+    // Both sweeps, exactly like [seedGrid3dFromConfig]: the flat `cfg.tabs` is a legacy mirror of
+    // the DEFAULT world (kept for pre-1.9 clients, and the only tabs a world-less config has), so
+    // on its own it silently dropped every persisted zoom belonging to any other world. The map is
+    // keyed by pane id, so seeding panes that aren't in the current ring is inert.
+    for (tab in cfg.tabs) for (pane in tab.panes) seed(pane)
+    for (world in cfg.worlds) for (tab in world.tabs) for (pane in tab.panes) seed(pane)
 }
 
 /**
