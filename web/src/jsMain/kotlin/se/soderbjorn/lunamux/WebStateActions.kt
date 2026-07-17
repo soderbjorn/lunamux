@@ -343,17 +343,31 @@ internal fun buildXtermTheme(): dynamic {
  * Post theme-system rewrite there is a single flat [ResolvedTheme] for the
  * whole app — no per-pane/section overrides — so a single `:root` stamp
  * suffices and every legacy section / pane container inherits it.
+ *
+ * The `appearance-light`/`appearance-dark` class and `color-scheme` must track
+ * the **resolved palette**, not the Auto/Dark/Light toggle: the appearance mode
+ * only picks *which slot* of the theme pair is live, and either slot may
+ * legitimately hold a theme of either polarity (a dark theme in the light slot
+ * is a supported configuration). Keying them off the toggle lets the hardcoded
+ * `body.appearance-light` chrome rules (white inputs/buttons, light-scheme form
+ * controls, a `border-color` that overrides the modal's accent border + glow)
+ * fire over a dark palette. Deriving from the painted surface keeps the class,
+ * `color-scheme` and the `--t-*` tokens describing one palette, so toggling
+ * appearance with the same theme in both slots is a visual no-op.
  */
 internal fun applyAppearanceClass() {
-    val state = appVm.stateFlow.value
-    val light = isLightActive(state.appearance)
+    // Resolve through the per-world override so switching worlds repaints to
+    // that world's theme pair (falls back to the global selection). Resolved
+    // first: the palette decides the appearance class, not the other way round.
+    val theme = currentResolvedTheme()
+    // `surface` is what the chrome paints (`--background`/`--surface` alias it,
+    // as do html/body and .pane-modal), so it — not `bg` (the terminal) — is
+    // the colour the light/dark chrome rules have to contrast against.
+    val light = isColorLight(theme.surface)
     val isDark = !light
     kotlinx.browser.document.body?.classList?.remove("appearance-light", "appearance-dark", "dark-spiced")
     kotlinx.browser.document.body?.classList?.add(if (light) "appearance-light" else "appearance-dark")
 
-    // Resolve through the per-world override so switching worlds repaints to
-    // that world's theme pair (falls back to the global selection).
-    val theme = currentResolvedTheme()
     val root = kotlinx.browser.document.documentElement as? HTMLElement
     if (root != null) {
         applyTheme(root, theme, isDark)

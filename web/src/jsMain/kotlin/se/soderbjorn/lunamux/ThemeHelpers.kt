@@ -14,21 +14,18 @@
 package se.soderbjorn.lunamux
 
 import se.soderbjorn.darkness.core.*
-import se.soderbjorn.darkness.web.isDarkActive
 import se.soderbjorn.lunamux.client.viewmodel.resolvedTheme
 
 /** Feature flag: when true, applies a "spiced" variant to dark themes. Currently disabled. */
 const val DARK_SPICED = false
 
-/**
- * Determines whether the light variant should be active based on the current
- * appearance setting. Convenience inverse of toolkit-web's [isDarkActive] so
- * existing Lunamux call sites stay terse.
- *
- * @param appearance the user's selected appearance mode
- * @return true if light mode should be used
- */
-fun isLightActive(appearance: Appearance): Boolean = !isDarkActive(appearance)
+// NOTE: there is deliberately no `isLightActive(appearance)` helper here.
+// The appearance mode only selects which *slot* of the theme pair is live —
+// it says nothing about that slot's polarity, since either slot may hold a
+// theme of either polarity. Chrome that needs to know "is the current palette
+// light" must ask the resolved palette (`isColorLight(theme.surface)`, as
+// applyAppearanceClass does), never the toggle; conflating the two is what put
+// white inputs and a white Cancel button on a dark worktree dialog.
 
 /**
  * Determines whether a hex background color is perceptually light using the
