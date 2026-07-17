@@ -546,6 +546,23 @@ private fun showShutdownFailedDialog(): Boolean {
 }
 
 /**
+ * Tells the renderer an in-flight quit was cancelled after it had already
+ * confirmed a kill-server quit. The renderer suppresses its "Connection lost"
+ * modal the moment it confirms such a quit (anticipating the intentional
+ * server teardown); when the quit is then abandoned — server shutdown failed
+ * and the user chose Cancel in [showShutdownFailedDialog] — the app keeps
+ * running, so the renderer must re-arm that modal or every later genuine
+ * disconnect would be swallowed silently.
+ *
+ * Called only from [requestQuit]'s cancel path; received by the renderer via
+ * `onQuitCancelled` (preload.js → web main.kt).
+ */
+private fun notifyQuitCancelled() {
+    val w = mainWindow
+    if (w != null && !w.isDestroyed()) w.webContents.send("quit-cancelled")
+}
+
+/**
  * Orchestrate a quit intent: show the modal, optionally stop the
  * server, then call [ElectronApp.quit] with the [quitConfirmed] flag
  * set so the next `before-quit` lets the quit through.
@@ -588,6 +605,10 @@ private fun requestQuit() {
                     app.quit()
                 } else {
                     quitInProgress = false
+                    // The renderer suppressed its "Connection lost" modal when
+                    // it confirmed this kill-server quit; the quit is now
+                    // abandoned, so tell it to re-arm the modal.
+                    notifyQuitCancelled()
                 }
             }
         } else {
@@ -799,6 +820,19 @@ private fun buildAppMenu() {
     val gitHubItem: dynamic = js("({})")
     gitHubItem.label = "Star on GitHub"
     gitHubItem.click = { shell.openExternal(LUNAMUX_GITHUB_URL) }
+    // "Check for Updates…" asks the renderer to run a user-initiated check; it
+    // fires the update:check IPC (after marking it user-initiated) so the outcome
+    // — checking / up-to-date / error — shows in the sidebar update banner rather
+    // than being silently swallowed. See [AutoUpdater] / [UpdateChannels] and
+    // AutoUpdaterPanel.triggerUserUpdateCheck.
+    val updatesItem: dynamic = js("({})")
+    updatesItem.label = "Check for Updates…"
+    updatesItem.click = {
+        val w = mainWindow
+        if (w != null && !w.isDestroyed()) {
+            w.webContents.send(UpdateChannels.SHOW_PANEL)
+        }
+    }
     val helpSeparator: dynamic = js("({ type: 'separator' })")
     val privacyItem: dynamic = js("({})")
     privacyItem.label = "Privacy Policy"
@@ -810,7 +844,7 @@ private fun buildAppMenu() {
     helpMenu.label = "Help"
     helpMenu.role = "help"
     helpMenu.submenu = arrayOf<dynamic>(
-        docsItem, websiteItem, forumItem, gitHubItem, helpSeparator,
+        docsItem, websiteItem, forumItem, gitHubItem, updatesItem, helpSeparator,
         privacyItem, termsItem,
     )
     template.add(helpMenu)
@@ -1590,6 +1624,10 @@ fun main() {
 
         ensureServerThenCreateWindow().then {
             if (!IS_DEV_LAUNCH) registerGlobalShortcut()
+            // The renderer fires the initial (silent) update check itself, from
+            // AutoUpdaterPanel.initAutoUpdaterListeners — after it has subscribed to
+            // the update events — so an update-available event can't be emitted
+            // before the renderer is listening (webContents.send doesn't buffer).
         }
     }
 
@@ -1634,6 +1672,51 @@ fun main() {
         val url = urlArg as? String
         if (url.isNullOrBlank()) "Invalid URL"
         else shell.openExternal(url)
+    }
+
+    // Auto-update: bind electron-updater's lifecycle listeners once (they send
+    // to whatever the live main window is at fire time, so a window rebuild
+    // doesn't sever progress reporting), then expose the three renderer-driven
+    // controls. The Updates panel in the App Settings sidebar invokes these;
+    // lifecycle events flow back on the [UpdateChannels]. See [AutoUpdater].
+    initAutoUpdater { mainWindow }
+    ipcMain.handle(UpdateChannels.CHECK) { _, _ ->
+        checkForUpdates()
+        Unit
+    }
+    ipcMain.handle(UpdateChannels.DOWNLOAD) { _, _ ->
+        downloadUpdate()
+        Unit
+    }
+    ipcMain.handle(UpdateChannels.QUIT_AND_INSTALL) { _, _ ->
+        if (!isUpdateDownloaded()) {
+            // The renderer's state got ahead of reality (e.g. a stale renderer
+            // after a window rebuild). Refuse — rather than shut the server
+            // down for an install quitAndInstall would throw on — and surface
+            // the refusal in the banner so the button recovers.
+            reportUpdateError("No downloaded update to install — check for updates again")
+        } else {
+            // Installing an update is an already-confirmed quit. The window-close
+            // and before-quit gates route through the renderer quit-confirmation
+            // modal unless quitConfirmed is set, so mark it before handing off to
+            // Squirrel — otherwise the install-relaunch would be trapped by the modal.
+            quitConfirmed = true
+            // Stop the bundled server first (the same POST /admin/shutdown the
+            // killServer quit path uses), so the relaunched, updated app starts its
+            // own new-version server instead of reconnecting to the old one still
+            // bound to the TLS port. Best-effort and time-bounded: the install
+            // proceeds even if the server never confirms, so a stuck server can
+            // never trap the update.
+            postShutdown(5000).then { _ ->
+                quitAndInstallUpdate(onFailure = {
+                    // The app is still running (with its server now stopped);
+                    // re-arm the quit gate so the next quit intent is confirmed
+                    // normally instead of silently sailing through.
+                    quitConfirmed = false
+                })
+            }
+        }
+        Unit
     }
 
     app.on("will-quit") { _, _ -> globalShortcut.unregisterAll() }

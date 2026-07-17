@@ -7,7 +7,10 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^32.0.0",
@@ -37,11 +40,20 @@
       "buildResources": "icons",
       "output": "dist"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "soderbjorn",
+      "repo": "lunamux",
+      "releaseType": "draft"
+    },
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.developer-tools",
       "bundleVersion": "12",
-      "bundleShortVersion": "1.8.0",
+      "bundleShortVersion": "1.9.0",
       "identity": "Robert Söderbjörn (CCJP95ZXG4)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

@@ -270,5 +270,15 @@ abstract class JlinkTask : DefaultTask() {
                 "--output", out.absolutePath,
             )
         }
+        // jlink writes its `legal/` license files read-only (0444). When the
+        // packaged app is downloaded as an auto-update it carries the macOS
+        // quarantine xattr, and Squirrel.Mac's ShipIt strips that xattr from
+        // EVERY file before swapping the bundle — which fails with EPERM on a
+        // read-only file, so ShipIt aborts and silently relaunches the OLD
+        // version. Make the runtime user-writable so the attribute can be
+        // removed. macOS-only task (bundleJre is gated to Mac).
+        execOps.exec {
+            commandLine("chmod", "-R", "u+w", out.absolutePath)
+        }
     }
 }

@@ -726,6 +726,8 @@ private fun buildAboutTopbarAction(): TopbarAction = TopbarAction(
  *
  * @return the bell topbar action; its click opens the screen using the shared
  *   [newsUpdatesViewModel]'s current state (a no-op before the checker starts).
+ *   (Desktop app updates are surfaced separately in the sidebar-footer update
+ *   banner — see AutoUpdaterPanel.kt — so this bell is news-only.)
  */
 private fun buildNewsTopbarAction(): TopbarAction = TopbarAction(
     id = "tt-topbar-news",
@@ -982,9 +984,11 @@ private fun buildSidebarLogo(): HTMLElement {
 }
 
 /**
- * Builds (once) the sidebar footer for the toolkit's `sidebarFooter` slot: the
- * Claude usage rows. (News and updates now live behind the pulsing top-bar bell
- * — see [buildNewsTopbarAction] — not a footer pill.)
+ * Builds (once) the sidebar footer for the toolkit's `sidebarFooter` slot: on
+ * Electron, the auto-update banner pinned at the top (see
+ * AutoUpdaterPanel.buildUpdateBanner), then the Claude usage rows and the
+ * world-status block. (News still lives behind the pulsing top-bar bell — see
+ * [buildNewsTopbarAction].)
  *
  * The Claude usage bar element keeps its `claude-usage-bar` id and is cached
  * into [usageBar] so subsequent [updateClaudeUsageBadge] writes land here; the
@@ -1000,6 +1004,13 @@ private fun buildSidebarFooter(): HTMLElement {
     sidebarFooterEl?.let { return it }
     val footer = document.createElement("div") as HTMLElement
     footer.className = "tt-sidebar-footer"
+
+    // Desktop auto-update banner, pinned at the TOP of the footer (above the
+    // Claude usage bar) — the lunamux analog of acolite's side-menu updater:
+    // hidden until an update is available / in progress, then an accent title +
+    // status/progress + Download/Restart. Electron only — a plain browser has no
+    // updater to drive. See AutoUpdaterPanel.buildUpdateBanner.
+    if (isElectronClient) footer.appendChild(buildUpdateBanner())
 
     val usage = document.createElement("div") as HTMLElement
     usage.id = "claude-usage-bar"

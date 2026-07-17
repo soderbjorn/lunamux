@@ -595,6 +595,12 @@ private fun start() {
         // build.
         startNewsUpdatesChecker()
 
+        // Wire the in-app auto-updater (electron-updater). Subscribes to the main
+        // process's update lifecycle events, reflects "update available" onto the
+        // top-bar bell, and feeds the Updates panel in App Settings. No-op when the
+        // preload lacks the updater bridge. See AutoUpdaterPanel.kt.
+        initAutoUpdaterListeners()
+
         GlobalScope.launch {
             var prev: Boolean? = null
             appVm.stateFlow
@@ -649,6 +655,15 @@ private fun start() {
         electronApi.onShowHotkeys({ openHotkeysSidebar() })
     }
 
+    // macOS Help menu → "Check for Updates…" opens the in-app Updates panel
+    // (App Settings sidebar). Forwarded from the Electron main process via the
+    // `show-updates-panel` IPC.
+    if (electronApi?.onShowUpdatesPanel != null) {
+        // Help menu → "Check for Updates…": run a user-initiated check; the result
+        // shows in the sidebar-footer update banner. See triggerUserUpdateCheck.
+        electronApi.onShowUpdatesPanel({ triggerUserUpdateCheck() })
+    }
+
     // 3D world → leave engage mode from inside a web pane. A `<webview>`
     // guest swallows its own keydowns, so the world's ⌥⌘X disengage chord
     // never reaches the host key handler while the page holds focus. The
@@ -689,8 +704,26 @@ private fun start() {
                 val payload = js("({})")
                 payload.confirmed = result.confirmed
                 payload.killServer = result.killServer
+                // Stopping the server drops the socket; don't flash the "Connection
+                // lost" modal in the moment before the app quits.
+                if (result.confirmed && result.killServer) {
+                    suppressDisconnectedModal = true
+                    hideDisconnectedModal()
+                }
                 electronApi.respondQuitConfirmation(payload)
             }
+        })
+    }
+
+    // A confirmed kill-server quit was abandoned in the main process (server
+    // shutdown failed, user chose Cancel in the native dialog) — the app keeps
+    // running, so re-arm the "Connection lost" modal suppressed above and
+    // re-evaluate the current connection state. Without this, every later
+    // genuine disconnect for the rest of the session would fail silently.
+    if (electronApi?.onQuitCancelled != null) {
+        electronApi.onQuitCancelled({
+            suppressDisconnectedModal = false
+            updateAggregateStatus()
         })
     }
 

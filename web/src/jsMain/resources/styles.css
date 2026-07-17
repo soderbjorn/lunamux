@@ -366,6 +366,110 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     font-weight: 600;
 }
 
+/* Desktop auto-update banner — pinned at the TOP of the sidebar footer (above the
+   Claude usage bar). Mirrors the footer idiom (.claude-usage-bar /
+   .world-status-bar): compact, an uppercase accent title, theme tokens. Hidden
+   until an update is available / downloading / ready (JS toggles `display`).
+   Built by AutoUpdaterPanel.buildUpdateBanner (Electron only). */
+.lunamux-update-banner {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 12px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--t-chrome-text, var(--text-secondary));
+    white-space: nowrap;
+    user-select: none;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    /* Hairline below, separating the banner from the usage bar, matching the
+       footer's own divider. */
+    border-bottom: 1px solid var(--t-chrome-border, color-mix(in srgb, currentColor 12%, transparent));
+}
+/* Uppercase accent title — the theme accent (same token the world-status
+   "working" state uses) so the notice pops in the active appearance's colour. */
+.lunamux-update-banner .lu-update-title {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--t-accent, #4fb8ff);
+}
+.lunamux-update-banner .lu-update-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+/* Version / percent chip on the right of the title row (muted, tabular). */
+.lunamux-update-banner .lu-update-version {
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 600;
+    opacity: 0.65;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+}
+/* Left cell of the action row: the "What's new" link (opens the in-app News &
+   Updates feed), or the message on error. Ellipsises so the button always fits. */
+.lunamux-update-banner .lu-update-left {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lunamux-update-banner .lu-update-left.lu-update-link {
+    opacity: 0.75;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+.lunamux-update-banner .lu-update-left.lu-update-link:hover { opacity: 1; }
+/* Primary action (Download / Restart / Try again): accent-outlined pill. */
+.lunamux-update-banner .lu-update-action {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    color: var(--t-accent, #4fb8ff);
+    background: none;
+    border: 1px solid var(--t-accent, #4fb8ff);
+    border-radius: 5px;
+    padding: 2px 8px;
+    line-height: 1.4;
+}
+.lunamux-update-banner .lu-update-action:hover {
+    background: color-mix(in srgb, var(--t-accent, #4fb8ff) 15%, transparent);
+}
+/* When the action stands alone (e.g. "Restart to install" after download), let it
+   fill the row rather than hugging its label on the right. */
+.lunamux-update-banner .lu-update-action.lu-update-action-full {
+    flex: 1 1 auto;
+    text-align: center;
+}
+/* Download progress row (shown only while downloading), reusing the usage-bar
+   track/fill metrics. */
+.lunamux-update-banner .lu-update-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.lunamux-update-banner .lu-update-progress {
+    flex: 1 1 auto;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--t-chrome-track, color-mix(in srgb, currentColor 16%, transparent));
+    overflow: hidden;
+}
+.lunamux-update-banner .lu-update-progress-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--t-accent, #4fb8ff);
+    transition: width 120ms linear;
+}
+
 /* Consolidated hover popup for the Claude usage bar (ClaudeUsageBar.kt's
    `buildUsagePopupHtml`). Parented to <body> and fixed-positioned by JS
    (the `.dt-sidebar` clips with overflow:hidden, so it can't live inside the

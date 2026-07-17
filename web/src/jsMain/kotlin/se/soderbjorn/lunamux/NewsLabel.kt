@@ -67,6 +67,10 @@ fun startNewsUpdatesChecker() {
         platformId = UpdatePlatform.MAC,
         currentVersionCode = versionCode,
         currentVersionName = versionName,
+        // The desktop build updates in-app via electron-updater (see
+        // AutoUpdaterPanel.kt), so the versions.json update branch is suppressed
+        // here to avoid double-notifying; this checker still surfaces news.
+        enableUpdateCheck = false,
     )
     newsUpdatesViewModel = viewModel
     viewModel.start()
@@ -90,6 +94,9 @@ fun startNewsUpdatesChecker() {
  *    the bell muted/grayed via CSS) when there is nothing new.
  *  - `data-tt-news-pulse="1"` when there is actual news, so the bell pulses; a
  *    version update on its own shows the bell coloured but static.
+ *
+ * (Desktop app updates surface in the sidebar-footer update banner — see
+ * AutoUpdaterPanel.kt — not through this bell.)
  *
  * @param state the latest news/update state.
  */

@@ -374,6 +374,22 @@ contextBridge.exposeInMainWorld("electronApi", {
   respondQuitConfirmation: (result) =>
     ipcRenderer.invoke("quit-confirmation-result", result),
 
+  /**
+   * Subscribes to the "quit cancelled" event the main process sends when a
+   * confirmed kill-server quit is abandoned (the server shutdown failed and
+   * the user chose Cancel in the native dialog). The renderer suppressed its
+   * "Connection lost" modal when it confirmed that quit; on this event it
+   * must re-arm the modal, since the app keeps running.
+   *
+   * @param {() => void} handler - Called with no arguments on each event.
+   * @returns {() => void} Unsubscribe function.
+   */
+  onQuitCancelled: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("quit-cancelled", wrapped);
+    return () => ipcRenderer.removeListener("quit-cancelled", wrapped);
+  },
+
   // --- macOS native fullscreen state ---------------------------------------
 
   /**
@@ -395,6 +411,128 @@ contextBridge.exposeInMainWorld("electronApi", {
     const wrapped = (_event, enabled) => handler(enabled === true);
     ipcRenderer.on("fullscreen-changed", wrapped);
     return () => ipcRenderer.removeListener("fullscreen-changed", wrapped);
+  },
+
+  // --- Auto-update ---------------------------------------------------------
+  // Renderer-driven controls (invoke) + main-process lifecycle subscriptions
+  // (on). The channel strings match se.soderbjorn.lunamux.electron.UpdateChannels
+  // on the main side. Serviced by AutoUpdater.kt; consumed by the renderer's
+  // Updates panel (web/.../AutoUpdaterPanel.kt).
+
+  /**
+   * Asks the main process to check the release provider for a newer version.
+   * A no-op in dev/unpackaged builds. Results arrive via the `onUpdate*`
+   * subscriptions below. Called by the Updates panel on open and by the
+   * "Check for Updates…" Help-menu item (see {@link onShowUpdatesPanel}).
+   *
+   * @returns {Promise<void>}
+   */
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+
+  /**
+   * Asks the main process to download the available update. Progress and
+   * completion arrive via {@link onUpdateProgress} / {@link onUpdateDownloaded}.
+   * Called by the Updates panel's "Download" button.
+   *
+   * @returns {Promise<void>}
+   */
+  downloadUpdate: () => ipcRenderer.invoke("update:download"),
+
+  /**
+   * Asks the main process to quit, install the downloaded update, and
+   * relaunch. Only meaningful after {@link onUpdateDownloaded} has fired.
+   * Called by the Updates panel's "Restart to install" button.
+   *
+   * @returns {Promise<void>}
+   */
+  quitAndInstall: () => ipcRenderer.invoke("update:quit-and-install"),
+
+  /**
+   * Subscribes to the "checking for updates" lifecycle event.
+   *
+   * @param {() => void} handler - Called with no arguments.
+   * @returns {() => void} Unsubscribe function.
+   */
+  onUpdateChecking: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("update:checking", wrapped);
+    return () => ipcRenderer.removeListener("update:checking", wrapped);
+  },
+
+  /**
+   * Subscribes to the "update available" event.
+   *
+   * @param {(info: { version?: string }) => void} handler - Receives the
+   *   available version info. The IPC event object is not leaked.
+   * @returns {() => void} Unsubscribe function.
+   */
+  onUpdateAvailable: (handler) => {
+    const wrapped = (_event, info) => handler(info || {});
+    ipcRenderer.on("update:available", wrapped);
+    return () => ipcRenderer.removeListener("update:available", wrapped);
+  },
+
+  /**
+   * Subscribes to the "no update available" event (app is up to date).
+   *
+   * @param {() => void} handler - Called with no arguments.
+   * @returns {() => void} Unsubscribe function.
+   */
+  onUpdateNotAvailable: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("update:not-available", wrapped);
+    return () => ipcRenderer.removeListener("update:not-available", wrapped);
+  },
+
+  /**
+   * Subscribes to download-progress events during an update download.
+   *
+   * @param {(progress: { percent?: number, transferred?: number, total?: number, bytesPerSecond?: number }) => void} handler
+   * @returns {() => void} Unsubscribe function.
+   */
+  onUpdateProgress: (handler) => {
+    const wrapped = (_event, progress) => handler(progress || {});
+    ipcRenderer.on("update:progress", wrapped);
+    return () => ipcRenderer.removeListener("update:progress", wrapped);
+  },
+
+  /**
+   * Subscribes to the "update downloaded / ready to install" event.
+   *
+   * @param {(info: { version?: string }) => void} handler
+   * @returns {() => void} Unsubscribe function.
+   */
+  onUpdateDownloaded: (handler) => {
+    const wrapped = (_event, info) => handler(info || {});
+    ipcRenderer.on("update:downloaded", wrapped);
+    return () => ipcRenderer.removeListener("update:downloaded", wrapped);
+  },
+
+  /**
+   * Subscribes to update error events (e.g. the download failed).
+   *
+   * @param {(error: { message?: string }) => void} handler
+   * @returns {() => void} Unsubscribe function.
+   */
+  onUpdateError: (handler) => {
+    const wrapped = (_event, error) => handler(error || {});
+    ipcRenderer.on("update:error", wrapped);
+    return () => ipcRenderer.removeListener("update:error", wrapped);
+  },
+
+  /**
+   * Subscribes to the request the main process sends when the user picks
+   * "Check for Updates…" from the Help menu. The renderer responds by running a
+   * user-initiated update check, whose result shows in the sidebar-footer update
+   * banner. (Channel name is historical — it no longer opens a panel.)
+   *
+   * @param {() => void} handler - Called with no arguments.
+   * @returns {() => void} Unsubscribe function.
+   */
+  onShowUpdatesPanel: (handler) => {
+    const wrapped = () => handler();
+    ipcRenderer.on("show-updates-panel", wrapped);
+    return () => ipcRenderer.removeListener("show-updates-panel", wrapped);
   },
 });
 

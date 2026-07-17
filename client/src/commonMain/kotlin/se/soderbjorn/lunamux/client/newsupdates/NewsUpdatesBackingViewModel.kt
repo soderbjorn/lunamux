@@ -123,6 +123,11 @@ fun createNewsUpdatesBackingViewModel(
  *   comparison baseline against the manifest's `latestVersionCode`.
  * @param currentVersionName the running build's human-readable version, logged
  *   for context (not used in the comparison).
+ * @param enableUpdateCheck when false, `versions.json` is not fetched and its
+ *   update comparison is skipped entirely (news still flows normally). Used by the
+ *   desktop/Electron build, where electron-updater owns in-app updates and this
+ *   manifest would otherwise double-notify. Defaults to true, so Android/iOS are
+ *   unchanged.
  * @param scope coroutine scope the check loop runs in; defaults to a background
  *   [SupervisorJob] scope so a failed check never tears down siblings.
  * @param manifestUrl the version manifest URL; overridable for testing.
@@ -137,6 +142,7 @@ class NewsUpdatesBackingViewModel(
     private val platformId: String,
     private val currentVersionCode: Long,
     private val currentVersionName: String,
+    private val enableUpdateCheck: Boolean = true,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val manifestUrl: String = DEFAULT_MANIFEST_URL,
     private val newsUrl: String = DEFAULT_NEWS_URL,
@@ -283,7 +289,10 @@ class NewsUpdatesBackingViewModel(
             "NewsUpdates: checking $manifestUrl + $newsUrl for platform=$platformId " +
                 "code=$currentVersionCode name=$currentVersionName",
         )
-        val versions = fetchVersionManifest()
+        // Desktop disables the versions.json update path (electron-updater owns
+        // updates there), so skip the fetch entirely rather than spend a request on
+        // a manifest we'd ignore. News is always fetched.
+        val versions = if (enableUpdateCheck) fetchVersionManifest() else null
         val news = fetchNewsManifest()
         if (versions == null && news == null) {
             // Silent no-op on total failure: no state change, no timestamp advance.
@@ -376,6 +385,9 @@ class NewsUpdatesBackingViewModel(
 
     /** Apply a fetched version manifest to the emitted [State]. */
     private fun applyVersionManifest(manifest: VersionManifest) {
+        // Only ever reached when enableUpdateCheck is true: when false, checkNow
+        // skips fetchVersionManifest and restoreAll has no cached manifest to apply,
+        // so a desktop build never advertises a versions.json update.
         if (manifest.schemaVersion > VersionManifest.SUPPORTED_SCHEMA_VERSION) {
             println("NewsUpdates: version schemaVersion=${manifest.schemaVersion} unsupported; no update")
             latestUpdateVersionCode = null

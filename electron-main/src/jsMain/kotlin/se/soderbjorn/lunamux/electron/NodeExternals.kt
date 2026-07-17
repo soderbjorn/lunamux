@@ -93,3 +93,12 @@ external interface NodeProcess {
 
 /** Node.js `__dirname` — absolute directory of the running module. */
 external val __dirname: String
+
+/**
+ * Node.js `setImmediate` — schedules [callback] to run at the end of the
+ * current event-loop turn. Used by [quitAndInstallUpdate] to defer the
+ * app teardown until after the triggering IPC reply has been delivered.
+ *
+ * @param callback invoked once, on the next event-loop tick.
+ */
+external fun setImmediate(callback: () -> Unit)
