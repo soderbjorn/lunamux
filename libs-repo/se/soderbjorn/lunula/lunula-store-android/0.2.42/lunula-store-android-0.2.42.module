@@ -1,0 +1,142 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../lunula-store/0.2.42/lunula-store-0.2.42.module",
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-store",
+    "version": "0.2.42",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.42"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-store-release.aar",
+          "url": "lunula-store-android-0.2.42.aar",
+          "size": 59542,
+          "sha512": "746c00d74d452bfad1221722308b6563b346799351cdf86f7bb2465d3a985ab27c6b257caefb7e32478868ca3905547cd05b84d0db3ef867214d0318829560ee",
+          "sha256": "406259bf09b03a7f3c1035eb80a1d5d43c93473f3b80c3d028c48ca4f643ab54",
+          "sha1": "dc4be38ec07f36b4c8b75566fa8025faa51607be",
+          "md5": "837fe41cdc10fb93ee1b1f57bd64a135"
+        }
+      ]
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.42"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          },
+          "excludes": [
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-stdlib-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-common"
+            },
+            {
+              "group": "org.jetbrains.kotlin",
+              "module": "kotlin-test-annotations-common"
+            }
+          ]
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-store-release.aar",
+          "url": "lunula-store-android-0.2.42.aar",
+          "size": 59542,
+          "sha512": "746c00d74d452bfad1221722308b6563b346799351cdf86f7bb2465d3a985ab27c6b257caefb7e32478868ca3905547cd05b84d0db3ef867214d0318829560ee",
+          "sha256": "406259bf09b03a7f3c1035eb80a1d5d43c93473f3b80c3d028c48ca4f643ab54",
+          "sha1": "dc4be38ec07f36b4c8b75566fa8025faa51607be",
+          "md5": "837fe41cdc10fb93ee1b1f57bd64a135"
+        }
+      ]
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "files": [
+        {
+          "name": "lunula-store-android-0.2.42-sources.jar",
+          "url": "lunula-store-android-0.2.42-sources.jar",
+          "size": 20048,
+          "sha512": "c0d9e02d52f9cfec272f1e2bd2b6be5e1da67a6730f9760f97715a0b45c04f68633de7f259618f7da65fbfcad3ad3b92724016850c39dc11ccf3d5baf94d81df",
+          "sha256": "8036b9f352cd8f9904f9a9f551979648eecb3158ef0f9e84690f12e40a58aaa4",
+          "sha1": "6344a60b9e8135ed51059c7558d0ff52b422231a",
+          "md5": "9bd769dc48e8c5d79429701863a31e7c"
+        }
+      ]
+    }
+  ]
+}
