@@ -29,6 +29,30 @@ import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalOutput
 
 /**
+ * What a reconciliation window decided, reported for observability only.
+ *
+ * The one failure this design can still have is a *discard that ate something real* — a
+ * pending line judged redundant that the program was not in fact redrawing. It is bounded
+ * (a verdict cannot reach committed history) and no longer self-healing (immutable history
+ * has no reabsorption), so it has to be observable. [droppedSample] is the field that
+ * answers it: dropped lines that look like a program's frame are the intended case, dropped
+ * lines that look like the user's output are the bug.
+ *
+ * @property pending how many logical lines left the screen inside the window.
+ * @property dropped how many of them were judged redundant and discarded.
+ * @property kept how many were committed to history.
+ * @property trigger what closed the window — `"resize"` or `"backstop"`.
+ * @property droppedSample the first few discarded lines as text, truncated.
+ */
+class WindowVerdict(
+    val pending: Int,
+    val dropped: Int,
+    val kept: Int,
+    val trigger: String,
+    val droppedSample: List<String>,
+)
+
+/**
  * A headless [TerminalEmulator] fed the raw PTY output stream, maintaining the
  * canonical interpreted screen for one session.
  *
@@ -45,6 +69,7 @@ class SessionGrid(
     cols: Int,
     rows: Int,
     private val onHistoryRevised: () -> Unit = {},
+    private val onWindowResolved: (WindowVerdict) -> Unit = {},
 ) {
 
     /**
@@ -141,6 +166,7 @@ class SessionGrid(
     fun feed(buf: ByteArray, len: Int) {
         if (len <= 0) return
         var revise = false
+        var verdict: WindowVerdict? = null
         synchronized(emulator) {
             try {
                 emulator.append(buf, len)
@@ -149,10 +175,10 @@ class SessionGrid(
                 // down. The grid may be left mid-sequence; the next feed recovers.
                 Swallowed.note("feed", t)
             }
-            if (chunksSinceWindow < 0) return
+            if (chunksSinceWindow < 0) return@synchronized
             if (++chunksSinceWindow >= WINDOW_MAX_CHUNKS) {
-                resolveWindow()
-                return
+                verdict = resolveWindow("backstop")
+                return@synchronized
             }
             // The repaint may have just landed. If more of what is pending is now visible
             // on screen than was a chunk ago, the view a client should see has changed, so
@@ -164,8 +190,10 @@ class SessionGrid(
                 revise = true
             }
         }
-        // Outside the monitor: the callback re-enters the session, which takes its own
-        // outbound lock, and nothing may hold this grid's monitor while that happens.
+        // Outside the monitor: these callbacks re-enter the session (its outbound lock) and
+        // may do file I/O, neither of which may happen while the PTY read path holds this
+        // grid's monitor.
+        verdict?.let(onWindowResolved)
         if (revise) onHistoryRevised()
     }
 
@@ -187,16 +215,25 @@ class SessionGrid(
      * Everything past the overlap is committed. This can only ever reach lines from inside
      * the window; established history is not addressable from here.
      */
-    private fun resolveWindow() {
+    private fun resolveWindow(trigger: String): WindowVerdict? {
         chunksSinceWindow = -1
         reclaimedAtLastFeed = 0
-        if (!history.windowOpen) return
+        if (!history.windowOpen) return null
         val pending = history.pendingLines()
         if (pending.isEmpty()) {
             history.commitWindow()
-            return
+            return null
         }
-        history.closeWindow(keepFrom = reclaimedPrefixLength(pending, screenLines()))
+        val keepFrom = reclaimedPrefixLength(pending, screenLines()).coerceIn(0, pending.size)
+        history.closeWindow(keepFrom = keepFrom)
+        return WindowVerdict(
+            pending = pending.size,
+            dropped = keepFrom,
+            kept = pending.size - keepFrom,
+            trigger = trigger,
+            droppedSample = pending.take(minOf(keepFrom, VERDICT_SAMPLE_LINES))
+                .map { it.text.take(VERDICT_SAMPLE_CHARS) },
+        )
     }
 
     /**
@@ -276,13 +313,14 @@ class SessionGrid(
      */
     fun resize(cols: Int, rows: Int) {
         if (cols < MIN_DIM || rows < MIN_DIM) return
+        var verdict: WindowVerdict? = null
         synchronized(emulator) {
             // Resolve the previous window first, but only once the program has actually had
             // a chance to answer it: a take-over's burst (a cols change, then a rows-only
             // keyboard adjust) arrives with no output in between and must stay ONE window,
             // while a genuinely new resize after the program has spoken must not pour its
             // overflow into the previous verdict.
-            if (chunksSinceWindow > 0) resolveWindow()
+            if (chunksSinceWindow > 0) verdict = resolveWindow("resize")
             // Divert what the re-layout pushes off the screen until we can see whether the
             // program reclaims it.
             history.beginWindow()
@@ -294,6 +332,7 @@ class SessionGrid(
                 Swallowed.note("resize", t)
             }
         }
+        verdict?.let(onWindowResolved)
     }
 
     /**
@@ -377,5 +416,9 @@ class SessionGrid(
          * the window too, so this is only the backstop for a session nobody is looking at.
          */
         const val WINDOW_MAX_CHUNKS = 24
+
+        /** How many discarded lines a [WindowVerdict] carries, and how wide, for logging. */
+        const val VERDICT_SAMPLE_LINES = 3
+        const val VERDICT_SAMPLE_CHARS = 60
     }
 }

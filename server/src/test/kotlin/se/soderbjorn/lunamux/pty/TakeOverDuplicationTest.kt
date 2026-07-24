@@ -283,6 +283,53 @@ class TakeOverDuplicationTest {
         assertEquals(1, grid.transcriptText().countOf(MARKER_BOTTOM), "one copy after widening")
     }
 
+    @Test
+    fun `the window verdict reports what it discarded`() {
+        // The verdict feeds the on-device diagnostic, and its whole purpose is to answer
+        // "did a window eat something real?". A diagnostic that always reported dropped=0,
+        // or reported a sample that did not match what was actually discarded, would hide
+        // the one failure mode this design can still have.
+        val verdicts = mutableListOf<WindowVerdict>()
+        val grid = SessionGrid(WIDE_COLS, WIDE_ROWS, onWindowResolved = { verdicts.add(it) })
+        grid.feedText(repaint(WIDE_ROWS))
+
+        grid.resize(NARROW_COLS, NARROW_ROWS)
+        grid.feedText(repaint(NARROW_ROWS))
+        // A second take-over closes the first window.
+        grid.resize(WIDE_COLS, WIDE_ROWS)
+
+        assertEquals(1, verdicts.size, "one window, one verdict")
+        val v = verdicts.single()
+        assertEquals("resize", v.trigger)
+        assertTrue(v.dropped > 0, "the repaint reclaimed the frame top, so it must be discarded")
+        assertEquals(v.pending, v.dropped + v.kept, "every pending line is accounted for")
+        assertTrue(
+            v.droppedSample.any { it.contains(MARKER_TOP) },
+            "the sample must show what was discarded, got ${v.droppedSample}",
+        )
+    }
+
+    @Test
+    fun `a shell's scrolled-off output is reported as kept, not discarded`() {
+        // The reading that says the design is safe: real output resizes into a window and
+        // comes out committed. If this ever reports dropped > 0, the match is firing on
+        // content the program never redrew.
+        val verdicts = mutableListOf<WindowVerdict>()
+        val grid = SessionGrid(WIDE_COLS, WIDE_ROWS, onWindowResolved = { verdicts.add(it) })
+        val committed = (0 until 60).map { "committed line $it " + "x".repeat(120) }
+        grid.feedText(committed.joinToString("\r\n") + "\r\n$ ")
+
+        grid.resize(NARROW_COLS, NARROW_ROWS)
+        grid.feedText("ls\r\n")
+        grid.resize(WIDE_COLS, WIDE_ROWS)
+
+        val v = verdicts.singleOrNull()
+        if (v != null) {
+            assertEquals(0, v.dropped, "no repaint means nothing may be discarded, sample=${v.droppedSample}")
+            assertTrue(v.droppedSample.isEmpty())
+        }
+    }
+
     private companion object {
         /** The ESC byte, spelled out so no editor or copy-paste can silently eat it. */
         const val ESC = "\u001b"

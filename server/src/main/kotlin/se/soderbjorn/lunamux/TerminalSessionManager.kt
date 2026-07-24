@@ -514,8 +514,18 @@ class TerminalSession private constructor(
      * The trigger is debounced, so a repaint arriving over several chunks still
      * costs one redraw. Referencing [resyncTrigger] here is safe despite it being
      * declared below: the lambda is invoked long after construction.
+     *
+     * `onWindowResolved` feeds the temporary size-churn diagnostic, so the one
+     * failure mode this design can still have — a window discarding something the
+     * program was not actually redrawing — is visible on device rather than
+     * inferred. It goes when `SizeChurnLog` does; the parameter defaults to a no-op.
      */
-    private val grid = SessionGrid(initialCols, initialRows) { resyncTrigger.tryEmit(Unit) }
+    private val grid = SessionGrid(
+        initialCols,
+        initialRows,
+        onHistoryRevised = { resyncTrigger.tryEmit(Unit) },
+        onWindowResolved = { SizeChurnLog.recordVerdict(it) },
+    )
 
     // ── Ordered outbound stream (see SessionEvent) ──────────────────────────
     // seq assignment and the grid feed/resize/synthesize the seq refers to happen
@@ -803,6 +813,29 @@ class TerminalSession private constructor(
                 )
             }
             postResizeBudget.set(POST_RESIZE_CAPTURE_BYTES)
+        }
+
+        /**
+         * Record what a reconciliation window decided.
+         *
+         * The line to read is `dropped` together with `sample`. A window that discards the
+         * top of a program's frame is the design working; one that discards lines looking
+         * like the user's own output is the single failure mode this split can still have,
+         * and it is not self-healing — immutable history has no reabsorption. `pending=N
+         * dropped=0` on every take-over means the match is never firing and duplicates are
+         * being committed instead.
+         *
+         * @param v the verdict just taken.
+         */
+        fun recordVerdict(v: se.soderbjorn.lunamux.pty.WindowVerdict) {
+            val target = path ?: return
+            runCatching {
+                val sample = v.droppedSample.joinToString(" | ") { "\"$it\"" }
+                java.io.File(target).appendText(
+                    "${System.currentTimeMillis()} WINDOW ${v.trigger} pending=${v.pending} " +
+                        "dropped=${v.dropped} kept=${v.kept} sample=[$sample]\n"
+                )
+            }
         }
 
         /** Bytes of program output still to capture after the most recent resize. */

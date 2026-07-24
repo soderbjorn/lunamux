@@ -246,10 +246,31 @@ until the mirror is driven further there.
 
 ## Temporary diagnostics
 
-`TerminalSessionManager.SizeChurnLog` logs every effective PTY size change and the first
-3 KB of post-resize program output. Armed by `LUNAMUX_SIZE_CHURN_LOG=<path>` (forwarded by
-`scripts/run-electron-dev.sh` as `-PsizeChurnLog=`). Remove it, its Gradle wiring in
-`server/build.gradle.kts`, and the script pass-through before upstream.
+`TerminalSessionManager.SizeChurnLog` logs every effective PTY size change, the first 3 KB
+of post-resize program output, and every reconciliation-window verdict. Armed by
+`LUNAMUX_SIZE_CHURN_LOG=<path>` (forwarded by `scripts/run-electron-dev.sh` as
+`-PsizeChurnLog=`). Remove it, its Gradle wiring in `server/build.gradle.kts`, the script
+pass-through, and `SessionGrid`'s `onWindowResolved` argument before upstream — the
+parameter defaults to a no-op, so nothing else needs unpicking.
+
+### Reading a device run
+
+Verdict lines look like:
+
+```
+1721... WINDOW resize pending=19 dropped=19 kept=0 sample=["MARKER-TOP-OF-FRAME" | ...]
+```
+
+- `dropped > 0` with a sample that looks like the program's frame — working as designed.
+- `dropped > 0` with a sample that looks like the **user's own output** — the one failure
+  this design can still have. Bounded to that window (a verdict cannot reach committed
+  history) but not self-healing, because immutable history has no reabsorption.
+- `dropped = 0` on every take-over — the match is never firing, so duplicates are being
+  committed instead. Check whether the program's repaint is arriving inside the window at
+  all; the `post-resize output` capture in the same log answers that.
+- `trigger=backstop` rather than `resize` — the window expired on the chunk count instead of
+  being closed by the next resize. Not wrong, but it means the verdict was taken later than
+  intended, so treat a dropped sample from one with more suspicion.
 
 `Swallowed` is not a diagnostic and stays: it counts the exceptions the PTY path
 deliberately swallows and logs the first per site, so those `catch` blocks cannot hide the
