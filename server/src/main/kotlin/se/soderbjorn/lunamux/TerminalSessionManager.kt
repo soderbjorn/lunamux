@@ -52,6 +52,7 @@ import se.soderbjorn.lunamux.pty.ClientSizeArbiter
 import se.soderbjorn.lunamux.pty.GridSerializer
 import se.soderbjorn.lunamux.pty.OscScanner
 import se.soderbjorn.lunamux.pty.ProcessCwdReader
+import se.soderbjorn.lunamux.pty.PtyTrace
 import se.soderbjorn.lunamux.pty.SessionGrid
 import se.soderbjorn.lunamux.pty.ShellInitFiles
 import java.io.File
@@ -527,6 +528,14 @@ class TerminalSession private constructor(
         onWindowResolved = { SizeChurnLog.recordVerdict(it) },
     )
 
+    /**
+     * TEMPORARY DIAGNOSTIC. Records this session's raw PTY stream and resizes to a file for
+     * offline replay, so the reconciliation rule can be developed against exactly what a
+     * real program emitted rather than a synthetic fixture. Armed by `LUNAMUX_PTY_TRACE`
+     * (or `-DlunamuxPtyTrace`); a no-op otherwise. Remove with `SizeChurnLog`.
+     */
+    private val ptyTrace = PtyTrace()
+
     // ── Ordered outbound stream (see SessionEvent) ──────────────────────────
     // seq assignment and the grid feed/resize/synthesize the seq refers to happen
     // together under [outboundLock], so [attachPayload] captures a grid state and a
@@ -590,6 +599,7 @@ class TerminalSession private constructor(
             // "redraw this region in place") or simply prints again decides how the
             // duplicate can be suppressed, so read it rather than guess.
             SizeChurnLog.recordPostResizeOutput(buf, n)
+            ptyTrace.recordOutput(buf, n)
             osc.feed(buf, n)
             screen.feed(buf, n)
             val chunk = buf.copyOf(n)
@@ -770,6 +780,7 @@ class TerminalSession private constructor(
         // output. Duplicated blocks are therefore a count of size changes, so record
         // them with their cause to compare against the pre-refactor build.
         SizeChurnLog.record(_sizeEvents.value, Pair(c, r), colsChanged)
+        ptyTrace.recordResize(c, r)
         try {
             pty.winSize = WinSize(c, r)
         } catch (_: Throwable) {

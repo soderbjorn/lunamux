@@ -86,6 +86,12 @@ if port_is_free "$PORT"; then
         echo "    Size-churn log: $LUNAMUX_SIZE_CHURN_LOG"
         CHURN_ARGS+=("-PsizeChurnLog=$LUNAMUX_SIZE_CHURN_LOG")
     fi
+    # TEMPORARY DIAGNOSTIC: with LUNAMUX_PTY_TRACE set, forward it so the server records
+    # the raw PTY stream + resizes to that file for byte-exact offline replay.
+    if [[ -n "${LUNAMUX_PTY_TRACE:-}" ]]; then
+        echo "    PTY trace: $LUNAMUX_PTY_TRACE"
+        CHURN_ARGS+=("-PptyTrace=$LUNAMUX_PTY_TRACE")
+    fi
     ./gradlew :server:run \
         -Dlunamux.port="$PORT" \
         -Dlunamux.dbPath="$DEV_DB" \

@@ -143,4 +143,10 @@ tasks.named<JavaExec>("run") {
     (findProperty("sizeChurnLog") as? String)?.let {
         systemProperty("lunamux.sizeChurnLog", it)
     }
+    // TEMPORARY DIAGNOSTIC: `-PptyTrace=<path>` records the raw PTY stream + resizes to a
+    // file for byte-exact offline replay. Same forking rationale as sizeChurnLog above.
+    // Remove with PtyTrace and SizeChurnLog.
+    (findProperty("ptyTrace") as? String)?.let {
+        systemProperty("lunamux.ptyTrace", it)
+    }
 }
