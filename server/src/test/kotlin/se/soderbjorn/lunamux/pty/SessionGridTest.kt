@@ -186,4 +186,43 @@ class SessionGridTest {
         assertFalse(restored.read { it.isMouseTrackingPressRelease }, "mouse tracking must not resurrect")
         assertTrue(restored.transcriptText().contains("content"))
     }
+
+    @Test
+    fun `ED3 clears external history so a cleared session does not re-emit it`() {
+        // The split regressed `clear`: ESC[3J wipes the emulator transcript (empty here,
+        // since history lives outside it), but the external HistoryLog survived and the next
+        // redraw re-emitted everything — the "my earlier prompts came back" report.
+        val grid = SessionGrid(80, 24)
+        val a = "first prompt output\r\n".toByteArray()
+        val b = "second prompt output\r\n".toByteArray()
+        // Enough lines to push content into history, not just the visible screen.
+        repeat(40) { grid.feed(a, a.size) }
+        grid.feed(b, b.size)
+        assertTrue(grid.transcriptText().contains("first prompt output"), "precondition: history holds it")
+
+        // `clear` emits home + erase-screen + erase-scrollback.
+        val clear = "\u001b[H\u001b[2J\u001b[3J".toByteArray()
+        grid.feed(clear, clear.size)
+
+        val text = grid.transcriptText()
+        assertTrue(!text.contains("first prompt output"), "cleared history must not survive")
+        assertTrue(!text.contains("second prompt output"), "nor the most recent lines")
+    }
+
+    @Test
+    fun `a redraw synthesized after clear carries no scrollback`() {
+        val grid = SessionGrid(80, 24)
+        val line = "some earlier work\r\n".toByteArray()
+        repeat(50) { grid.feed(line, line.size) }
+        val clear = "\u001b[H\u001b[2J\u001b[3J".toByteArray()
+        grid.feed(clear, clear.size)
+
+        val redraw = grid.synthesizeRedraw()
+        val fresh = SessionGrid(80, 24)
+        fresh.feed(redraw, redraw.size)
+        assertTrue(
+            !fresh.transcriptText().contains("some earlier work"),
+            "a client attaching after clear must not receive the cleared history",
+        )
+    }
 }

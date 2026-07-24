@@ -188,6 +188,33 @@ public final class TerminalBuffer {
         mRowEvictionListener = listener;
     }
 
+    /**
+     * LUNAMUX ADDITION. Notified when the scrollback is explicitly cleared (ED3, i.e.
+     * {@code ESC[3J} — what the {@code clear} command emits to wipe history).
+     * <p>
+     * A terminal answers "erase the scrollback" by dropping its transcript. When history is
+     * kept outside the emulator (the Lunamux server), the emulator's own transcript is empty
+     * and clearing it does nothing, so the external history would survive a {@code clear} and
+     * be re-emitted on the next redraw — the pre-split build did not have this problem because
+     * the transcript WAS the history. This hook lets the external log be cleared in step.
+     */
+    public interface TranscriptClearedListener {
+        /** The scrollback has been erased; drop any external history mirror. */
+        void onTranscriptCleared();
+    }
+
+    /** LUNAMUX ADDITION. Null (the default) means nothing observes scrollback clears. */
+    private TranscriptClearedListener mTranscriptClearedListener;
+
+    /**
+     * LUNAMUX ADDITION. Observe explicit scrollback clears (ED3).
+     *
+     * @param listener the observer, or null to stop observing.
+     */
+    public void setTranscriptClearedListener(TranscriptClearedListener listener) {
+        mTranscriptClearedListener = listener;
+    }
+
     public int getActiveTranscriptRows() {
         return mActiveTranscriptRows;
     }
@@ -586,6 +613,9 @@ public final class TerminalBuffer {
             Arrays.fill(mLines, mScreenFirstRow - mActiveTranscriptRows, mScreenFirstRow, null);
         }
         mActiveTranscriptRows = 0;
+        // LUNAMUX ADDITION. Tell any external history mirror to drop itself too — otherwise a
+        // `clear` blanks the emulator's (here empty) transcript while the real history lives on.
+        if (mTranscriptClearedListener != null) mTranscriptClearedListener.onTranscriptCleared();
     }
 
 }

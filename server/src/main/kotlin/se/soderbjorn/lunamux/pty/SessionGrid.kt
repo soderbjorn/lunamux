@@ -151,6 +151,16 @@ class SessionGrid(
         emulator.mainBuffer.setRowEvictionListener { row, wrapped ->
             history.appendRow(GridSerializer.rowRuns(row, emulator.mColumns, wrapped), wrapped)
         }
+        // ED3 (`ESC[3J`, what `clear` emits to wipe scrollback) must drop the external
+        // history too. Without this the split regressed `clear`: the live screen blanks but
+        // history survives and the next redraw re-emits it — the "my earlier prompts came
+        // back after clearing" report. Also drops any open reconciliation window, since the
+        // pending lines it held no longer have any history to belong to.
+        emulator.mainBuffer.setTranscriptClearedListener {
+            history.clear()
+            chunksSinceWindow = -1
+            reclaimedAtLastFeed = 0
+        }
     }
 
     /**
