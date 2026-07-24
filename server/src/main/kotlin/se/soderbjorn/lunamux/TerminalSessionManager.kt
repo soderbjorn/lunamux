@@ -666,6 +666,7 @@ class TerminalSession private constructor(
     override fun setClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
         val vote = SizeVote(max(MIN_GRID_COLS, cols), max(MIN_GRID_ROWS, rows), priority)
         applySize(sizeArbiter.setSize(clientId, vote))
+        publishGovernance()
     }
 
     /** Register [clientId]'s declared governance [posture] for this connection. */
@@ -687,11 +688,13 @@ class TerminalSession private constructor(
     override fun forceClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
         val only = SizeVote(max(MIN_GRID_COLS, cols), max(MIN_GRID_ROWS, rows), priority)
         applySize(sizeArbiter.forceSize(clientId, only))
+        publishGovernance()
     }
 
     /** Unregister a client's size entry when its WebSocket disconnects. */
     override fun removeClient(clientId: String) {
         applySize(sizeArbiter.remove(clientId))
+        publishGovernance()
     }
 
     /**
@@ -702,6 +705,35 @@ class TerminalSession private constructor(
      */
     override fun noteClientInput(clientId: String) {
         applySize(sizeArbiter.noteInput(clientId))
+        publishGovernance()
+    }
+
+    /**
+     * The governor as of the last broadcast [SessionEvent.Governance], so a
+     * change can be detected without re-broadcasting on every keystroke.
+     * Guarded by [outboundLock] together with the seq it is published against.
+     */
+    private var publishedGovernor: String? = null
+
+    /**
+     * Broadcast a governance change if the arbiter's governor has moved since the
+     * last one. Called after every arbiter mutation — including the ones that
+     * leave the effective size unchanged, which is the case the old
+     * width-comparison inference could not see at all: two clients rendering at
+     * the same width swap governance without a single column changing.
+     *
+     * Compare-and-publish happens under [outboundLock] so the decision, the seq
+     * assignment and the send are one atomic step; concurrent callers therefore
+     * cannot interleave into a stale final broadcast, and a no-op change costs
+     * one lock and one comparison on the input hot path.
+     */
+    private fun publishGovernance() {
+        synchronized(outboundLock) {
+            val governor = sizeArbiter.governor()
+            if (governor == publishedGovernor) return
+            publishedGovernor = governor
+            eventChannel.trySend(SessionEvent.Governance(++eventSeq, governor))
+        }
     }
 
     /**
@@ -801,8 +833,14 @@ class TerminalSession private constructor(
 
     override fun attachPayload(): AttachPayload = synchronized(outboundLock) {
         // Capture the synthesized redraw and the seq it reflects together, so the
-        // client's "process events with seq > attach.seq" gate is exact.
-        grid.read { e -> AttachPayload(eventSeq, e.mColumns, e.mRows, GridSerializer.serialize(e)) }
+        // client's "process events with seq > attach.seq" gate is exact. The
+        // governor is sampled under the same lock as the seq, so an attaching
+        // client cannot land between a governance change and its broadcast and
+        // end up believing the wrong thing until the next one.
+        val governor = sizeArbiter.governor()
+        grid.read { e ->
+            AttachPayload(eventSeq, e.mColumns, e.mRows, GridSerializer.serialize(e), governor)
+        }
     }
 
     /** Check the currently-rendered screen for AI assistant state markers. */

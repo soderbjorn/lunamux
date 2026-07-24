@@ -261,4 +261,61 @@ class ClientSizeArbiterTest {
         a.setSize("desktop", normal(87, 41))
         assertNull(a.remove("nope"))
     }
+
+    // ── governor identity ────────────────────────────────────────────────
+
+    @Test
+    fun no_client_governs_until_one_acts() {
+        val a = arbiter()
+        assertNull(a.governor())
+        // An ambient vote is not activity, so it does not make anyone the governor —
+        // the size still moves via the no-activity fallback.
+        a.setSize("desktop", normal(120, 40))
+        assertNull(a.governor())
+        a.noteInput("desktop")
+        assertEquals("desktop", a.governor())
+    }
+
+    @Test
+    fun governance_moves_between_same_width_clients_without_a_size_change() {
+        // The case that made the client-side width comparison unfixable: two clients
+        // rendering at the SAME width. Governance moves, the effective size does not,
+        // so a client watching only the size stream sees nothing at all — and both
+        // clients conclude they are driving because both widths match the server's.
+        val a = arbiter()
+        a.setSize("laptop", normal(120, 40))
+        a.noteInput("laptop")
+        a.setSize("phone", normal(120, 40))
+        assertEquals("laptop", a.governor())
+
+        assertNull(a.forceSize("phone", normal(120, 40)), "same width: no size change")
+        assertEquals("phone", a.governor(), "governance must move even though the grid did not")
+    }
+
+    @Test
+    fun a_viewers_input_moves_neither_the_size_nor_governance() {
+        val a = arbiter()
+        a.setSize("laptop", normal(120, 40))
+        a.noteInput("laptop")
+        a.setPosture("phone", ClientPosture.VIEWER)
+        a.setSize("phone", normal(50, 20))
+
+        assertNull(a.noteInput("phone"), "a viewer's keystroke must not seize the grid")
+        assertEquals("laptop", a.governor(), "nor governance")
+    }
+
+    @Test
+    fun losing_the_governor_leaves_the_session_ungoverned() {
+        // With the governor gone and only ambient votes left, nobody governs. The
+        // route reports governed=false so clients resume their own width fallback
+        // rather than being frozen as mirrors of a device that is no longer attached.
+        val a = arbiter()
+        a.setSize("laptop", normal(120, 40))
+        a.noteInput("laptop")
+        a.setSize("phone", normal(50, 20))
+        assertEquals("laptop", a.governor())
+
+        a.remove("laptop")
+        assertNull(a.governor())
+    }
 }

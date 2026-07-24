@@ -59,15 +59,30 @@ object PtyPresentation {
     /**
      * Whether this client should present a passive mirror rather than drive.
      *
+     * Governance is a *server* decision — the arbiter picks the most recently
+     * active driver — so when the server has told us ([driving] non-null) that
+     * answer is used verbatim. The width comparison remains only as the fallback
+     * for the ungoverned case: a freshly restored session nobody has touched yet,
+     * a governor that just disconnected, or a server too old to send the signal.
+     *
+     * The fallback is a proxy, not a definition, and it is wrong in two ways the
+     * server signal fixes: two clients that happen to render at the same width
+     * both conclude they are driving, and governance moving *between* two
+     * same-width clients changes nothing about the widths, so it is invisible.
+     *
      * @param naturalCols the width this client would render at using the user's
      *   own font and viewport (never the passive-fitted width).
      * @param serverCols the server's current authoritative grid width.
-     * @return true when the widths differ — i.e. someone else is driving, so we
-     *   mirror the server grid read-only. Rows are ignored: only a cols change
-     *   rewraps, so a rows-only difference does not make us passive.
+     * @param driving the server's verdict for this client, or null when no client
+     *   governs (or the server never said).
+     * @return true when this client should mirror rather than drive. In the
+     *   fallback path, rows are ignored: only a cols change rewraps, so a
+     *   rows-only difference does not make us passive.
      */
-    fun isPassive(naturalCols: Int, serverCols: Int): Boolean =
-        serverCols > 0 && naturalCols > 0 && serverCols != naturalCols
+    fun isPassive(naturalCols: Int, serverCols: Int, driving: Boolean? = null): Boolean {
+        if (driving != null) return !driving
+        return serverCols > 0 && naturalCols > 0 && serverCols != naturalCols
+    }
 
     /**
      * The scale to render the server grid at so its [serverCols] columns fit in

@@ -139,6 +139,10 @@ class MiniTerminalRegistry(
                                     emulator.resize(ev.cols, ev.rows, 1, 1)
                                 }
                             is PtyEvent.Bytes -> emulator.append(ev.data, ev.data.size)
+                            // A thumbnail renders at whatever width the server sends and
+                            // never votes, so it is never the governor and has nothing to
+                            // change when governance moves.
+                            is PtyEvent.Governance -> Unit
                             PtyEvent.Reset -> {
                                 val ris = byteArrayOf(0x1b, 'c'.code.toByte())
                                 emulator.append(ris, ris.size)

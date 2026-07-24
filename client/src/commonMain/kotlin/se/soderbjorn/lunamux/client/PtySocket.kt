@@ -59,6 +59,24 @@ sealed interface PtyEvent {
      * this — it still arrives as `ESC c` inside a [Bytes] frame.
      */
     data object Reset : PtyEvent
+
+    /**
+     * Whether this client is the session's *driving* client, as decided by the
+     * server. The driver's size vote governs the PTY and it renders 1:1; every
+     * other attached client presents a passive, scaled mirror.
+     *
+     * Ordered with [Bytes] and [Size] on purpose: a client that learned it had
+     * gone passive only after applying a redraw authored for the new driver's
+     * width would render one frame at the wrong presentation and visibly correct
+     * itself.
+     *
+     * @property driving true when this client governs the session.
+     * @property governed false when *no* client governs yet (a freshly restored
+     *   session nobody has touched, or the governor just disconnected). Consumers
+     *   fall back to comparing their natural width against the server's while
+     *   this is false — see [PtyPresentation.isPassive].
+     */
+    data class Governance(val driving: Boolean, val governed: Boolean) : PtyEvent
 }
 
 /**

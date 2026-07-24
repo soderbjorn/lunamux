@@ -53,10 +53,14 @@ external class ResizeObserver(callback: (dynamic, dynamic) -> Unit) {
  * @property naturalRows the row counterpart of [naturalCols]
  * @property baseFontSize the user's configured pane font size in px; while mirroring
  *   the applied font is shrunk below this and restored from it on take-over
- * @property passive true while the server grid is a different width than
- *   [naturalCols] — another client is driving, so this pane renders a read-only,
- *   font-scaled mirror of the server grid and drops the ambient reports its own view
- *   generates (see [applyMirrorPresentation])
+ * @property passive true while another client is driving, so this pane renders a
+ *   read-only, font-scaled mirror of the server grid and drops the ambient reports
+ *   its own view generates (see [applyMirrorPresentation])
+ * @property driving the server's governance verdict for this connection: true when
+ *   this pane governs the PTY, false when another client does, null when the server
+ *   has not said (no client governs yet, or it is too old to send the signal). The
+ *   server decides governance, so this is authoritative; the width comparison in
+ *   [applyMirrorPresentation] is only the fallback for null.
  * @property awaitingVoteAnswer true between casting a size vote and the server's next
  *   `Size` broadcast. A width mismatch in that gap is just the server not having
  *   answered us yet — not another client driving — so the size-mismatch affordances
@@ -140,6 +144,7 @@ class TerminalEntry(
     var naturalRows: Int = 0,
     var baseFontSize: Int = 13,
     var passive: Boolean = false,
+    var driving: Boolean? = null,
     var awaitingVoteAnswer: Boolean = false,
     var votePendingUntil: Double = 0.0,
     var takeOverBadge: HTMLElement? = null,
@@ -547,7 +552,15 @@ fun applyMirrorPresentation(entry: TerminalEntry) {
     val awaitingOurVote = isAwaitingOwnSize(entry)
     val matchesOurVote = serverCols == entry.naturalCols
     if (matchesOurVote) entry.votePendingUntil = 0.0
-    val passive = PtyPresentation.isPassive(entry.naturalCols, serverCols) && !awaitingOurVote
+    val verdict = entry.driving
+    val passive = if (verdict != null) {
+        // The server named the governor. No width guessing, and no vote-in-flight
+        // grace either: the verdict is already correct during the gap, because
+        // governance does not wait for the grid to move.
+        PtyPresentation.isPassive(entry.naturalCols, serverCols, verdict)
+    } else {
+        PtyPresentation.isPassive(entry.naturalCols, serverCols) && !awaitingOurVote
+    }
     entry.passive = passive
 
     val target: Double = if (passive && entry.naturalRows > 0 && serverRows > 0) {

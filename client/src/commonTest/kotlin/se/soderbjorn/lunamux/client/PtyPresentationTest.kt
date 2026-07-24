@@ -23,13 +23,29 @@ class PtyPresentationTest {
     }
 
     @Test
-    fun isPassiveOnColsMismatchOnly() {
+    fun isPassiveFallsBackToColsMismatchWhenUngoverned() {
+        // No server verdict (nobody has driven yet, or an older server): the width
+        // comparison is all there is.
         assertFalse(PtyPresentation.isPassive(naturalCols = 80, serverCols = 80))
         assertTrue(PtyPresentation.isPassive(naturalCols = 80, serverCols = 200))
         assertTrue(PtyPresentation.isPassive(naturalCols = 40, serverCols = 80))
         // Unknown widths never force passive.
         assertFalse(PtyPresentation.isPassive(naturalCols = 0, serverCols = 80))
         assertFalse(PtyPresentation.isPassive(naturalCols = 80, serverCols = 0))
+    }
+
+    @Test
+    fun serverVerdictOverridesTheWidthComparison() {
+        // The case the fallback cannot express: two clients rendering at the same
+        // width, one of them driving. Widths are equal, so the comparison says
+        // "driving" for both — the server says otherwise for the mirror.
+        assertTrue(PtyPresentation.isPassive(naturalCols = 80, serverCols = 80, driving = false))
+        assertFalse(PtyPresentation.isPassive(naturalCols = 80, serverCols = 80, driving = true))
+
+        // And the converse: a driver whose width has not been applied yet (its
+        // vote is still in flight) must not flip itself to passive in the gap.
+        assertFalse(PtyPresentation.isPassive(naturalCols = 40, serverCols = 200, driving = true))
+        assertTrue(PtyPresentation.isPassive(naturalCols = 40, serverCols = 200, driving = false))
     }
 
     @Test

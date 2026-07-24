@@ -37,6 +37,23 @@ sealed interface SessionEvent {
      * new width.
      */
     class Size(override val seq: Long, val cols: Int, val rows: Int) : SessionEvent
+
+    /**
+     * Governance moved: [governorClientId] is now the client whose vote governs
+     * the PTY, or null when no client governs (nobody has acted yet, or the
+     * governor disconnected).
+     *
+     * Rides the same ordered stream as [Output] and [Size] because it must be
+     * applied in order with them — a client that learns it went passive *after*
+     * the redraw authored for the new driver would flash its own width first.
+     *
+     * Broadcast as an id; each `/pty` connection renders it as a per-connection
+     * boolean (`driving = governorClientId == myClientId`) so no client learns
+     * another's identity.
+     *
+     * @see se.soderbjorn.lunamux.pty.ClientSizeArbiter.governor
+     */
+    class Governance(override val seq: Long, val governorClientId: String?) : SessionEvent
 }
 
 /**
@@ -51,5 +68,16 @@ sealed interface SessionEvent {
  * @property cols grid width the redraw is authored for.
  * @property rows grid height the redraw is authored for.
  * @property bytes the synthesized redraw (empty only for a brand-new session).
+ * @property governorClientId the client governing the grid at [seq], or null when
+ *   none does. The attaching connection compares this against its own id to learn
+ *   whether it is driving, without waiting for the next governance change.
+ *   Defaults to null for sessions that arbitrate no size at all (the PTY-less
+ *   agent console), where every client renders in full.
  */
-class AttachPayload(val seq: Long, val cols: Int, val rows: Int, val bytes: ByteArray)
+class AttachPayload(
+    val seq: Long,
+    val cols: Int,
+    val rows: Int,
+    val bytes: ByteArray,
+    val governorClientId: String? = null,
+)

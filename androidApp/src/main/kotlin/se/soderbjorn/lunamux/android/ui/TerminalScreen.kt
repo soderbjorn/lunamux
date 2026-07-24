@@ -260,6 +260,15 @@ fun TerminalScreen(
     // optimistically, so a keystroke burst doesn't each fire a forceResize before
     // the server's Size echo returns.
     var serverGrid by remember(sessionId) { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    // The server's governance verdict for THIS connection: true when the phone is the
+    // driving client, false when another device is, null when no client governs yet
+    // (or the server is too old to say). Authoritative — governance is the server's
+    // decision — so it outranks the width comparison the mirror used to infer it from,
+    // which could not tell two same-width clients apart and could not see governance
+    // move without the grid moving. Null falls back to that comparison.
+    var driving by remember(sessionId) { mutableStateOf<Boolean?>(null) }
+
     val drivingTo = remember(sessionId) { AtomicReference<Pair<Int, Int>?>(null) }
     val passiveGridPin = remember(sessionId) { AtomicReference<Pair<Int, Int>?>(null) }
 
@@ -275,7 +284,11 @@ fun TerminalScreen(
 
     // Passive = the server grid is a different (wider) width than this phone's own.
     // Cols only: a rows-only difference doesn't change wrapping.
-    val passive = localGrid?.let { lg -> serverGrid?.let { it.first != lg.cols } } ?: false
+    val passive = PtyPresentation.isPassive(
+        naturalCols = localGrid?.cols ?: 0,
+        serverCols = serverGrid?.first ?: 0,
+        driving = driving,
+    )
 
     // The font actually applied to the view: the user's size while driving; while
     // mirroring, shrunk so the (wider) server grid fits the phone, floored so it
@@ -327,9 +340,11 @@ fun TerminalScreen(
     // state (safe outside composition); classifier is the shared PtyPresentation.
     val handleInput: suspend (ByteArray) -> Unit = remember(sessionId) {
         { bytes ->
-            val lg = localGrid
-            val sg = serverGrid
-            val passiveNow = lg != null && sg != null && sg.first != lg.cols
+            val passiveNow = PtyPresentation.isPassive(
+                naturalCols = localGrid?.cols ?: 0,
+                serverCols = serverGrid?.first ?: 0,
+                driving = driving,
+            )
             when {
                 // The emulator answering a query the remote program sent (cursor
                 // position, device attributes, colour reports). Must be delivered — the
@@ -406,7 +421,11 @@ fun TerminalScreen(
                     // synthesized redraw); release the pin at our own width so
                     // rotation re-drives. Then size the emulator to the grid the
                     // redraw Bytes ordered right after this Size assume.
-                    val passiveNow = localGrid?.let { it.cols != sz.first } ?: false
+                    val passiveNow = PtyPresentation.isPassive(
+                        naturalCols = localGrid?.cols ?: 0,
+                        serverCols = sz.first,
+                        driving = driving,
+                    )
                     passiveGridPin.set(if (passiveNow) sz else null)
                     // Deliberately NOT on the emulator dispatcher: this collector runs on
                     // the UI dispatcher, and the view reads the buffer on the main thread
@@ -445,6 +464,23 @@ fun TerminalScreen(
                 // Live output (incl. the RIS-prefixed synthesized redraw): always fed
                 // into the emulator below. No freeze — the phone mirrors the server's
                 // coherent grid at whatever font-fit the mode machine applies.
+                is PtyEvent.Governance -> {
+                    // Who drives is the server's call. An ungoverned session (nobody has
+                    // acted yet, or the governor just left) clears the verdict rather than
+                    // pinning a stale one, so the width fallback resumes.
+                    driving = if (ev.governed) ev.driving else null
+                    // The pin follows the verdict: governance can move without the grid
+                    // moving at all (two clients at the same width), and the pin decides
+                    // whether the view may reflow the emulator out from under a redraw.
+                    val sg = serverGrid
+                    val nowPassive = PtyPresentation.isPassive(
+                        naturalCols = localGrid?.cols ?: 0,
+                        serverCols = sg?.first ?: 0,
+                        driving = driving,
+                    )
+                    passiveGridPin.set(if (nowPassive && sg != null) sg else null)
+                    return@collect
+                }
                 is PtyEvent.Bytes -> Unit
             }
             val chunk = ev.data
@@ -713,9 +749,11 @@ fun TerminalScreen(
                                 // what made it feel rough). The driving font stays a
                                 // setting. While mirroring, zoom is purely local: the
                                 // server grid is untouched and only this phone rescales.
-                                val lg = localGrid
-                                val sg = serverGrid
-                                val passiveNow = lg != null && sg != null && sg.first != lg.cols
+                                val passiveNow = PtyPresentation.isPassive(
+                                    naturalCols = localGrid?.cols ?: 0,
+                                    serverCols = serverGrid?.first ?: 0,
+                                    driving = driving,
+                                )
                                 if (!passiveNow) return scale
                                 if (scale < 0.95f || scale > 1.05f) {
                                     mirrorZoom = (mirrorZoom * scale)

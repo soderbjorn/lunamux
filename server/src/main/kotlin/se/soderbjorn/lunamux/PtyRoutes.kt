@@ -157,15 +157,41 @@ internal suspend fun TermSession.streamAttach(
             val attach = attachPayload()
             attachSeq = attach.seq
             send(Frame.Text(sizeFrame(attach.cols, attach.rows)))
+            // Before the redraw: the client must know whether the paint it is
+            // about to apply is its own grid or someone else's, or it renders one
+            // frame at the wrong presentation and corrects visibly.
+            send(Frame.Text(governanceFrame(clientId, attach.governorClientId)))
             if (attach.bytes.isNotEmpty()) send(Frame.Binary(true, attach.bytes))
         }
         .collect { ev ->
             when (ev) {
                 is SessionEvent.Output -> if (ev.seq > attachSeq) send(Frame.Binary(true, ev.bytes))
                 is SessionEvent.Size -> if (ev.seq > attachSeq) send(Frame.Text(sizeFrame(ev.cols, ev.rows)))
+                is SessionEvent.Governance ->
+                    if (ev.seq > attachSeq) send(Frame.Text(governanceFrame(clientId, ev.governorClientId)))
             }
         }
 }
+
+/**
+ * Encode a `Governance` control frame for one connection.
+ *
+ * The broadcast event carries the governor's *id*; each connection resolves it
+ * against its own id here, so a client is told only whether it is driving and
+ * never learns another client's identity.
+ *
+ * @param clientId this connection's id.
+ * @param governorClientId the governing client's id, or null when none governs.
+ * @return the JSON control frame body.
+ * @see PtyServerMessage.Governance
+ */
+private fun governanceFrame(clientId: String, governorClientId: String?): String =
+    windowJson.encodeToString<PtyServerMessage>(
+        PtyServerMessage.Governance(
+            driving = governorClientId != null && governorClientId == clientId,
+            governed = governorClientId != null,
+        )
+    )
 
 /**
  * Encode a `Size` control frame. `maxReplayCols` is always 0 now — the redraw is

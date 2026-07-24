@@ -161,12 +161,34 @@ practice.
 3. Can the full-screen-repaint signal be made program-agnostic robustly enough to gate on,
    or should it be inferred from emulator state transitions rather than the byte prologue?
 4. Does the alt-buffer path (already clean) share code with this, or stay separate?
-5. **Driver identity is currently inferred, not assigned.** `PtyPresentation.isPassive` is
-   `serverCols != naturalCols`, so two clients at the same width both believe they drive,
-   and a bare width mismatch once flipped a lone client to passive on restore (patched at
-   the symptom in `d8a376a`). The server already computes the governor in
-   `ClientSizeArbiter` but never tells anyone. Putting the governor's client id in the
-   `Size` event and `AttachPayload` removes the whole class.
+
+## Settled: governance is assigned, not inferred
+
+Clients used to *infer* whether they were driving by comparing the authoritative width
+against the width they would render at. That could not distinguish two clients that happen
+to size alike (both concluded they were driving), and it could not represent governance
+moving without the grid moving — which is exactly what a same-width take-over is. It also
+needed a vote-in-flight grace window to stop a client flashing into a mirror before its own
+vote was answered, and a bare width mismatch once flipped a lone client to passive on
+restore (patched at the symptom in `d8a376a`).
+
+`ClientSizeArbiter` has always computed the governor; it just never told anyone. It now
+exposes `governor()`, `TermSession` broadcasts a `SessionEvent.Governance` whenever it
+moves — including when the effective size does not change — and `AttachPayload` carries it
+so an attaching client knows immediately.
+
+The `/pty` route renders that broadcast id into a **per-connection boolean**
+(`PtyServerMessage.Governance(driving, governed)`), so a client learns whether *it* drives
+and never another client's identity. `governed = false` means nobody governs (a restored
+session nobody has touched, or the governor just disconnected); clients then fall back to
+the width comparison, which is also what an older server produces by saying nothing.
+
+The frame is sent *before* the attach redraw, because the verdict decides how that paint is
+presented — after it, a client would render one frame under the wrong presentation and
+visibly correct itself.
+
+iOS ignores the new event (it casts events by type), so it keeps its current behaviour
+until the mirror is driven further there.
 
 ## Temporary diagnostics
 

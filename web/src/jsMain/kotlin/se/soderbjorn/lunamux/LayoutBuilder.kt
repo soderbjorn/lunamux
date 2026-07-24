@@ -414,6 +414,13 @@ fun connectPane(entry: TerminalEntry) {
                 when (msg) {
                     is PtyServerMessage.Size ->
                         applyServerSize(entry, msg.cols, msg.rows, msg.maxReplayCols)
+                    is PtyServerMessage.Governance -> {
+                        // The server names the governor; an ungoverned session
+                        // (`governed = false`) restores the width-comparison
+                        // fallback rather than pinning us to a stale verdict.
+                        entry.driving = if (msg.governed) msg.driving else null
+                        applyMirrorPresentation(entry)
+                    }
                 }
             }
         } else {

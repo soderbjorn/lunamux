@@ -164,6 +164,15 @@ class RealPtySocket internal constructor(
                                         )
                                         _ptySize.value = Pair(msg.cols, msg.rows)
                                     }
+                                    is PtyServerMessage.Governance -> {
+                                        // Ordered on [events] with the bytes it
+                                        // qualifies: presentation must change
+                                        // before the redraw authored for the new
+                                        // driver arrives, not after it is painted.
+                                        _events.emit(
+                                            PtyEvent.Governance(msg.driving, msg.governed)
+                                        )
+                                    }
                                 }
                             }
                             else -> Unit

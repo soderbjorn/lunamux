@@ -125,6 +125,33 @@ internal class ClientSizeArbiter(initialCols: Int, initialRows: Int) {
         private set
 
     /**
+     * The client currently governing the grid, or null when none does — no
+     * client has acted yet, or the governor disconnected and only ambient votes
+     * remain (policy step 4, the tiered fallback).
+     *
+     * Recomputed by [recompute] on every mutation, including the ones that leave
+     * the effective size unchanged. That case is the whole point: when two
+     * clients happen to render at the same width, a take-over moves governance
+     * without moving a single column, and nothing in the size stream would show
+     * it. `TermSession` broadcasts changes to this so clients are *told* who
+     * drives instead of inferring it from a width coincidence.
+     *
+     * @see governor
+     */
+    private var governorId: String? = null
+
+    /**
+     * The governing client's id, read under the arbiter's monitor.
+     *
+     * Called by `TermSession` after every mutation to decide whether to
+     * broadcast a governance change.
+     *
+     * @return the governor's client id, or null when no client governs.
+     */
+    @Synchronized
+    fun governor(): String? = governorId
+
+    /**
      * Declare [clientId]'s governance [posture]. Called once when a client
      * attaches (from the `/pty` route). Idempotent and side-effect free on the
      * effective size — posture only changes *who can* govern, not the grid, so
@@ -234,18 +261,19 @@ internal class ClientSizeArbiter(initialCols: Int, initialRows: Int) {
         // Allocation-free governor scan — this runs on every input frame. Only
         // drivers accumulate activity (noteInput gates on posture, forceSize
         // promotes), so this naturally picks the most-recently-active driver.
-        var governorId: String? = null
+        var governor: String? = null
         var bestStamp = Long.MIN_VALUE
         for ((id, stamp) in activity) {
             if (stamp > bestStamp && id in votes) {
                 bestStamp = stamp
-                governorId = id
+                governor = id
             }
         }
-        val governorVote = governorId?.let { votes[it] }
+        governorId = governor
+        val governorVote = governor?.let { votes[it] }
         val threeD = votes.values.filter { it.priority == SizePriority.THREE_D }
         val next = when {
-            governorVote != null && governorId in forced ->
+            governorVote != null && governor in forced ->
                 Pair(governorVote.cols, governorVote.rows)
             threeD.isNotEmpty() -> pickEffectiveSize(threeD)!!
             governorVote != null -> Pair(governorVote.cols, governorVote.rows)

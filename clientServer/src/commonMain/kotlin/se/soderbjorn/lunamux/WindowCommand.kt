@@ -911,4 +911,35 @@ sealed class PtyServerMessage {
         val rows: Int,
         val maxReplayCols: Int = 0,
     ) : PtyServerMessage()
+
+    /**
+     * Tells *this* connection whether it is the session's driving client — the
+     * one whose size vote governs the PTY and whose input reaches the program
+     * unqualified. Every other attached client presents a passive mirror.
+     *
+     * Sent on attach and again whenever governance moves. It is deliberately a
+     * per-connection boolean rather than a broadcast client id: the server
+     * resolves "is the governor me?" using the connection's own id, so no client
+     * ever learns another's identity.
+     *
+     * Why this exists: governance is a server decision (see
+     * [se.soderbjorn.lunamux.pty.ClientSizeArbiter]), but clients used to
+     * *infer* it by comparing the authoritative width against the width they
+     * would render at. That inference is wrong whenever two clients happen to
+     * size alike — both then believe they drive — and it cannot represent
+     * governance moving without the grid changing at all, which is exactly what
+     * happens when a same-width client takes over.
+     *
+     * @param driving true when this connection is the governing client.
+     * @param governed false when *no* client currently governs (nobody has acted
+     *   yet, or the governor disconnected). Clients fall back to their own
+     *   width comparison while this is false, which preserves the pre-governance
+     *   behaviour for a freshly restored session that no one has touched.
+     */
+    @Serializable
+    @SerialName("governance")
+    data class Governance(
+        val driving: Boolean,
+        val governed: Boolean = true,
+    ) : PtyServerMessage()
 }
