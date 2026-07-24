@@ -154,6 +154,40 @@ public final class TerminalBuffer {
         return text.substring(x1 + 1, x2);
     }
 
+    /**
+     * LUNAMUX ADDITION. Notified as a row leaves the visible screen.
+     * <p>
+     * A terminal normally answers "where does a row go when it scrolls off?" with
+     * "into the transcript", which ties history to the width it was written at and
+     * makes every later reflow rewrite it. The Lunamux server instead keeps history
+     * outside the emulator, as logical lines that are never reflowed, and needs this
+     * hook to see each row at the one instant it is still intact — the buffer recycles
+     * the row immediately afterwards.
+     *
+     * @see #setRowEvictionListener(RowEvictionListener)
+     */
+    public interface RowEvictionListener {
+        /**
+         * @param row     the row about to leave the screen; valid only for the duration
+         *                of this call, as the buffer reuses it on return.
+         * @param wrapped whether the row soft-wraps into the one below, i.e. the logical
+         *                line it belongs to continues rather than ending here.
+         */
+        void onRowLeavingScreen(TerminalRow row, boolean wrapped);
+    }
+
+    /** LUNAMUX ADDITION. Null (the default) means nothing observes eviction. */
+    private RowEvictionListener mRowEvictionListener;
+
+    /**
+     * LUNAMUX ADDITION. Observe rows leaving the screen.
+     *
+     * @param listener the observer, or null to stop observing.
+     */
+    public void setRowEvictionListener(RowEvictionListener listener) {
+        mRowEvictionListener = listener;
+    }
+
     public int getActiveTranscriptRows() {
         return mActiveTranscriptRows;
     }
@@ -240,7 +274,17 @@ public final class TerminalBuffer {
             mScreenFirstRow += shiftDownOfTopRow;
             mScreenFirstRow = (mScreenFirstRow < 0) ? (mScreenFirstRow + mTotalRows) : (mScreenFirstRow % mTotalRows);
             mTotalRows = newTotalRows;
-            mActiveTranscriptRows = altScreen ? 0 : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
+            // LUNAMUX CHANGE. Derived from capacity rather than taken from altScreen: a
+            // buffer with no room beyond the screen (the alternate buffer, and the
+            // server's canonical screen, whose history lives outside the emulator) can
+            // never hold transcript rows, and letting a rows-shrink create them here
+            // would address rows past the end of the ring. For the alternate buffer this
+            // is the same answer altScreen gave, since it is allocated with
+            // totalRows == screenRows.
+            boolean keepsTranscript = newTotalRows > newRows;
+            mActiveTranscriptRows = (altScreen || !keepsTranscript)
+                ? 0
+                : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
             cursor[1] -= shiftDownOfTopRow;
             mScreenRows = newRows;
         } else {
@@ -410,6 +454,15 @@ public final class TerminalBuffer {
     public void scrollDownOneLine(int topMargin, int bottomMargin, long style) {
         if (topMargin > bottomMargin - 1 || topMargin < 0 || bottomMargin > mScreenRows)
             throw new IllegalArgumentException("topMargin=" + topMargin + ", bottomMargin=" + bottomMargin + ", mScreenRows=" + mScreenRows);
+
+        // LUNAMUX ADDITION. Report the row about to leave the screen while it is still
+        // intact. Only for topMargin == 0: with a scroll region set, the row displaced
+        // out of the region is overwritten in place and never becomes history — in a real
+        // terminal it does not reach scrollback either.
+        if (mRowEvictionListener != null && topMargin == 0) {
+            TerminalRow leaving = mLines[mScreenFirstRow];
+            if (leaving != null) mRowEvictionListener.onRowLeavingScreen(leaving, leaving.mLineWrap);
+        }
 
         // Copy the fixed topMargin lines one line down so that they remain on screen in same position:
         blockCopyLinesDown(mScreenFirstRow, topMargin);

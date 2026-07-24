@@ -323,7 +323,14 @@ public final class TerminalEmulator {
 
     public TerminalEmulator(TerminalOutput session, int columns, int rows, int cellWidthPixels, int cellHeightPixels, Integer transcriptRows, TerminalSessionClientBase client) {
         mSession = session;
-        mScreen = mMainBuffer = new TerminalBuffer(columns, getTerminalTranscriptRows(transcriptRows), rows);
+        mScreen = mMainBuffer = new TerminalBuffer(
+            columns,
+            // LUNAMUX ADDITION. transcriptRows == 0 asks for a screen-only main buffer:
+            // no scrollback inside the emulator at all. The Lunamux server uses it for
+            // its canonical grid, where history is kept outside as logical lines that no
+            // resize may rewrite. Any other value keeps the stock behaviour.
+            (transcriptRows != null && transcriptRows == 0) ? rows : getTerminalTranscriptRows(transcriptRows),
+            rows);
         mAltBuffer = new TerminalBuffer(columns, rows, rows);
         mClient = client;
         mRows = rows;
@@ -411,7 +418,12 @@ public final class TerminalEmulator {
 
     private void resizeScreen() {
         final int[] cursor = {mCursorCol, mCursorRow};
-        int newTotalRows = (mScreen == mAltBuffer) ? mRows : mMainBuffer.mTotalRows;
+        // LUNAMUX CHANGE. A screen-only buffer stays screen-only across a resize: the
+        // alternate buffer as before, and now also a main buffer built with no
+        // scrollback (see the constructor). Sizing it to mMainBuffer.mTotalRows would
+        // silently hand it a transcript again on the next resize.
+        final boolean screenOnly = (mScreen == mAltBuffer) || (mMainBuffer.mTotalRows <= mMainBuffer.mScreenRows);
+        int newTotalRows = screenOnly ? mRows : mMainBuffer.mTotalRows;
         mScreen.resize(mColumns, mRows, newTotalRows, cursor, getStyle(), isAlternateBufferActive());
         mCursorCol = cursor[0];
         mCursorRow = cursor[1];
