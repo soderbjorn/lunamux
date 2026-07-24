@@ -1,7 +1,6 @@
 /**
- * Pins the behaviour that decides acceptance criterion "no duplicated output when
- * switching devices": a full-screen TUI answering a SIGWINCH must not leave a second
- * copy of its frame in the canonical grid's scrollback.
+ * Executable statement of acceptance criterion 2 — "no duplicated output when switching
+ * devices" — plus the safety property any future fix must not break.
  *
  * Why this happens at all. One PTY has one winsize, so a take-over resizes it, and a
  * resize is a SIGWINCH. A full-screen program answers a SIGWINCH by redrawing its
@@ -11,34 +10,29 @@
  * into scrollback, where a per-row erase cannot reach it. The program then repaints the
  * same content on-screen, so that stranded top is now shown twice. This is exactly the
  * "duplicated the Claude ASCII logo + my prompt lines" a user reported when taking a
- * session back and forth. The redraw itself is correctly sized to one screen (captured
- * live: it homes, erases `rows` lines, homes, and paints a viewport — it does not spill a
- * second screenful into history), so the *only* surplus copy is the reflow's archival.
+ * session back and forth.
  *
- * The repaint is self-declaring, which is what makes this fixable without guesswork:
- * captured from a live Claude Code session, every post-SIGWINCH chunk opened with
- * `ESC[?25l` … `ESC[H` followed by exactly `rows` × (`ESC[2K` `ESC[1B`) and a second
- * `ESC[H` — the erase count equal to the new screen height in all 22 observed resizes,
- * narrowing and widening alike. A shell at a prompt emits no such sequence.
+ * The tests are written against [SessionGrid]'s public surface only — feed bytes, resize,
+ * read the transcript — so they survive whatever mechanism eventually satisfies them. They
+ * are deliberately *not* written against a repaint classifier, a truncation, or any other
+ * particular fix; the first attempt at one was reverted precisely because the tests had
+ * grown to encode it (see `docs/server-side-screen.md`).
  *
- * @see RepaintDeclaration the classifier for that sequence
- * @see SessionGrid.feed where a declared repaint withdraws the reflow's archival
+ * Tests marked [Ignore] are the unmet criterion: they fail today, on purpose, and are the
+ * definition of done for the history-model work. The live tests are the safety direction —
+ * whatever satisfies the ignored ones must keep these passing.
+ *
  * @see ReflowReversibilityTest the companion property: reflow itself is lossless
+ * @see SessionGridTest the grid's basic contract
  */
 package se.soderbjorn.lunamux.pty
 
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
+import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class TakeOverRepaintTest {
-
-    // The withdrawal defaults OFF in production (observe-only on device); these tests pin
-    // the algorithm itself, so they opt the real truncation in for their duration.
-    @BeforeTest fun enableWithdraw() { System.setProperty("lunamux.gridWithdraw", "true") }
-    @AfterTest fun disableWithdraw() { System.clearProperty("lunamux.gridWithdraw") }
+class TakeOverDuplicationTest {
 
     private fun SessionGrid.feedText(s: String) {
         val b = s.toByteArray(Charsets.UTF_8)
@@ -58,19 +52,23 @@ class TakeOverRepaintTest {
 
     /**
      * How a full-screen TUI redraws itself after a SIGWINCH: hide cursor, home, erase every
-     * visible row, home, then paint exactly one screen. Painting `rows` lines with a
-     * trailing newline on each fills the screen and scrolls the top row into history by
-     * exactly one — matching a real redraw, which commits one line of history as it wraps
-     * onto the last row. The point of the test is that this leaves ONE copy, not that it
-     * leaves zero.
+     * visible row, home, then paint exactly one screen. Captured from a live Claude Code
+     * session — every post-SIGWINCH chunk opened `ESC[?25l` … `ESC[H` followed by exactly
+     * `rows` × (`ESC[2K` `ESC[1B`) and a second `ESC[H`, with the erase count tracking the
+     * new screen height across all 22 observed resizes in both directions.
+     *
+     * Painting `rows` lines with a trailing newline on each fills the screen and scrolls the
+     * top row into history by exactly one — matching a real redraw, which commits one line
+     * of history as it wraps onto the last row. The point of the test is that this leaves
+     * ONE copy, not that it leaves zero.
      */
     private fun repaint(rows: Int): String = buildString {
-        append("\u001b[?25l")
-        append("\u001b[H")
-        repeat(rows) { append("\u001b[2K\u001b[1B") }
-        append("\u001b[H")
+        append("$ESC[?25l")
+        append("$ESC[H")
+        repeat(rows) { append("$ESC[2K$ESC[1B") }
+        append("$ESC[H")
         append(viewport(rows).joinToString("\r\n"))
-        append("[?25h")
+        append("$ESC[?25h")
     }
 
     private fun String.countOf(needle: String): Int {
@@ -85,7 +83,8 @@ class TakeOverRepaintTest {
     }
 
     @Test
-    fun `a declared repaint after take-over leaves exactly one copy of the frame`() {
+    @Ignore("Acceptance criterion 2, not yet met — see docs/server-side-screen.md")
+    fun `a repaint after take-over leaves exactly one copy of the frame`() {
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         // The program paints its viewport at the laptop's native size.
         grid.feedText(repaint(WIDE_ROWS))
@@ -101,16 +100,16 @@ class TakeOverRepaintTest {
     }
 
     @Test
-    fun `stale in-flight output before the repaint is bridged`() {
+    @Ignore("Acceptance criterion 2, not yet met — see docs/server-side-screen.md")
+    fun `stale in-flight output before the repaint does not defeat the fix`() {
         // On device the program's SIGWINCH response does not always land in the very next
-        // chunk: a spinner frame or partial write already in the pipe arrives first. The
-        // withdrawal must still fire when the repaint follows, not be spent on the stale
-        // chunk. A spinner frame uses cursor save/move/restore and draws no new line.
+        // chunk: a spinner frame or partial write already in the pipe arrives first. A fix
+        // that only inspects the chunk immediately following the resize will miss this.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         grid.feedText(repaint(WIDE_ROWS))
 
         grid.resize(NARROW_COLS, NARROW_ROWS)
-        grid.feedText("7[2;1H[38;5;180mIncubating…8") // stale spinner, not a repaint
+        grid.feedText("${ESC}7$ESC[2;1H$ESC[38;5;180mIncubating…${ESC}8") // stale spinner
         grid.feedText(repaint(NARROW_ROWS))
 
         val text = grid.transcriptText()
@@ -119,12 +118,11 @@ class TakeOverRepaintTest {
     }
 
     @Test
-    fun `a two-step resize burst withdraws to the pre-take-over baseline`() {
+    @Ignore("Acceptance criterion 2, not yet met — see docs/server-side-screen.md")
+    fun `a two-step resize burst still leaves one copy`() {
         // A single take-over commonly fires two size changes: the cols change from the new
-        // device, then a rows-only adjust as its soft keyboard settles. The baseline must be
-        // captured before the FIRST, not re-sampled after the cols reflow has already
-        // archived the old frame's top — otherwise the withdrawal targets the inflated count
-        // and removes nothing.
+        // device, then a rows-only adjust as its soft keyboard settles. Both land before the
+        // program's repaint, so a fix must treat the burst as one event.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         grid.feedText(repaint(WIDE_ROWS))
 
@@ -139,6 +137,14 @@ class TakeOverRepaintTest {
 
     @Test
     fun `repeated take-over does not accumulate copies`() {
+        // This one PASSES today, and the asymmetry with the single-switch case above is a
+        // measured fact worth keeping: the duplicate is minted by the *narrowing* (overflow
+        // archived where the repaint's erase cannot reach it) and then *reabsorbed* by the
+        // widening, which pulls those rows back onto the taller screen for the next repaint
+        // to erase. So the artifact is bounded, not linear in switches — an accumulating
+        // count on device must come from something this synthetic frame does not model
+        // (output committed between switches, frames of varying height), not from the
+        // switch count itself. Live rather than ignored so a future fix cannot regress it.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         grid.feedText(repaint(WIDE_ROWS))
 
@@ -155,11 +161,11 @@ class TakeOverRepaintTest {
     }
 
     @Test
-    fun `frozen scrollback above the viewport is preserved, not eaten`() {
-        // A real session has committed history above the live viewport. The withdrawal must
-        // remove only what the reflow archived from the viewport, never the genuine history
-        // that was already in scrollback — that is the whole safety of anchoring on the
-        // pre-resize completed-line count rather than clearing the transcript.
+    fun `committed history above the viewport survives a take-over`() {
+        // The safety direction, and the one the first fix attempt broke: a real session has
+        // committed history above the live viewport, and no de-duplication may reach it.
+        // Whatever satisfies the ignored tests above must keep this passing — it is far
+        // worse to eat a user's scrollback than to leave a duplicate frame in it.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         // Enough committed lines that many scroll off the top into the transcript before
         // the full-screen app draws its first frame — otherwise the repaint's erase simply
@@ -179,14 +185,13 @@ class TakeOverRepaintTest {
                 "committed history must survive take-over (line $line)",
             )
         }
-        assertEquals(1, text.countOf(MARKER_BOTTOM), "the viewport is still not duplicated")
     }
 
     @Test
-    fun `output that does not declare a repaint is never withdrawn`() {
+    fun `a resize with no repaint never loses committed output`() {
         // The shell case: real committed output, a resize, and no full-screen redraw.
-        // Nothing may be dropped — this is the safety direction, and the reason the
-        // withdrawal waits for the program to declare itself.
+        // Nothing may be dropped — the majority of sessions look like this, and a fix
+        // aimed at full-screen repainters must be inert here.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         val committed = (0 until 60).map { "committed line $it " + "x".repeat(120) }
         grid.feedText(committed.joinToString("\r\n") + "\r\n$ ")
@@ -205,8 +210,9 @@ class TakeOverRepaintTest {
 
     @Test
     fun `widening then repainting keeps one copy`() {
-        // Widening un-wraps, so the reflow archives nothing; the withdrawal must be a
-        // no-op rather than eating history it did not create.
+        // Widening un-wraps rather than overflowing, so the reflow archives nothing and no
+        // duplicate is minted. This passes today and pins that the bug really is specific
+        // to the narrowing direction.
         val grid = SessionGrid(NARROW_COLS, NARROW_ROWS)
         grid.feedText(repaint(NARROW_ROWS))
 
@@ -217,6 +223,9 @@ class TakeOverRepaintTest {
     }
 
     private companion object {
+        /** The ESC byte, spelled out so no editor or copy-paste can silently eat it. */
+        const val ESC = "\u001b"
+
         const val MARKER_TOP = "MARKER-TOP-OF-FRAME"
         const val MARKER_BOTTOM = "MARKER-BOTTOM-OF-FRAME"
         const val WIDE_COLS = 143
