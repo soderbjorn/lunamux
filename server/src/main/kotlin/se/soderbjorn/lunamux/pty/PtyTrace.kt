@@ -17,7 +17,10 @@
  *
  * Armed by `LUNAMUX_PTY_TRACE=<path>` (or the `lunamux.ptyTrace` system property, which is
  * the dependable one under `:server:run` — see the note on `SizeChurnLog`). A no-op when
- * unset. Remove this file together with `SizeChurnLog` before upstream.
+ * unset. The armed path is a *prefix*: each session writes its own `<path>.<n>` file, so
+ * the several PTY sessions a dev shell holds at once cannot interleave into one unreadable
+ * file (they would each open the one path and stomp each other). The replay harness prints
+ * which files were written. Remove this file together with `SizeChurnLog` before upstream.
  *
  * @see se.soderbjorn.lunamux.TerminalSession the read loop and applySize that call this
  */
@@ -43,11 +46,12 @@ sealed interface PtyTraceEvent {
  * output stream. Appends are best-effort — a diagnostic must never take a session down — so
  * a write failure is swallowed after the first.
  *
- * @param filePath where to write, defaulting to the process-wide [path] the env var/system
- *   property resolves to. Passed explicitly by tests so they do not depend on class-load
- *   ordering against that static (a load before the property is set would strand it at null).
+ * @param filePath the exact file to write, or null to derive one from the process-wide
+ *   armed [path] prefix (a unique per-instance suffix, so concurrent sessions never share a
+ *   file). Tests pass an explicit path so they do not depend on class-load ordering against
+ *   the static (a load before the property is set would strand it at null).
  */
-class PtyTrace(filePath: String? = path) {
+class PtyTrace(filePath: String? = nextSessionPath()) {
 
     private val out = filePath?.let { runCatching { File(it).outputStream().buffered() }.getOrNull() }
 
@@ -91,6 +95,18 @@ class PtyTrace(filePath: String? = path) {
     companion object {
         private val path: String? =
             System.getProperty("lunamux.ptyTrace") ?: System.getenv("LUNAMUX_PTY_TRACE")
+
+        private val sessionCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /**
+         * The file the next session should write, or null when tracing is unarmed. Each call
+         * appends a fresh index to the armed prefix, so no two [PtyTrace] instances — i.e. no
+         * two live PTY sessions — ever open the same file and overwrite each other.
+         *
+         * @return `<path>.<n>` for the armed prefix, or null.
+         */
+        private fun nextSessionPath(): String? =
+            path?.let { "$it.${sessionCounter.getAndIncrement()}" }
 
         /**
          * Decode a trace file into an ordered list of events.

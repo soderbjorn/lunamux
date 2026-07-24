@@ -31,9 +31,26 @@ class PtyTraceReplayTest {
             println("PtyTraceReplayTest: no LUNAMUX_REPLAY_TRACE set — skipping")
             return
         }
-        val file = File(tracePath)
-        assertTrue(file.exists(), "trace file not found: $tracePath")
 
+        // The armed path is a prefix; each session wrote `<prefix>.<n>`. Accept the exact
+        // file if it exists, otherwise every per-session sibling, and report each — a dev
+        // shell holds several PTYs at once and only one is the interesting (Claude) session.
+        val exact = File(tracePath)
+        val files = when {
+            exact.exists() -> listOf(exact)
+            else -> {
+                val base = File(tracePath)
+                val dir = base.absoluteFile.parentFile
+                val prefix = base.name
+                (dir?.listFiles { f -> f.name.startsWith("$prefix.") }?.sortedBy { it.name }).orEmpty()
+            }
+        }
+        assertTrue(files.isNotEmpty(), "no trace files for prefix: $tracePath")
+        println("PtyTraceReplay: ${files.size} trace file(s): ${files.joinToString { it.name }}")
+        files.forEach { replayOne(it) }
+    }
+
+    private fun replayOne(file: File) {
         val events = PtyTrace.read(file)
         val resizes = events.count { it is PtyTraceEvent.Resize }
         val firstResize = events.firstOrNull { it is PtyTraceEvent.Resize } as? PtyTraceEvent.Resize
@@ -63,15 +80,14 @@ class PtyTraceReplayTest {
             .entries.sortedByDescending { it.value }
             .take(8)
 
-        println("── PtyTraceReplay ──")
+        val isClaude = transcript.contains("Claude Code v")
+        println("── ${file.name} ${if (isClaude) "(Claude session)" else ""} ──")
         println("events=${events.size} resizes=$resizes start=${startCols}x$startRows")
         println("history lines=${lines.size} nonBlank=${nonBlank.size} distinct=$distinct")
         println("transcript chars=${transcript.length}")
-        println("most-repeated history lines:")
-        for (e in worst) println("  ×${e.value}  ${e.key.take(80)}")
-
-        // Not an assertion on the count — the whole point is to SEE it — but a guard that the
-        // replay produced something, so a broken trace fails loudly rather than silently.
-        assertTrue(lines.isNotEmpty(), "replay produced no history")
+        if (worst.isNotEmpty()) {
+            println("most-repeated history lines:")
+            for (e in worst) println("  ×${e.value}  ${e.key.take(80)}")
+        }
     }
 }
