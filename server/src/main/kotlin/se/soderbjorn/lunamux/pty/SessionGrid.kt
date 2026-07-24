@@ -41,7 +41,11 @@ import com.termux.terminal.TerminalOutput
  * @param cols initial grid columns.
  * @param rows initial grid rows.
  */
-class SessionGrid(cols: Int, rows: Int) {
+class SessionGrid(
+    cols: Int,
+    rows: Int,
+    private val onHistoryRevised: () -> Unit = {},
+) {
 
     /**
      * Where the emulator writes its device-query replies (DSR, DA, OSC color
@@ -109,6 +113,13 @@ class SessionGrid(cols: Int, rows: Int) {
      */
     private var chunksSinceWindow: Int = -1
 
+    /**
+     * How much of the open window's pending content the program had visibly reclaimed as of
+     * the last chunk. Only used to notice the moment a repaint lands, so clients can be
+     * resynced then rather than at a fixed delay after the resize.
+     */
+    private var reclaimedAtLastFeed: Int = 0
+
     init {
         // Rows leaving the screen become history. Converted here, synchronously: the
         // emulator recycles the row the moment this returns.
@@ -129,6 +140,7 @@ class SessionGrid(cols: Int, rows: Int) {
      */
     fun feed(buf: ByteArray, len: Int) {
         if (len <= 0) return
+        var revise = false
         synchronized(emulator) {
             try {
                 emulator.append(buf, len)
@@ -137,8 +149,24 @@ class SessionGrid(cols: Int, rows: Int) {
                 // down. The grid may be left mid-sequence; the next feed recovers.
                 Swallowed.note("feed", t)
             }
-            if (chunksSinceWindow >= 0 && ++chunksSinceWindow >= WINDOW_MAX_CHUNKS) resolveWindow()
+            if (chunksSinceWindow < 0) return
+            if (++chunksSinceWindow >= WINDOW_MAX_CHUNKS) {
+                resolveWindow()
+                return
+            }
+            // The repaint may have just landed. If more of what is pending is now visible
+            // on screen than was a chunk ago, the view a client should see has changed, so
+            // ask for a fresh resync — otherwise a client keeps the pre-repaint copy until
+            // something else happens to trigger one. Cheap: only while a window is open.
+            val reclaimed = reclaimedPrefixLength(history.pendingLines(), screenLines())
+            if (reclaimed > reclaimedAtLastFeed) {
+                reclaimedAtLastFeed = reclaimed
+                revise = true
+            }
         }
+        // Outside the monitor: the callback re-enters the session, which takes its own
+        // outbound lock, and nothing may hold this grid's monitor while that happens.
+        if (revise) onHistoryRevised()
     }
 
     /**
@@ -161,6 +189,7 @@ class SessionGrid(cols: Int, rows: Int) {
      */
     private fun resolveWindow() {
         chunksSinceWindow = -1
+        reclaimedAtLastFeed = 0
         if (!history.windowOpen) return
         val pending = history.pendingLines()
         if (pending.isEmpty()) {
@@ -168,6 +197,27 @@ class SessionGrid(cols: Int, rows: Int) {
             return
         }
         history.closeWindow(keepFrom = reclaimedPrefixLength(pending, screenLines()))
+    }
+
+    /**
+     * History as it should be served *right now*: committed lines, plus whatever is pending
+     * minus the part the program has visibly reclaimed.
+     *
+     * Reads deliberately do not resolve the window. Forcing a verdict on read means the
+     * verdict is taken whenever a client happens to attach or the debounced resync fires —
+     * 100 ms after a resize — which is a race against the program's repaint, and losing it
+     * commits a duplicate permanently. Answering from the current screen instead is correct
+     * at every instant: before the repaint arrives those rows genuinely are scrolled-off
+     * content, and after it arrives they are visibly redundant and drop out of the answer.
+     * The commit is left to a real close (the next resize, or the chunk backstop).
+     *
+     * @return the logical lines a client should be shown, oldest first.
+     */
+    private fun servedHistory(): List<LogicalLine> {
+        val pending = history.pendingLines()
+        if (pending.isEmpty()) return history.lines()
+        val keepFrom = reclaimedPrefixLength(pending, screenLines())
+        return history.lines() + pending.subList(keepFrom.coerceIn(0, pending.size), pending.size)
     }
 
     /**
@@ -257,16 +307,13 @@ class SessionGrid(cols: Int, rows: Int) {
     fun <T> read(block: (TerminalEmulator) -> T): T = synchronized(emulator) { block(emulator) }
 
     /**
-     * Committed history, oldest first — the half of the session that lives outside the
-     * emulator. Resolves any open reconciliation window first, so callers never observe a
-     * verdict mid-flight.
+     * History as a client would be served it — the half of the session that lives outside
+     * the emulator. Matches exactly what [synthesizeRedraw] emits, including how an open
+     * reconciliation window is currently answered.
      *
-     * @return the committed logical lines.
+     * @return the logical lines, oldest first.
      */
-    fun historyLines(): List<LogicalLine> = synchronized(emulator) {
-        resolveWindow()
-        history.lines()
-    }
+    fun historyLines(): List<LogicalLine> = synchronized(emulator) { servedHistory() }
 
     /**
      * The full normal-buffer transcript (scrollback + visible screen) as plain
@@ -276,9 +323,8 @@ class SessionGrid(cols: Int, rows: Int) {
      * @return the main buffer's transcript text.
      */
     fun transcriptText(): String = synchronized(emulator) {
-        resolveWindow()
         val sb = StringBuilder()
-        for (line in history.lines()) sb.append(line.text).append('\n')
+        for (line in servedHistory()) sb.append(line.text).append('\n')
         sb.append(emulator.mainBuffer.transcriptText)
         sb.toString()
     }
@@ -294,8 +340,7 @@ class SessionGrid(cols: Int, rows: Int) {
      * @see GridSerializer.serialize
      */
     fun synthesizeRedraw(): ByteArray = synchronized(emulator) {
-        resolveWindow()
-        GridSerializer.serialize(emulator, history.lines())
+        GridSerializer.serialize(emulator, servedHistory())
     }
 
     /**
@@ -307,8 +352,7 @@ class SessionGrid(cols: Int, rows: Int) {
      * @see GridSerializer.serializeForPersist
      */
     fun synthesizeForPersist(): ByteArray = synchronized(emulator) {
-        resolveWindow()
-        GridSerializer.serializeForPersist(emulator, history.lines())
+        GridSerializer.serializeForPersist(emulator, servedHistory())
     }
 
     private companion object {

@@ -156,6 +156,72 @@ class TakeOverDuplicationTest {
     }
 
     @Test
+    fun `a read between the resize and the repaint does not decide anything`() {
+        // The device race this guards. On a real take-over the debounced resync fires
+        // ~100ms after the resize and reads the grid. If that read forced a verdict, it
+        // would be taken before Claude Code's repaint had landed — nothing on screen to
+        // match, so the reflow's overflow would be committed, and with immutable history
+        // there is no later reabsorption to heal it. The duplicate would be permanent, and
+        // intermittent, because it depends on whether the program answered within 100ms.
+        val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
+        grid.feedText(repaint(WIDE_ROWS))
+
+        grid.resize(NARROW_COLS, NARROW_ROWS)
+
+        // The early read: correct for this instant — those rows really have scrolled off —
+        // and, crucially, not a decision.
+        val early = grid.transcriptText()
+        assertEquals(1, early.countOf(MARKER_BOTTOM), "the frame's tail is on screen exactly once")
+
+        // The repaint lands late, and the answer corrects itself.
+        grid.feedText(repaint(NARROW_ROWS))
+
+        val text = grid.transcriptText()
+        assertEquals(1, text.countOf(MARKER_TOP), "an early read must not have committed the overflow")
+        assertEquals(1, text.countOf(MARKER_BOTTOM), "nor duplicated the tail")
+    }
+
+    @Test
+    fun `repeated early reads still do not decide anything`() {
+        // A phone attaching, a resync firing, an MCP tool reading scrollback — several
+        // reads can land in the gap. None may be load-bearing.
+        val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
+        grid.feedText(repaint(WIDE_ROWS))
+
+        grid.resize(NARROW_COLS, NARROW_ROWS)
+        repeat(5) {
+            grid.transcriptText()
+            grid.synthesizeRedraw()
+        }
+        grid.feedText(repaint(NARROW_ROWS))
+
+        val text = grid.transcriptText()
+        assertEquals(1, text.countOf(MARKER_TOP), "top must survive five early reads")
+        assertEquals(1, text.countOf(MARKER_BOTTOM), "tail must survive five early reads")
+    }
+
+    @Test
+    fun `an early read loses nothing when the program never repaints`() {
+        // The other direction: a shell scrolls real output off during a resize and a read
+        // lands in the gap. Answering from the current screen must not drop it either.
+        val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
+        val committed = (0 until 60).map { "committed line $it " + "x".repeat(120) }
+        grid.feedText(committed.joinToString("\r\n") + "\r\n$ ")
+
+        grid.resize(NARROW_COLS, NARROW_ROWS)
+        grid.transcriptText() // early read, no repaint coming
+        grid.feedText("ls\r\n")
+
+        val text = grid.transcriptText()
+        for (line in listOf(0, 17, 42, 59)) {
+            assertTrue(
+                text.contains("committed line $line "),
+                "an early read must not drop scrolled-off output (line $line)",
+            )
+        }
+    }
+
+    @Test
     fun `committed history above the viewport survives a take-over`() {
         // The safety direction, and the one the first fix attempt broke: a real session has
         // committed history above the live viewport, and no de-duplication may reach it.

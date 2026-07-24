@@ -166,8 +166,20 @@ Window lifecycle, all three parts load-bearing:
 - a new resize **resolves the previous window first**, but only once at least one chunk has
   been fed, i.e. the program has had a chance to answer. Without this, eight alternating
   switches poured into a single window and produced eight copies;
-- reads resolve it too, so no client or test observes a verdict mid-flight, and a chunk
-  count bounds a window nobody is looking at.
+- reads **never** resolve it. They answer from the current screen — committed lines plus
+  whatever is pending minus the part the program has visibly reclaimed — which is correct at
+  every instant without deciding anything. A chunk count bounds a window nobody is looking
+  at.
+
+That last point is the one that would have bitten on device. The resync redraw is debounced
+100 ms after a cols change, so a read-resolves design takes the verdict 100 ms after the
+resize — a race against the program's repaint, lost whenever the program is slower than
+that, and losing it commits a duplicate *permanently* now that immutable history has no
+reabsorption. It would have shown up as intermittent duplication with no obvious cause.
+Instead, `SessionGrid` reports when a repaint lands and part of the pending content becomes
+redundant, and the session requests a resync at that moment. Pinned by
+`TakeOverDuplicationTest`, whose early-read cases fail with two copies against the
+read-resolves behaviour.
 
 The safety property that separates this from the reverted truncation: a verdict can only
 reach lines that left the screen inside its own window. Committed history is not
