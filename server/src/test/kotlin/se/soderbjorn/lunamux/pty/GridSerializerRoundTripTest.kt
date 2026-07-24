@@ -1,8 +1,8 @@
 /**
  * The fidelity backbone for [GridSerializer]: for each scripted grid state, serialize
  * the source emulator, feed the bytes to a fresh emulator of the same width, and
- * assert the two grids are cell-identical — chars, styles, wrap flags across the full
- * transcript, cursor + pending-wrap, alternate-buffer state, every DEC private mode,
+ * assert the two are identical — committed history, then the live screen cell for cell:
+ * chars, styles, wrap flags, cursor + pending-wrap, alternate-buffer state, every DEC private mode,
  * scroll margins, tab stops, title, current SGR pen and palette. Also asserts the
  * fixpoint: re-serializing the reconstructed grid yields byte-identical output.
  *
@@ -46,14 +46,18 @@ class GridSerializerRoundTripTest {
         val effectiveRows = resizeTo?.second ?: rows
         if (resizeTo != null) src.resize(effectiveCols, effectiveRows)
 
-        val bytes = src.read { GridSerializer.serialize(it) }
+        // The full redraw, history included: a session is its committed logical lines plus
+        // its live screen, and a round trip that dropped the first half would only be
+        // testing the second.
+        val bytes = src.synthesizeRedraw()
 
         val dst = SessionGrid(effectiveCols, effectiveRows)
         dst.feed(bytes, bytes.size)
 
         src.read { s -> dst.read { d -> assertGridsEqual(s, d, name) } }
+        assertEquals(src.historyLines(), dst.historyLines(), "$name: history")
 
-        val bytes2 = dst.read { GridSerializer.serialize(it) }
+        val bytes2 = dst.synthesizeRedraw()
         assertContentEquals(bytes, bytes2, "$name: serialize is a fixpoint")
     }
 

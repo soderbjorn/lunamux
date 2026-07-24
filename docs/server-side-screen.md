@@ -21,13 +21,16 @@ re-answer hazard.
 
 1. **Both devices edit at their own native size.** The driver is native; the other mirrors.
    *Met.*
-2. **No duplicated output when switching devices.** *Not met* — see below.
+2. **No duplicated output when switching devices.** *Met* — by the live-screen/history
+   split below, not by reconciling a repaint against a reflowable transcript.
 3. **A live (not replayed) session stays well-formatted on both laptop and phone.** *Met.*
 
-Criterion 2 is pinned as executable tests in `TakeOverDuplicationTest`. The tests marked
-`@Ignore` there are exactly this criterion: they fail today, on purpose, and are the
-definition of done. The live tests in the same file are the safety direction that any fix
-must preserve.
+Criterion 2 is pinned as executable tests in `TakeOverDuplicationTest`. They were written
+failing, as the definition of done, and the split satisfies them: a single narrowing
+take-over, one preceded by stale in-flight output, a two-step resize burst, and eight
+alternating switches all leave exactly one copy of the frame. The rest of that file is the
+safety direction — committed history survives a take-over, and a resize with no repaint
+loses nothing.
 
 ## The root tension
 
@@ -69,12 +72,16 @@ Keep these; they were expensive.
 - **The repaint is self-declaring in practice**: every post-SIGWINCH chunk observed opened
   `ESC[?25l` … `ESC[H` then exactly `rows` × (`ESC[2K` `ESC[1B`), across 22 consecutive
   resizes in both directions.
-- **The artifact is bounded, not linear in switches.** The duplicate is minted by the
-  *narrowing* and reabsorbed by the *widening*, which pulls those rows back onto the taller
-  screen for the next repaint to erase. `TakeOverDuplicationTest` shows a single narrowing
-  switch duplicating while eight full narrow→wide cycles do not accumulate. An accumulating
-  count on device (≈3 banner copies over ~20 take-overs) must therefore come from content
-  committed between switches and frames of varying height, not from the switch count.
+- **The duplicate was minted by the *narrowing*.** Widening reabsorbed it, pulling those
+  rows back onto the taller screen for the next repaint to erase — which is why, before the
+  split, a single narrowing switch duplicated while eight full narrow→wide cycles did not
+  accumulate.
+
+  **Superseded by the split, and worth knowing why:** reabsorption was a property of the
+  reflowable transcript. Immutable history has none, so the same eight-cycle test went from
+  passing to eight copies until each switch got its own resolved window. The artifact was
+  never bounded by anything principled — it was bounded by an accident that also caused the
+  bug.
 
 ## What was tried and reverted
 
@@ -96,9 +103,9 @@ The through-line: it reconciled the program's re-render against scrollback *afte
 fact*, on a data structure that tangles live screen and history together and offers no
 clean seam to reconcile on.
 
-## Direction
+## The split (implemented)
 
-**Split live screen from history.**
+**Live screen and history are separate.**
 
 - **Scrollback** becomes an append-only log of *logical lines* with styles, committed once
   when a line scrolls off during normal operation, stored at authored width, **never
@@ -112,6 +119,26 @@ clean seam to reconcile on.
 This dissolves rather than patches the bug: with history separate and immutable to reflow,
 a resize touches only the live screen.
 
+How it is realised:
+
+- `terminal-core` gained two additive changes, both mirroring machinery the alternate
+  buffer already relied on: `transcriptRows == 0` builds a screen-only main buffer, and
+  `setRowEvictionListener` reports each row as it leaves the screen while it is still
+  intact. The rows-only resize path now derives "may this buffer hold transcript rows?"
+  from capacity rather than from the caller's `altScreen` flag.
+- `HistoryLog` holds the committed logical lines. Wrapping is not stored: serving a line at
+  a client's width is emitting its characters and letting that terminal wrap them.
+- `SessionGrid` owns both halves and the reconciliation window.
+- `GridSerializer` emits history and the live screen as **one continuous line stream**. It
+  must not home the cursor before painting the screen when history precedes it — doing so
+  paints over the history tail, which then never scrolls into the receiver's own log and
+  leaves both halves short. That was a real bug caught by the round-trip tests.
+
+Also fixed on the way: `TerminalRow.clear()` never reset the row's wrap flag, so a recycled
+ring slot could claim a soft wrap it no longer had and fuse two unrelated lines into one. A
+deep transcript hid this (a reused slot was thousands of rows old); a screen-only buffer
+reuses slots every few lines and exposed it immediately.
+
 It also fixes a cost the current design carries silently. `GridSerializer.serialize()` is
 RIS + ED3 + the full 3000-row transcript, broadcast on **every** cols change. At 200 cols
 with SGR runs that is multiple MB to a phone per take-over, and the RIS discards each
@@ -120,24 +147,36 @@ the wire carries deltas.
 
 ### Reconciling the repaint against the log
 
-The remaining question is whether content that scrolls off during a repaint storm belongs
-in history. Prefer **content-based suffix matching** over both the reverted count-based
-truncate and a byte-prologue gate:
+A resize opens a **window**: lines leaving the screen are held rather than committed. The
+verdict is taken from content, not from the bytes that arrived — whatever the program has
+drawn by then is on the screen, so a pending line that reappears there was reclaimed by the
+repaint. The longest *prefix* of the pending lines that appears as a contiguous run on the
+screen is dropped; everything past it is committed.
 
-1. On resize, record the log tail (last ~200 logical lines, hashed).
-2. During the post-resize window, buffer lines that scroll off rather than appending them.
-3. When the window closes, find the longest suffix of the pre-resize tail matching a prefix
-   of the buffered lines. That overlap is the re-emit — drop it, append the rest.
+Prefix rather than anywhere, and contiguous rather than scattered, so an incidental
+one-line coincidence in a shell's output cannot trigger it; the reflow pushes the frame's
+top off first, so that is where a repaint's overlap must begin. It fails safe: no match
+means commit everything.
 
-Why this survives the objections above: it is content-based, so width-invariance is
-irrelevant; it is program-agnostic, so repaint-prologue detection becomes an optimisation
-rather than a correctness dependency; and it fails safe — no match means append everything,
-i.e. today's behaviour. It requires logical lines at authored width, which is another
-reason the log split comes first.
+Window lifecycle, all three parts load-bearing:
 
-Known failure mode to bound: legitimately repeated output (a build log emitting the same
-line twice) inside the window can false-match. Keep it window-scoped, contiguous-suffix
-only, with a minimum match length.
+- opening is **idempotent**, so a take-over's burst (a cols change, then a rows-only
+  keyboard adjust, with no output between) is one window spanning the program's whole
+  response — the specific way the reverted approach failed;
+- a new resize **resolves the previous window first**, but only once at least one chunk has
+  been fed, i.e. the program has had a chance to answer. Without this, eight alternating
+  switches poured into a single window and produced eight copies;
+- reads resolve it too, so no client or test observes a verdict mid-flight, and a chunk
+  count bounds a window nobody is looking at.
+
+The safety property that separates this from the reverted truncation: a verdict can only
+reach lines that left the screen inside its own window. Committed history is not
+addressable from it, so a wrong verdict costs one resize's worth of scroll-off rather than
+the user's scrollback.
+
+Known failure mode to watch: legitimately repeated output (a build log emitting the same
+line twice) inside a window could false-match. Bounded by the prefix + contiguity rules
+above.
 
 ### The trade-off to decide explicitly
 
@@ -154,13 +193,16 @@ practice.
 
 ## Open questions
 
-1. Is a commit-gate during a declared repaint sufficient, or is the suffix-match
-   reconciliation above needed?
-2. Should scrollback wrapping be recomputed per client at render time, or cached?
-   (Memory vs CPU; a long session is a few MB of styled logical lines.)
-3. Can the full-screen-repaint signal be made program-agnostic robustly enough to gate on,
-   or should it be inferred from emulator state transitions rather than the byte prologue?
-4. Does the alt-buffer path (already clean) share code with this, or stay separate?
+1. Wrapping is currently recomputed by the *receiver* (history is emitted unwrapped and the
+   client's terminal wraps it), which sidesteps the memory-vs-CPU question entirely. Revisit
+   only if a client ever needs the server's wrapped view.
+2. Does the alt-buffer path (already clean) share code with this, or stay separate?
+3. The resync still sends the whole log on every cols change. With history now a separate,
+   append-only structure, sending it once and streaming deltas afterwards is finally
+   possible — that is the remaining cost noted above, not a correctness gap.
+4. `TerminalSessionManager` still holds `SizeChurnLog`, and the web still carries the
+   vote-in-flight grace window that server-assigned governance made redundant on the
+   governed path.
 
 ## Settled: governance is assigned, not inferred
 

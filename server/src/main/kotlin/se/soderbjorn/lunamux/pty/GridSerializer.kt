@@ -61,17 +61,25 @@ object GridSerializer {
      * @param e the source emulator (caller holds the grid monitor).
      * @return UTF-8 bytes: RIS + ED3, styled row flow, then the state epilogue.
      */
-    fun serialize(e: TerminalEmulator): ByteArray {
+    fun serialize(e: TerminalEmulator, history: List<LogicalLine> = emptyList()): ByteArray {
         val sb = StringBuilder(4096)
         sb.append(ESC).append("c")   // RIS — reset modes/screen/cursor
         sb.append(CSI).append("3J")  // ED3 — clear scrollback
+        // History first, unwrapped: the receiver re-wraps it at its own width. Then the
+        // live screen, which the emulator has already laid out at this grid.
+        emitHistory(sb, history)
+        // History and the live screen are ONE continuous line stream. The screen flow must
+        // not home first when history precedes it: homing would paint the screen over the
+        // tail of the history just emitted, so those lines would never scroll off into the
+        // receiver's own log and both halves would be short.
+        val homeFirst = history.isEmpty()
         if (!e.isAlternateBufferActive) {
-            emitBufferFlow(sb, e.mainBuffer, e.mColumns, e.mRows, includeTranscript = true)
+            emitBufferFlow(sb, e.mainBuffer, e.mColumns, e.mRows, includeTranscript = true, homeFirst = homeFirst)
         } else {
-            // Scrollback-under-a-live-TUI: paint the normal buffer's history+screen,
-            // enter the alternate buffer, then paint the live alt rows. Mirrors what a
-            // reconnecting client should see — real scrollback behind the running TUI.
-            emitBufferFlow(sb, e.mainBuffer, e.mColumns, e.mRows, includeTranscript = true)
+            // Scrollback-under-a-live-TUI: paint the normal buffer's screen, enter the
+            // alternate buffer, then paint the live alt rows. Mirrors what a reconnecting
+            // client should see — real scrollback behind the running TUI.
+            emitBufferFlow(sb, e.mainBuffer, e.mColumns, e.mRows, includeTranscript = true, homeFirst = homeFirst)
             sb.append(CSI).append("?1049h")
             emitBufferFlow(sb, e.altBuffer, e.mColumns, e.mRows, includeTranscript = false)
         }
@@ -90,10 +98,11 @@ object GridSerializer {
      * @param e the source emulator (caller holds the grid monitor).
      * @return UTF-8 bytes safe to store and later replay into a fresh grid.
      */
-    fun serializeForPersist(e: TerminalEmulator): ByteArray {
+    fun serializeForPersist(e: TerminalEmulator, history: List<LogicalLine> = emptyList()): ByteArray {
         val sb = StringBuilder(4096)
         sb.append(ESC).append("c")
         sb.append(CSI).append("3J")
+        emitHistory(sb, history)
         emitBufferFlow(
             sb, e.mainBuffer, e.mColumns, e.mRows,
             includeTranscript = true,
@@ -107,6 +116,62 @@ object GridSerializer {
             emitAltFrameInert(sb, e.altBuffer, e.mColumns, e.mRows)
         }
         return sb.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    /**
+     * Convert one screen row into the styled runs [HistoryLog] stores.
+     *
+     * Called from [SessionGrid]'s row-eviction hook, synchronously, because the emulator
+     * recycles the row as soon as the hook returns.
+     *
+     * A wrapped row is taken in full — every column is real content, and the logical line
+     * continues into the next row. An unwrapped row is trimmed of trailing default-styled
+     * blanks, which are padding rather than content; a styled trailing space (a coloured
+     * status bar) is kept, the same rule [lastContentColumn] applies everywhere else.
+     *
+     * @param row the row leaving the screen.
+     * @param cols the grid width the row was authored at.
+     * @param wrapped whether the row soft-wraps into the next.
+     * @return the row's styled runs, empty for a blank row.
+     */
+    fun rowRuns(row: TerminalRow, cols: Int, wrapped: Boolean): List<StyledRun> {
+        val lastCol = if (wrapped) cols - 1 else lastContentColumn(row, cols)
+        if (lastCol < 0) return emptyList()
+        val runs = mutableListOf<StyledRun>()
+        val sb = StringBuilder()
+        var runStyle = row.getStyle(0)
+        var col = 0
+        while (col <= lastCol) {
+            val style = row.getStyle(col)
+            if (style != runStyle && sb.isNotEmpty()) {
+                runs.add(StyledRun(sb.toString(), runStyle))
+                sb.setLength(0)
+            }
+            runStyle = style
+            col += emitCell(sb, row, col, cols)
+        }
+        if (sb.isNotEmpty()) runs.add(StyledRun(sb.toString(), runStyle))
+        return runs
+    }
+
+    /**
+     * Emit committed history ahead of the live screen.
+     *
+     * Each logical line is emitted as its styled runs followed by CRLF, with no wrapping
+     * computed here at all: the receiving terminal wraps at its own width, which is
+     * exactly what makes one stored history correct for clients of different widths.
+     *
+     * @param sb the redraw being built.
+     * @param lines the committed logical lines, oldest first.
+     */
+    private fun emitHistory(sb: StringBuilder, lines: List<LogicalLine>) {
+        for (line in lines) {
+            for (run in line.runs) {
+                emitSgrForStyle(sb, run.style)
+                sb.append(run.text)
+            }
+            sb.append("\r\n")
+        }
     }
 
     // ── Row flow ──────────────────────────────────────────────────────────────
@@ -126,8 +191,11 @@ object GridSerializer {
         screenRows: Int,
         includeTranscript: Boolean,
         persistCursorRow: Int? = null,
+        homeFirst: Boolean = true,
     ) {
-        sb.append(CSI).append("H") // home before drawing so the flow is deterministic
+        // Home before drawing so the flow is deterministic — unless history was just
+        // emitted, in which case this flow continues that stream and must not rewind over it.
+        if (homeFirst) sb.append(CSI).append("H")
         val transcript = if (includeTranscript) buffer.activeTranscriptRows else 0
         var lastRow = screenRows - 1
         var firstRow = -transcript

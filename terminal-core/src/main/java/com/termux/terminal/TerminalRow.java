@@ -146,6 +146,12 @@ public final class TerminalRow {
         Arrays.fill(mStyle, style);
         mSpaceUsed = (short) mColumns;
         mHasNonOneWidthOrSurrogateChars = false;
+        // LUNAMUX FIX. A cleared row is not a continuation of anything. Leaving the flag
+        // set let a recycled ring slot claim a soft wrap it no longer had, which fuses two
+        // unrelated lines into one when the buffer is read back. Invisible with a deep
+        // transcript, where a reused slot is thousands of rows old; immediate with a
+        // screen-only buffer, where slots are reused every few lines.
+        mLineWrap = false;
     }
 
     // https://github.com/steven676/Android-Terminal-Emulator/commit/9a47042620bec87617f0b4f5d50568535668fe26

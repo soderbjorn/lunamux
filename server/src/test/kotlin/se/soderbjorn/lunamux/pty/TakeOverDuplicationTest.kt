@@ -13,21 +13,21 @@
  * session back and forth.
  *
  * The tests are written against [SessionGrid]'s public surface only — feed bytes, resize,
- * read the transcript — so they survive whatever mechanism eventually satisfies them. They
- * are deliberately *not* written against a repaint classifier, a truncation, or any other
+ * read the transcript — so they survive whatever mechanism satisfies them. They are
+ * deliberately *not* written against a repaint classifier, a truncation, or any other
  * particular fix; the first attempt at one was reverted precisely because the tests had
  * grown to encode it (see `docs/server-side-screen.md`).
  *
- * Tests marked [Ignore] are the unmet criterion: they fail today, on purpose, and are the
- * definition of done for the history-model work. The live tests are the safety direction —
- * whatever satisfies the ignored ones must keep these passing.
+ * They were written failing, as the definition of done for the history-model work, and are
+ * met by the live-screen/history split: a resize touches only the live screen, and what it
+ * pushes off is held until the program's response shows whether it was reclaimed. The
+ * second group is the safety direction — no fix may buy the first group with these.
  *
  * @see ReflowReversibilityTest the companion property: reflow itself is lossless
  * @see SessionGridTest the grid's basic contract
  */
 package se.soderbjorn.lunamux.pty
 
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -83,7 +83,6 @@ class TakeOverDuplicationTest {
     }
 
     @Test
-    @Ignore("Acceptance criterion 2, not yet met — see docs/server-side-screen.md")
     fun `a repaint after take-over leaves exactly one copy of the frame`() {
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         // The program paints its viewport at the laptop's native size.
@@ -100,7 +99,6 @@ class TakeOverDuplicationTest {
     }
 
     @Test
-    @Ignore("Acceptance criterion 2, not yet met — see docs/server-side-screen.md")
     fun `stale in-flight output before the repaint does not defeat the fix`() {
         // On device the program's SIGWINCH response does not always land in the very next
         // chunk: a spinner frame or partial write already in the pipe arrives first. A fix
@@ -118,7 +116,6 @@ class TakeOverDuplicationTest {
     }
 
     @Test
-    @Ignore("Acceptance criterion 2, not yet met — see docs/server-side-screen.md")
     fun `a two-step resize burst still leaves one copy`() {
         // A single take-over commonly fires two size changes: the cols change from the new
         // device, then a rows-only adjust as its soft keyboard settles. Both land before the
@@ -137,14 +134,12 @@ class TakeOverDuplicationTest {
 
     @Test
     fun `repeated take-over does not accumulate copies`() {
-        // This one PASSES today, and the asymmetry with the single-switch case above is a
-        // measured fact worth keeping: the duplicate is minted by the *narrowing* (overflow
-        // archived where the repaint's erase cannot reach it) and then *reabsorbed* by the
-        // widening, which pulls those rows back onto the taller screen for the next repaint
-        // to erase. So the artifact is bounded, not linear in switches — an accumulating
-        // count on device must come from something this synthetic frame does not model
-        // (output committed between switches, frames of varying height), not from the
-        // switch count itself. Live rather than ignored so a future fix cannot regress it.
+        // Before the split this passed for the wrong reason: the duplicate was minted by
+        // the narrowing and then *reabsorbed* by the widening, which pulled those rows back
+        // onto the taller screen for the next repaint to erase. Immutable history has no
+        // reabsorption, so this now genuinely requires each switch to be reconciled — it
+        // failed with eight copies until a window was resolved per switch rather than
+        // accumulating across all of them.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         grid.feedText(repaint(WIDE_ROWS))
 

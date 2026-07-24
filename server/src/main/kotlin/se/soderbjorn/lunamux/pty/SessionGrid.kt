@@ -13,11 +13,12 @@
  * attach/resync redraw at each client's width (the tmux/mosh model), which
  * dissolves the width-bound byte-replay bug class instead of managing it.
  *
- * Deliberately *not* here: any reconciliation of a program's post-SIGWINCH
- * repaint against scrollback. Today a resize reflows one transcript that tangles
- * live screen and history together, which leaves no seam to reconcile on — see
- * `docs/server-side-screen.md` ("Take-over duplication") for the measured
- * behaviour and the history model that is meant to replace it.
+ * The emulator holds only the live screen; scrollback is [HistoryLog], outside it,
+ * as logical lines no reflow can reach. That split is what gives a resize a seam to
+ * reconcile on: it re-lays out the screen and nothing else, and whatever it pushes
+ * off the top is held until the program's response shows whether the program meant
+ * to redraw it. See `docs/server-side-screen.md` for the measured behaviour behind
+ * this and for the approach it replaced.
  *
  * @see se.soderbjorn.lunamux.TerminalSession the PTY session that owns one grid
  * @see se.soderbjorn.lunamux.ScreenEmulator the JediTerm screen kept for AI state detection
@@ -79,10 +80,9 @@ class SessionGrid(cols: Int, rows: Int) {
         private set
 
     /**
-     * The canonical emulator. `null` client → the cursor style defaults and
-     * Logger falls back to stderr (this grid is never bound to a Session client).
-     * Cell pixel sizes are nominal (headless). Transcript depth matches the
-     * ~3000-row scrollback promise of the normal-buffer replay ring.
+     * The canonical emulator — the *live screen* only. `null` client → the cursor
+     * style defaults and Logger falls back to stderr (this grid is never bound to a
+     * Session client). Cell pixel sizes are nominal (headless).
      */
     private val emulator = TerminalEmulator(
         discardOutput,
@@ -90,9 +90,32 @@ class SessionGrid(cols: Int, rows: Int) {
         rows.coerceAtLeast(MIN_DIM),
         NOMINAL_CELL_WIDTH_PX,
         NOMINAL_CELL_HEIGHT_PX,
-        TRANSCRIPT_ROWS,
+        // Screen-only: this emulator models the live screen and nothing else. History is
+        // [history], outside the emulator, where no reflow can reach it.
+        NO_EMULATOR_TRANSCRIPT,
         null,
     )
+
+    /**
+     * The session's scrollback: logical lines, committed as they leave the screen, never
+     * reflowed. The other half of the split described in the file header.
+     */
+    private val history = HistoryLog()
+
+    /**
+     * Chunks fed since the current reconciliation window opened, or -1 when none is open.
+     * Bounds how long a verdict may be deferred; it does not decide the verdict, which is
+     * always taken by comparing the pending lines against what the program actually drew.
+     */
+    private var chunksSinceWindow: Int = -1
+
+    init {
+        // Rows leaving the screen become history. Converted here, synchronously: the
+        // emulator recycles the row the moment this returns.
+        emulator.mainBuffer.setRowEvictionListener { row, wrapped ->
+            history.appendRow(GridSerializer.rowRuns(row, emulator.mColumns, wrapped), wrapped)
+        }
+    }
 
     /**
      * Feed [len] bytes of raw PTY output into the canonical grid.
@@ -114,7 +137,83 @@ class SessionGrid(cols: Int, rows: Int) {
                 // down. The grid may be left mid-sequence; the next feed recovers.
                 Swallowed.note("feed", t)
             }
+            if (chunksSinceWindow >= 0 && ++chunksSinceWindow >= WINDOW_MAX_CHUNKS) resolveWindow()
         }
+    }
+
+    /**
+     * Decide what to do with the lines that left the screen since the last resize.
+     *
+     * A narrowing re-lays out the live screen and pushes what no longer fits off the top.
+     * For a shell that is real history. For a program that owns the screen and repaints on
+     * `SIGWINCH` it is a frame the program is in the middle of redrawing, and committing it
+     * is what put a second copy in scrollback.
+     *
+     * The verdict is taken from content, not from the bytes that arrived: whatever the
+     * program has now drawn is on the screen, so a pending line that reappears there was
+     * reclaimed by the repaint and is redundant. Matched as a contiguous run so an
+     * incidental single-line coincidence in a shell's output cannot trigger it, and only
+     * as a *prefix* of the pending lines — the reflow pushes the frame's top off first, so
+     * that is where a repaint's overlap must begin.
+     *
+     * Everything past the overlap is committed. This can only ever reach lines from inside
+     * the window; established history is not addressable from here.
+     */
+    private fun resolveWindow() {
+        chunksSinceWindow = -1
+        if (!history.windowOpen) return
+        val pending = history.pendingLines()
+        if (pending.isEmpty()) {
+            history.commitWindow()
+            return
+        }
+        history.closeWindow(keepFrom = reclaimedPrefixLength(pending, screenLines()))
+    }
+
+    /**
+     * How many leading [pending] lines the program has re-drawn on screen.
+     *
+     * @param pending the lines that left the screen inside the window, oldest first.
+     * @param screen the live screen's lines, top-down.
+     * @return the length of the longest prefix of [pending] appearing as a contiguous run
+     *   in [screen]; 0 when there is no such run, which keeps every pending line.
+     */
+    private fun reclaimedPrefixLength(pending: List<LogicalLine>, screen: List<LogicalLine>): Int {
+        // A blank line matches anywhere and would let a run start on nothing, so an
+        // overlap has to begin on real content.
+        val first = pending.firstOrNull() ?: return 0
+        if (first.isEmpty) return 0
+        var best = 0
+        for (start in screen.indices) {
+            if (screen[start] != first) continue
+            var n = 0
+            while (n < pending.size && start + n < screen.size && pending[n] == screen[start + n]) n++
+            if (n > best) best = n
+        }
+        return best
+    }
+
+    /**
+     * The live screen as logical lines, top-down, with soft-wrapped rows fused — the same
+     * shape [HistoryLog] stores, so the two can be compared directly.
+     *
+     * @return the screen's logical lines.
+     */
+    private fun screenLines(): List<LogicalLine> {
+        val out = mutableListOf<LogicalLine>()
+        val open = mutableListOf<StyledRun>()
+        val buffer = emulator.mainBuffer
+        for (y in 0 until emulator.mRows) {
+            val row = buffer.getLineOrNull(y) ?: continue
+            val wrapped = buffer.getLineWrap(y)
+            open.addAll(GridSerializer.rowRuns(row, emulator.mColumns, wrapped))
+            if (!wrapped) {
+                out.add(LogicalLine(open.toList()))
+                open.clear()
+            }
+        }
+        if (open.isNotEmpty()) out.add(LogicalLine(open.toList()))
+        return out
     }
 
     /**
@@ -128,6 +227,16 @@ class SessionGrid(cols: Int, rows: Int) {
     fun resize(cols: Int, rows: Int) {
         if (cols < MIN_DIM || rows < MIN_DIM) return
         synchronized(emulator) {
+            // Resolve the previous window first, but only once the program has actually had
+            // a chance to answer it: a take-over's burst (a cols change, then a rows-only
+            // keyboard adjust) arrives with no output in between and must stay ONE window,
+            // while a genuinely new resize after the program has spoken must not pour its
+            // overflow into the previous verdict.
+            if (chunksSinceWindow > 0) resolveWindow()
+            // Divert what the re-layout pushes off the screen until we can see whether the
+            // program reclaims it.
+            history.beginWindow()
+            if (chunksSinceWindow < 0) chunksSinceWindow = 0
             try {
                 emulator.resize(cols, rows, NOMINAL_CELL_WIDTH_PX, NOMINAL_CELL_HEIGHT_PX)
             } catch (t: Throwable) {
@@ -148,13 +257,31 @@ class SessionGrid(cols: Int, rows: Int) {
     fun <T> read(block: (TerminalEmulator) -> T): T = synchronized(emulator) { block(emulator) }
 
     /**
+     * Committed history, oldest first — the half of the session that lives outside the
+     * emulator. Resolves any open reconciliation window first, so callers never observe a
+     * verdict mid-flight.
+     *
+     * @return the committed logical lines.
+     */
+    fun historyLines(): List<LogicalLine> = synchronized(emulator) {
+        resolveWindow()
+        history.lines()
+    }
+
+    /**
      * The full normal-buffer transcript (scrollback + visible screen) as plain
      * text, one logical line per row. Backed by the canonical grid so it stays
      * correct across resizes; used by the MCP `read_scrollback` tool.
      *
      * @return the main buffer's transcript text.
      */
-    fun transcriptText(): String = synchronized(emulator) { emulator.mainBuffer.transcriptText }
+    fun transcriptText(): String = synchronized(emulator) {
+        resolveWindow()
+        val sb = StringBuilder()
+        for (line in history.lines()) sb.append(line.text).append('\n')
+        sb.append(emulator.mainBuffer.transcriptText)
+        sb.toString()
+    }
 
     /**
      * Synthesize an attach/resync redraw of the current grid at its current width:
@@ -166,7 +293,10 @@ class SessionGrid(cols: Int, rows: Int) {
      * @return UTF-8 redraw bytes for the current grid.
      * @see GridSerializer.serialize
      */
-    fun synthesizeRedraw(): ByteArray = synchronized(emulator) { GridSerializer.serialize(emulator) }
+    fun synthesizeRedraw(): ByteArray = synchronized(emulator) {
+        resolveWindow()
+        GridSerializer.serialize(emulator, history.lines())
+    }
 
     /**
      * Synthesize the persistence form: scrollback (and, for a live TUI, an inert
@@ -176,7 +306,10 @@ class SessionGrid(cols: Int, rows: Int) {
      * @return UTF-8 bytes for persistence.
      * @see GridSerializer.serializeForPersist
      */
-    fun synthesizeForPersist(): ByteArray = synchronized(emulator) { GridSerializer.serializeForPersist(emulator) }
+    fun synthesizeForPersist(): ByteArray = synchronized(emulator) {
+        resolveWindow()
+        GridSerializer.serializeForPersist(emulator, history.lines())
+    }
 
     private companion object {
         /** Emulator's hard minimum per side; [TerminalEmulator.resize] throws below 2. */
@@ -187,11 +320,18 @@ class SessionGrid(cols: Int, rows: Int) {
         const val NOMINAL_CELL_HEIGHT_PX = 16
 
         /**
-         * Scrollback depth of the canonical grid. Matches the ~3000-row promise of
-         * the normal-buffer replay ring. Worst-case memory is a few MB per active
-         * session (full-width styled rows) versus the ring's ~512 KB — acceptable
-         * for the fidelity it buys, and flagged here as the one real cost.
+         * Asks [TerminalEmulator] for a screen-only main buffer. Scrollback depth is
+         * [HistoryLog]'s concern now, counted in logical lines rather than rows.
          */
-        const val TRANSCRIPT_ROWS = 3000
+        const val NO_EMULATOR_TRANSCRIPT = 0
+
+        /**
+         * How many chunks a reconciliation window may stay open before it is resolved
+         * anyway. A program's `SIGWINCH` response does not always land in the first chunk —
+         * stale in-flight output can precede it — but the window cannot stay open forever,
+         * or a later scroll-off would be judged against a long-past resize. Reads resolve
+         * the window too, so this is only the backstop for a session nobody is looking at.
+         */
+        const val WINDOW_MAX_CHUNKS = 24
     }
 }
