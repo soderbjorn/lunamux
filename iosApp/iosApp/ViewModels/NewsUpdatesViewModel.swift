@@ -52,6 +52,15 @@ final class NewsUpdatesViewModel {
     /// The active, not-yet-dismissed news items, newest first as published.
     private(set) var newsItems: [NewsItemLocal] = []
 
+    /// Whether the "Check now" button should be shown — the shared view-model's
+    /// decision (mirrors `State.checkNowAvailable`, the single place the feature
+    /// flag is read), not this layer's.
+    private(set) var checkNowAvailable: Bool = false
+
+    /// Whether a check is currently running; drives the "Check now" button's
+    /// "Checking…" label and disabled state. Mirrors `State.checkInProgress`.
+    private(set) var checkInProgress: Bool = false
+
     /// Whether the toolbar bell should show: there is news or an update.
     var hasContent: Bool { updateAvailable || !newsItems.isEmpty }
 
@@ -84,11 +93,15 @@ final class NewsUpdatesViewModel {
             let name = state.latestVersionName
             let url = state.infoUrl.flatMap { URL(string: $0) }
             let items = state.newsItems.map { NewsItemLocal(from: $0) }
+            let checkNowAvailable = state.checkNowAvailable
+            let checkInProgress = state.checkInProgress
             DispatchQueue.main.async {
                 self?.updateAvailable = available
                 self?.latestVersionName = name
                 self?.infoURL = url
                 self?.newsItems = items
+                self?.checkNowAvailable = checkNowAvailable
+                self?.checkInProgress = checkInProgress
             }
         }
     }
@@ -122,6 +135,16 @@ final class NewsUpdatesViewModel {
     /// dismissed update — so they reappear (reactively, via the StateFlow).
     func restoreAll() {
         kmp.restoreAll()
+    }
+
+    /// Trigger an out-of-band check: fetch the version + news manifests right now
+    /// rather than waiting for the once-per-day periodic loop. Fire-and-forget —
+    /// the shared view-model runs it on its own coroutine scope and drives
+    /// `checkInProgress` / the refreshed content back through the StateFlow, so
+    /// this layer needs no `async` handling of its own. Gated at the call site by
+    /// `checkNowAvailable`.
+    func requestCheckNow() {
+        kmp.requestCheckNow()
     }
 
     /// Open the manifest's download URL in the system browser (Safari).

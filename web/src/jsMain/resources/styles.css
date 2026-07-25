@@ -1326,7 +1326,7 @@ body.appearance-light .about-link {
     max-width: 90vw;
     /* Fixed size: the dialog is always the same height regardless of how many
        items it lists, and the card list scrolls inside it. */
-    height: 70vh;
+    height: 85vh;
     max-height: 90vh;
     /* 28px is the dialog's horizontal inset; .news-list breaks out past it on
        the right (negative margin) so its scrollbar sits flush to the edge. */
@@ -1554,19 +1554,25 @@ body.appearance-light .about-link {
     text-align: center;
 }
 
-/* Pinned footer holding the Restore action, separated from the scrolling list by
-   a hairline. Stays put while .news-list scrolls. */
+/* Pinned footer holding the two actions, separated from the scrolling list by a
+   hairline. Stays put while .news-list scrolls. The buttons are pushed to opposite
+   ends (Check now at the leading edge, Restore at the trailing edge); Restore also
+   carries margin-left:auto so it stays hard right even when Check now is hidden
+   (feature flag off) and it is the footer's only child. */
 .news-dialog-footer {
     flex: 0 0 auto;
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid color-mix(in srgb, var(--text-secondary, #8E8E93) 24%, transparent);
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 /* "Restore dismissed news & updates" — a secondary outline button (same visual
    base as .news-card-link) that brings every dismissed item back. */
 .news-restore-btn {
+    /* Keep Restore hard right even as the footer's sole child (Check now hidden). */
+    margin-left: auto;
     padding: 6px 14px;
     border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 40%, transparent);
     border-radius: 6px;
@@ -1578,6 +1584,26 @@ body.appearance-light .about-link {
 }
 .news-restore-btn:hover {
     background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 22%, transparent);
+}
+/* "Check now" — a sibling of .news-restore-btn in the footer that triggers an
+   out-of-band manifest check. Shares the same secondary outline-button base;
+   greys out (via :disabled) while a check is in flight. */
+.news-check-now-btn {
+    padding: 6px 14px;
+    border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 40%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 12%, transparent);
+    color: var(--text-primary, #d4d4d4);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.news-check-now-btn:hover {
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 22%, transparent);
+}
+.news-check-now-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 
 /* ── Pane type modal ── */
