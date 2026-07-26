@@ -8,15 +8,22 @@
 		Lives inside the file-system-synchronized "iosApp" group, so Xcode
 		bundles it into the app automatically (no Copy Bundle Resources edit).
 
-		Termtastic performs no tracking and collects no data on behalf of the
-		developer: on-device state — saved hosts, the onboarding flag, and news
-		bookkeeping — lives in a single private JSON file
-		(Documents/local_state.json), with the device-auth token held separately
-		in the Keychain, and terminal/file/git traffic goes only to the server the
-		user configures. The lone outbound call the developer controls is an
-		unauthenticated GET of versions.json from GitHub, which carries no user
-		data. Hence NSPrivacyTracking=false and empty tracking-domain /
-		collected-data arrays.
+		On-device state — saved hosts, the onboarding flag, and news bookkeeping —
+		lives in a single private JSON file (Documents/local_state.json), with the
+		device-auth token held separately in the Keychain, and terminal/file/git
+		traffic goes only to the server the user configures; the developer never
+		sees that.
+
+		The one thing the developer does record is aggregate, cookieless usage
+		statistics about the app's periodic update/news checks (unauthenticated
+		GETs of versions.json / news.json from lunamux.dev): the platform that made
+		the check and an approximate country derived from the IP address, used only
+		for analytics. No IP address is stored, no cookie is set, and no persistent
+		identifier is created — the data is aggregate and not linked to the user,
+		and is not shared with or joined to any third-party data for advertising.
+		Hence the two collected data types below are marked Linked=false and
+		Tracking=false, and NSPrivacyTracking stays false with an empty
+		tracking-domain array.
 
 		The app touches no required-reason APIs: state is plain file I/O under the
 		app's own Documents directory plus Keychain Services for the auth token —
@@ -28,7 +35,32 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCoarseLocation</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array/>
 </dict>
