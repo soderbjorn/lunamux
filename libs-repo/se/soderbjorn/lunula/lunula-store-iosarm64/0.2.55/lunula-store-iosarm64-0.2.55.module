@@ -1,0 +1,116 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../lunula-store/0.2.55/lunula-store-0.2.55.module",
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-store",
+    "version": "0.2.55",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "iosArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.55"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-store-iosArm64Main-0.2.55.klib",
+          "url": "lunula-store-iosarm64-0.2.55.klib",
+          "size": 61096,
+          "sha512": "f02d39c09a5dd6edce7a2017791f96fc40fa0ddd2a59bd6db31de2fc3c8d78a2f5591d3a29b58c5d1357ad49ddd3d6e2f7587d37ef982e085bce3bfbd9e634ed",
+          "sha256": "0acb0a4f2fbd303a91a522c0c0e87f6d03421920ddf77af2e37bac4c7c084c64",
+          "sha1": "6b37727410f43b3d0c0725beff2f1b9859fedd3f",
+          "md5": "5e1859b55062a8a58d909bc318dcce26"
+        }
+      ]
+    },
+    {
+      "name": "iosArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "files": [
+        {
+          "name": "lunula-store-iosarm64-0.2.55-sources.jar",
+          "url": "lunula-store-iosarm64-0.2.55-sources.jar",
+          "size": 17798,
+          "sha512": "c2025e7df6c045a483bf7dae818d9d29d3286f3dc906e503f1a0e7cd74099a697d7a7c769c39e9e3e6e14dbf8f620eaebc99f6240691a512204bd0fd94ae6c24",
+          "sha256": "b7a1906c9c836e7e3393baa6682567be7e27ac44e9a87844c9ee1c655e130ce0",
+          "sha1": "5d43c82693e86b3644d10c4b233a0ce975257ece",
+          "md5": "cdccc626b164d639f9a9c86d8ee3df10"
+        }
+      ]
+    },
+    {
+      "name": "iosArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.55"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-store-iosarm64-0.2.55-metadata.jar",
+          "url": "lunula-store-iosarm64-0.2.55-metadata.jar",
+          "size": 3829,
+          "sha512": "aabfb97971a2ce5e08d9f548000f67d4a29413e0938f291d495bcea1156942d39677a0febd43383227b566417ea7640ad944e4a816c15f81fd44080f2f2bbbd6",
+          "sha256": "a8518cb2748d6cd76e761020a52c1e138a9ee6ae1c3a6cc9d821391eeebbb778",
+          "sha1": "22d881c23013d63da43b7eedc9fba98f1b279186",
+          "md5": "267efdf5d2e49629b3099480467d05dc"
+        }
+      ]
+    }
+  ]
+}
