@@ -1,6 +1,8 @@
 # Lunamux
 
-Lunamux is a terminal replacement suitable for the modern age of agentic software development. **Please go to https://lunamux.dev for much more information about the features, look and behaviour!** The website also has a comprehensive manual.
+Lunamux is a terminal replacement suitable for the modern age of agentic software development.
+
+**Please go to [www.lunamux.dev](https://www.lunamux.dev) for much more information about the features, look and behaviour!** The website also has a comprehensive manual.
 
 ## Introduction
 The project comprises a Mac terminal app hosted in an Electron shell with flexible tab and window management and an optional,
@@ -11,15 +13,19 @@ waiting for an answer.
 
 It's also possible to connect to a remote terminal through the web and get the same
 look and experience. It furthermore has companion mobile apps for Android and iOS on App Store and Google Play (you can find links on the [website](https://www.lunamus.dev)).
+
 Note that there is no cloud component - remote access requires being on the same network or VPN.
 
-This is a fast-moving, agent-first software development project. If I put too much detail here, it would
-quickly become obsolete. If you want specifics about the features, source code and the architecture, ask your agent!
+This is a fast-moving, agent-first software development project. If I put too much detail here, it would quickly become obsolete. If you want specifics about the features, source code and the architecture, ask your agent!
 
 ## Tech stack
 
-I will mention just a few words about tech choices. I use Kotlin anywhere I can, because I really like the language, and Kotlin Multiplatform makes it easy to share code across both the server,
-Mac/Electron/web, Android, iOS and a dedicated UI toolkit (Lunula) which I use also for other apps. I try to have common view models across all clients that expose a single state object per screen/view, with thin
+I will mention just a few words about tech choices.
+
+I use Kotlin anywhere I can, because I really like the language, and Kotlin Multiplatform makes it easy to share code across both the server,
+Mac/Electron/web, Android, and iOS. I however do **not** use Compose Multiplatform because I want each platform to have a native UI. For web (primarily), I use a dedicated UI toolkit ([Lunula](https://github.com/soderbjorn/lunula)) which I use also for other apps.
+
+I try to have common view models across all clients that expose a single state object per screen/view, with thin
 wrappers where needed on each platform. I also re-use the Kotlin networking layer across all platforms.
 
 ### Dependencies
@@ -42,10 +48,10 @@ An assortment of other more conventional dependencies are also used.
 
 ## Development
 
-We use the [Lunicle issue tracker](https://issues.lunicle.dev/?projectId=1) for managing development - it'sone of my sister projects (it's also embedded on the Lunamux website [here](https://lunamux.dev/#/issues)). You can see all issues without signing in. Contact me if you would like edit rights to the board so that you can create, move and comment on tickets and to add pull requests on GitHub.
+We use the [Lunicle issue tracker](https://issues.lunicle.dev/?projectId=1) for managing development - it's one of my sister projects (it's also embedded on the Lunamux website [here](https://lunamux.dev/#/issues)). You can see all issues without signing in. Contact me if you would like edit rights to the board so that you can create, move and comment on tickets and to add pull requests on GitHub. Before embarking on huge re-work (rather than bug fixes or small features), you might want to talk to me first. I'm very open to significant changes as well, I just want us to agree on the UX and make sure it's done in a way that fits the vision and all platforms.
 
 ## License
 
 Lunamux is released under the [MIT License](LICENSE).
 
-Third-party dependencies and vendored code are used under their respective licenses (Apache 2.0, LGPL 3.0, OFL 1.1, MIT, BSD).
+Third-party dependencies are used under their respective licenses.
