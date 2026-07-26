@@ -3,10 +3,10 @@
  *
  * This file contains [CreateSheet], the Material3 `ModalBottomSheet` opened by
  * the Sessions top bar's "+" button. It gathers every "create a new …" action
- * into one place: a new tab, new panes (terminal / file browser / git) for the
- * active overview tab, and a new world. World creation lives here — rather than
- * inside the world-switcher dropdown — so that dropdown is purely for switching
- * between and managing existing worlds.
+ * into one place: new panes (terminal / file browser / git) for the active
+ * overview tab, then a new tab or a new world. World creation lives here —
+ * rather than inside the world-switcher dropdown — so that dropdown is purely
+ * for switching between and managing existing worlds.
  */
 package se.soderbjorn.lunamux.android.ui
 
@@ -37,12 +37,13 @@ import androidx.compose.ui.unit.sp
 /**
  * A bottom sheet listing every "create new …" action for the Sessions screen.
  *
- * Opened from [TreeScreen]'s top-bar "+" button. Always offers "New tab" and
- * "New world"; the three pane creators (terminal / file browser / git) are
- * shown only when [showPaneOptions] is true — i.e. in the overview view mode,
- * where there is an active tab to add the pane to. Each row dismisses the sheet
- * via its callback (the caller flips the sheet's visibility flag) before
- * performing the action or opening a follow-up name dialog.
+ * Opened from [TreeScreen]'s top-bar "+" button. The three pane creators
+ * (terminal / file browser / git) lead the sheet, but only when
+ * [showPaneOptions] is true — i.e. in the overview view mode, where there is an
+ * active tab to add the pane to. Below the divider come the two container
+ * creators, "New tab" and "New workspace", which are always offered. Each row
+ * dismisses the sheet via its callback (the caller flips the sheet's visibility
+ * flag) before performing the action or opening a follow-up name dialog.
  *
  * @param showPaneOptions whether to include the per-pane creators (terminal /
  *   file browser / git); typically `viewMode == OVERVIEW`.
@@ -77,25 +78,24 @@ fun CreateSheet(
                 fontSize = 18.sp,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 8.dp),
             )
-            CreateRow(
-                label = "New tab",
-                onClick = onNewTab,
-            ) {
-                // Decorative — the "New tab" label is the row's accessible name.
-                PlusIcon(contentDescription = "", tint = SidebarTextPrimary)
-            }
+            // Top sections: the pane creators. "New terminal" gets a section of
+            // its own at the very top — it is the overwhelmingly common action,
+            // so it lands where the thumb does — followed by the secondary pane
+            // flavours. Both are present only in overview mode; in list mode
+            // the sheet opens straight on the container section below (and the
+            // dividers are then suppressed with it).
             if (showPaneOptions) {
-                // Separate "New tab" from the pane creators. In list mode
-                // (showPaneOptions == false) the divider before "New workspace"
-                // below already provides the one separator under "New tab".
-                HorizontalDivider(
-                    color = SidebarBorder,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
                 CreateRow(
                     label = "New terminal",
                     onClick = { onNewPane("terminal") },
                 ) { PaneIcon(kind = LeafKind.TERMINAL, floating = false, sizeDp = 20) }
+                // "New terminal" stands alone above this divider: it is the
+                // primary action, and the secondary pane flavours below should
+                // not read as equal-weight siblings of it.
+                HorizontalDivider(
+                    color = SidebarBorder,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
                 CreateRow(
                     label = "New file browser",
                     onClick = { onNewPane("fileBrowser") },
@@ -104,11 +104,22 @@ fun CreateSheet(
                     label = "New git",
                     onClick = { onNewPane("git") },
                 ) { PaneIcon(kind = LeafKind.GIT, floating = false, sizeDp = 20) }
+                // Separate the pane creators (things added *inside* the active
+                // tab) from the container creators below.
+                HorizontalDivider(
+                    color = SidebarBorder,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
             }
-            HorizontalDivider(
-                color = SidebarBorder,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
+            // Bottom section: the containers — a new tab, or a whole new
+            // workspace.
+            CreateRow(
+                label = "New tab",
+                onClick = onNewTab,
+            ) {
+                // Decorative — the "New tab" label is the row's accessible name.
+                PlusIcon(contentDescription = "", tint = SidebarTextPrimary)
+            }
             CreateRow(
                 label = "New workspace",
                 onClick = onNewWorld,
