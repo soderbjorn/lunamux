@@ -1,0 +1,123 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../lunula-core/0.2.54/lunula-core-0.2.54.module",
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-core",
+    "version": "0.2.54",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "jvmApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-core-jvm-0.2.54.jar",
+          "url": "lunula-core-jvm-0.2.54.jar",
+          "size": 116646,
+          "sha512": "517e243e57232be5bf3df3e3c64dade4d1d01522eb981cbd1d715ef17930e6430f0160cfbd0d4746ef6f5d8580136fc68197b50a42c4ced4eab82f264854dd56",
+          "sha256": "efaf6a9d1313e99d74a24893ef52d013db871eef1c619293d0e1eea287a4e8d2",
+          "sha1": "d5f7e7143f7cd00a62e36749ba89ddba884f94df",
+          "md5": "8451a954b563e13a6f3d27479dd9e5a8"
+        }
+      ]
+    },
+    {
+      "name": "jvmRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-core-jvm-0.2.54.jar",
+          "url": "lunula-core-jvm-0.2.54.jar",
+          "size": 116646,
+          "sha512": "517e243e57232be5bf3df3e3c64dade4d1d01522eb981cbd1d715ef17930e6430f0160cfbd0d4746ef6f5d8580136fc68197b50a42c4ced4eab82f264854dd56",
+          "sha256": "efaf6a9d1313e99d74a24893ef52d013db871eef1c619293d0e1eea287a4e8d2",
+          "sha1": "d5f7e7143f7cd00a62e36749ba89ddba884f94df",
+          "md5": "8451a954b563e13a6f3d27479dd9e5a8"
+        }
+      ]
+    },
+    {
+      "name": "jvmSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "files": [
+        {
+          "name": "lunula-core-jvm-0.2.54-sources.jar",
+          "url": "lunula-core-jvm-0.2.54-sources.jar",
+          "size": 51667,
+          "sha512": "7f63648ddc49f040f2b43f9cc2e18d4fba9fe7dec4c32ec412c50ce2a08cc39647342c32de0c9771ae9516b15d821e8a46f24543f3c2eb3c979bc85247cb64a4",
+          "sha256": "b1d0c2535775be4a0acb9cfc4c839db7879edb7431658e9378359e1cb222a0ff",
+          "sha1": "3c5712af96dbdda596f1715fb5ff7f47997b3d44",
+          "md5": "cc14ab753f59755b35a65f9ea5d75001"
+        }
+      ]
+    }
+  ]
+}

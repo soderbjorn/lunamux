@@ -1,0 +1,130 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../lunula-core/0.2.54/lunula-core-0.2.54.module",
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-core",
+    "version": "0.2.54",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "iosArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-core-iosArm64Main-0.2.54.klib",
+          "url": "lunula-core-iosarm64-0.2.54.klib",
+          "size": 165798,
+          "sha512": "b7654c078062b4425d3ca615db8b6a600d37e630c0d393e7ccb365dd32aab8d4724d79c0ab08c0c9f4118ad8cda047a482d1f1b4a991c0802f56deda8f9a94f7",
+          "sha256": "41aa0946120cfb56a812f05acafa8685fb4ba1e94fac796fc0f3820f4f09a2bb",
+          "sha1": "2ff0a8fb461f5887baba30e57423756c856a1d4f",
+          "md5": "eb80922bb4a2d37947b41b350a6d2aae"
+        }
+      ]
+    },
+    {
+      "name": "iosArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "files": [
+        {
+          "name": "lunula-core-iosarm64-0.2.54-sources.jar",
+          "url": "lunula-core-iosarm64-0.2.54-sources.jar",
+          "size": 51667,
+          "sha512": "7f63648ddc49f040f2b43f9cc2e18d4fba9fe7dec4c32ec412c50ce2a08cc39647342c32de0c9771ae9516b15d821e8a46f24543f3c2eb3c979bc85247cb64a4",
+          "sha256": "b1d0c2535775be4a0acb9cfc4c839db7879edb7431658e9378359e1cb222a0ff",
+          "sha1": "3c5712af96dbdda596f1715fb5ff7f47997b3d44",
+          "md5": "cc14ab753f59755b35a65f9ea5d75001"
+        }
+      ]
+    },
+    {
+      "name": "iosArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-core-iosarm64-0.2.54-metadata.jar",
+          "url": "lunula-core-iosarm64-0.2.54-metadata.jar",
+          "size": 261,
+          "sha512": "cf17604f02af71781bb2d914a882a2d439b714bb8fef8fdb75039578bd48ccc4af358175d7af27b3f888167919a649e1963961b65777def718e446d42d324474",
+          "sha256": "c1bae6e469274358273cd52a27c6819d580fdf9912197ed61c9694bd2ddaf43b",
+          "sha1": "b5583e483a66651f9c62a744de95053b98faa7c2",
+          "md5": "711c93a63d0f7d6270235fab27d495db"
+        }
+      ]
+    }
+  ]
+}
