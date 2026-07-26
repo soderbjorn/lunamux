@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!--
-		Apple Privacy Manifest for Termtastic.
+		Apple Privacy Manifest for Lunamux.
 
 		Lives inside the file-system-synchronized "iosApp" group, so Xcode
 		bundles it into the app automatically (no Copy Bundle Resources edit).
@@ -18,8 +18,8 @@
 		statistics about the app's periodic update/news checks (unauthenticated
 		GETs of versions.json / news.json from lunamux.dev): the platform that made
 		the check and an approximate country derived from the IP address, used only
-		for analytics. No IP address is stored, no cookie is set, and no persistent
-		identifier is created — the data is aggregate and not linked to the user,
+		for analytics. No cookie is set, and no persistent identifier is created —
+		the data is aggregate and not linked to the user,
 		and is not shared with or joined to any third-party data for advertising.
 		Hence the two collected data types below are marked Linked=false and
 		Tracking=false, and NSPrivacyTracking stays false with an empty
