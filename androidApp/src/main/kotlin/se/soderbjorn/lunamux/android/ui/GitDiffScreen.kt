@@ -236,8 +236,13 @@ private fun buildDiffHtml(hunks: List<DiffHunk>, theme: ResolvedTheme): String {
     border-collapse: collapse;
     table-layout: fixed;
   }
-  tr.add { background: var(--t-add-bg); }
-  tr.del { background: var(--t-surface-alt); }
+  /* A solid 3px gutter bar marks a changed line, rather than a tint under it.
+     The tint was a background every syntax colour then had to survive, so the
+     palette was tuned for the changed rows instead of the surface the rest of
+     the file sits on. An inset shadow costs no width, so a line never shifts
+     sideways when its status changes. */
+  tr.add { box-shadow: inset 3px 0 0 0 var(--t-add); }
+  tr.del { box-shadow: inset 3px 0 0 0 var(--t-danger); }
   tr.ctx { background: transparent; }
   td { vertical-align: top; white-space: pre-wrap; word-break: break-all; }
   td.ln {
