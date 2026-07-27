@@ -506,20 +506,8 @@ class TerminalSession private constructor(
      * `init` block so restored scrollback is ingested in the same order it reaches
      * the rest of the session. Read back by [GridSerializer] to synthesize
      * width-correct attach/resync redraws.
-     *
-     * The callback fires when a program's post-resize repaint lands and part of
-     * what the resize pushed off the screen turns out to be redundant. The view a
-     * client should see has changed at that moment, so a resync is requested then —
-     * rather than at a fixed delay after the resize, which would race the repaint.
-     * The trigger is debounced, so a repaint arriving over several chunks still
-     * costs one redraw. Referencing [resyncTrigger] here is safe despite it being
-     * declared below: the lambda is invoked long after construction.
      */
-    private val grid = SessionGrid(
-        initialCols,
-        initialRows,
-        onHistoryRevised = { resyncTrigger.tryEmit(Unit) },
-    )
+    private val grid = SessionGrid(initialCols, initialRows)
 
     // ── Ordered outbound stream (see SessionEvent) ──────────────────────────
     // seq assignment and the grid feed/resize/synthesize the seq refers to happen

@@ -14,11 +14,11 @@
  * dissolves the width-bound byte-replay bug class instead of managing it.
  *
  * The emulator holds only the live screen; scrollback is [HistoryLog], outside it,
- * as logical lines no reflow can reach. That split is what gives a resize a seam to
- * reconcile on: it re-lays out the screen and nothing else, and whatever it pushes
- * off the top is held until the program's response shows whether the program meant
- * to redraw it. See `docs/server-side-screen.md` for the measured behaviour behind
- * this and for the approach it replaced.
+ * as logical lines no reflow can reach. A resize therefore re-lays out the screen and
+ * nothing else; whatever it pushes off the top is committed as scrolled-off content,
+ * exactly as a real terminal's scrollback would record it. See
+ * `docs/server-side-screen.md` for the measured behaviour behind this and for the
+ * approaches it replaced.
  *
  * @see se.soderbjorn.lunamux.TerminalSession the PTY session that owns one grid
  * @see se.soderbjorn.lunamux.ScreenEmulator the JediTerm screen kept for AI state detection
@@ -27,30 +27,6 @@ package se.soderbjorn.lunamux.pty
 
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalOutput
-
-/**
- * What a reconciliation window decided, reported for observability only.
- *
- * The one failure this design can still have is a *discard that ate something real* — a
- * pending line judged redundant that the program was not in fact redrawing. It is bounded
- * (a verdict cannot reach committed history) and no longer self-healing (immutable history
- * has no reabsorption), so it has to be observable. [droppedSample] is the field that
- * answers it: dropped lines that look like a program's frame are the intended case, dropped
- * lines that look like the user's output are the bug.
- *
- * @property pending how many logical lines left the screen inside the window.
- * @property dropped how many of them were judged redundant and discarded.
- * @property kept how many were committed to history.
- * @property trigger what closed the window — `"resize"` or `"backstop"`.
- * @property droppedSample the first few discarded lines as text, truncated.
- */
-class WindowVerdict(
-    val pending: Int,
-    val dropped: Int,
-    val kept: Int,
-    val trigger: String,
-    val droppedSample: List<String>,
-)
 
 /**
  * A headless [TerminalEmulator] fed the raw PTY output stream, maintaining the
@@ -65,12 +41,7 @@ class WindowVerdict(
  * @param cols initial grid columns.
  * @param rows initial grid rows.
  */
-class SessionGrid(
-    cols: Int,
-    rows: Int,
-    private val onHistoryRevised: () -> Unit = {},
-    private val onWindowResolved: (WindowVerdict) -> Unit = {},
-) {
+class SessionGrid(cols: Int, rows: Int) {
 
     /**
      * Where the emulator writes its device-query replies (DSR, DA, OSC color
@@ -131,20 +102,6 @@ class SessionGrid(
      */
     private val history = HistoryLog()
 
-    /**
-     * Chunks fed since the current reconciliation window opened, or -1 when none is open.
-     * Bounds how long a verdict may be deferred; it does not decide the verdict, which is
-     * always taken by comparing the pending lines against what the program actually drew.
-     */
-    private var chunksSinceWindow: Int = -1
-
-    /**
-     * How much of the open window's pending content the program had visibly reclaimed as of
-     * the last chunk. Only used to notice the moment a repaint lands, so clients can be
-     * resynced then rather than at a fixed delay after the resize.
-     */
-    private var reclaimedAtLastFeed: Int = 0
-
     init {
         // Rows leaving the screen become history. Converted here, synchronously: the
         // emulator recycles the row the moment this returns.
@@ -154,12 +111,9 @@ class SessionGrid(
         // ED3 (`ESC[3J`, what `clear` emits to wipe scrollback) must drop the external
         // history too. Without this the split regressed `clear`: the live screen blanks but
         // history survives and the next redraw re-emits it — the "my earlier prompts came
-        // back after clearing" report. Also drops any open reconciliation window, since the
-        // pending lines it held no longer have any history to belong to.
+        // back after clearing" report.
         emulator.mainBuffer.setTranscriptClearedListener {
             history.clear()
-            chunksSinceWindow = -1
-            reclaimedAtLastFeed = 0
         }
     }
 
@@ -175,8 +129,6 @@ class SessionGrid(
      */
     fun feed(buf: ByteArray, len: Int) {
         if (len <= 0) return
-        var revise = false
-        var verdict: WindowVerdict? = null
         synchronized(emulator) {
             try {
                 emulator.append(buf, len)
@@ -185,132 +137,7 @@ class SessionGrid(
                 // down. The grid may be left mid-sequence; the next feed recovers.
                 Swallowed.note("feed", t)
             }
-            if (chunksSinceWindow < 0) return@synchronized
-            if (++chunksSinceWindow >= WINDOW_MAX_CHUNKS) {
-                verdict = resolveWindow("backstop")
-                return@synchronized
-            }
-            // The repaint may have just landed. If more of what is pending is now visible
-            // on screen than was a chunk ago, the view a client should see has changed, so
-            // ask for a fresh resync — otherwise a client keeps the pre-repaint copy until
-            // something else happens to trigger one. Cheap: only while a window is open.
-            val reclaimed = reclaimedPrefixLength(history.pendingLines(), screenLines())
-            if (reclaimed > reclaimedAtLastFeed) {
-                reclaimedAtLastFeed = reclaimed
-                revise = true
-            }
         }
-        // Outside the monitor: these callbacks re-enter the session (its outbound lock) and
-        // may do file I/O, neither of which may happen while the PTY read path holds this
-        // grid's monitor.
-        verdict?.let(onWindowResolved)
-        if (revise) onHistoryRevised()
-    }
-
-    /**
-     * Decide what to do with the lines that left the screen since the last resize.
-     *
-     * A narrowing re-lays out the live screen and pushes what no longer fits off the top.
-     * For a shell that is real history. For a program that owns the screen and repaints on
-     * `SIGWINCH` it is a frame the program is in the middle of redrawing, and committing it
-     * is what put a second copy in scrollback.
-     *
-     * The verdict is taken from content, not from the bytes that arrived: whatever the
-     * program has now drawn is on the screen, so a pending line that reappears there was
-     * reclaimed by the repaint and is redundant. Matched as a contiguous run so an
-     * incidental single-line coincidence in a shell's output cannot trigger it, and only
-     * as a *prefix* of the pending lines — the reflow pushes the frame's top off first, so
-     * that is where a repaint's overlap must begin.
-     *
-     * Everything past the overlap is committed. This can only ever reach lines from inside
-     * the window; established history is not addressable from here.
-     */
-    private fun resolveWindow(trigger: String): WindowVerdict? {
-        chunksSinceWindow = -1
-        reclaimedAtLastFeed = 0
-        if (!history.windowOpen) return null
-        val pending = history.pendingLines()
-        if (pending.isEmpty()) {
-            history.commitWindow()
-            return null
-        }
-        val keepFrom = reclaimedPrefixLength(pending, screenLines()).coerceIn(0, pending.size)
-        history.closeWindow(keepFrom = keepFrom)
-        return WindowVerdict(
-            pending = pending.size,
-            dropped = keepFrom,
-            kept = pending.size - keepFrom,
-            trigger = trigger,
-            droppedSample = pending.take(minOf(keepFrom, VERDICT_SAMPLE_LINES))
-                .map { it.text.take(VERDICT_SAMPLE_CHARS) },
-        )
-    }
-
-    /**
-     * History as it should be served *right now*: committed lines, plus whatever is pending
-     * minus the part the program has visibly reclaimed.
-     *
-     * Reads deliberately do not resolve the window. Forcing a verdict on read means the
-     * verdict is taken whenever a client happens to attach or the debounced resync fires —
-     * 100 ms after a resize — which is a race against the program's repaint, and losing it
-     * commits a duplicate permanently. Answering from the current screen instead is correct
-     * at every instant: before the repaint arrives those rows genuinely are scrolled-off
-     * content, and after it arrives they are visibly redundant and drop out of the answer.
-     * The commit is left to a real close (the next resize, or the chunk backstop).
-     *
-     * @return the logical lines a client should be shown, oldest first.
-     */
-    private fun servedHistory(): List<LogicalLine> {
-        val pending = history.pendingLines()
-        if (pending.isEmpty()) return history.lines()
-        val keepFrom = reclaimedPrefixLength(pending, screenLines())
-        return history.lines() + pending.subList(keepFrom.coerceIn(0, pending.size), pending.size)
-    }
-
-    /**
-     * How many leading [pending] lines the program has re-drawn on screen.
-     *
-     * @param pending the lines that left the screen inside the window, oldest first.
-     * @param screen the live screen's lines, top-down.
-     * @return the length of the longest prefix of [pending] appearing as a contiguous run
-     *   in [screen]; 0 when there is no such run, which keeps every pending line.
-     */
-    private fun reclaimedPrefixLength(pending: List<LogicalLine>, screen: List<LogicalLine>): Int {
-        // A blank line matches anywhere and would let a run start on nothing, so an
-        // overlap has to begin on real content.
-        val first = pending.firstOrNull() ?: return 0
-        if (first.isEmpty) return 0
-        var best = 0
-        for (start in screen.indices) {
-            if (screen[start] != first) continue
-            var n = 0
-            while (n < pending.size && start + n < screen.size && pending[n] == screen[start + n]) n++
-            if (n > best) best = n
-        }
-        return best
-    }
-
-    /**
-     * The live screen as logical lines, top-down, with soft-wrapped rows fused — the same
-     * shape [HistoryLog] stores, so the two can be compared directly.
-     *
-     * @return the screen's logical lines.
-     */
-    private fun screenLines(): List<LogicalLine> {
-        val out = mutableListOf<LogicalLine>()
-        val open = mutableListOf<StyledRun>()
-        val buffer = emulator.mainBuffer
-        for (y in 0 until emulator.mRows) {
-            val row = buffer.getLineOrNull(y) ?: continue
-            val wrapped = buffer.getLineWrap(y)
-            open.addAll(GridSerializer.rowRuns(row, emulator.mColumns, wrapped))
-            if (!wrapped) {
-                out.add(LogicalLine(open.toList()))
-                open.clear()
-            }
-        }
-        if (open.isNotEmpty()) out.add(LogicalLine(open.toList()))
-        return out
     }
 
     /**
@@ -323,18 +150,7 @@ class SessionGrid(
      */
     fun resize(cols: Int, rows: Int) {
         if (cols < MIN_DIM || rows < MIN_DIM) return
-        var verdict: WindowVerdict? = null
         synchronized(emulator) {
-            // Resolve the previous window first, but only once the program has actually had
-            // a chance to answer it: a take-over's burst (a cols change, then a rows-only
-            // keyboard adjust) arrives with no output in between and must stay ONE window,
-            // while a genuinely new resize after the program has spoken must not pour its
-            // overflow into the previous verdict.
-            if (chunksSinceWindow > 0) verdict = resolveWindow("resize")
-            // Divert what the re-layout pushes off the screen until we can see whether the
-            // program reclaims it.
-            history.beginWindow()
-            if (chunksSinceWindow < 0) chunksSinceWindow = 0
             try {
                 emulator.resize(cols, rows, NOMINAL_CELL_WIDTH_PX, NOMINAL_CELL_HEIGHT_PX)
             } catch (t: Throwable) {
@@ -342,7 +158,6 @@ class SessionGrid(
                 Swallowed.note("resize", t)
             }
         }
-        verdict?.let(onWindowResolved)
     }
 
     /**
@@ -356,13 +171,12 @@ class SessionGrid(
     fun <T> read(block: (TerminalEmulator) -> T): T = synchronized(emulator) { block(emulator) }
 
     /**
-     * History as a client would be served it — the half of the session that lives outside
-     * the emulator. Matches exactly what [synthesizeRedraw] emits, including how an open
-     * reconciliation window is currently answered.
+     * The session's committed scrollback — the half of the session that lives outside
+     * the emulator. Matches exactly what [synthesizeRedraw] emits ahead of the screen.
      *
      * @return the logical lines, oldest first.
      */
-    fun historyLines(): List<LogicalLine> = synchronized(emulator) { servedHistory() }
+    fun historyLines(): List<LogicalLine> = synchronized(emulator) { history.lines() }
 
     /**
      * The full normal-buffer transcript (scrollback + visible screen) as plain
@@ -373,7 +187,7 @@ class SessionGrid(
      */
     fun transcriptText(): String = synchronized(emulator) {
         val sb = StringBuilder()
-        for (line in servedHistory()) sb.append(line.text).append('\n')
+        for (line in history.lines()) sb.append(line.text).append('\n')
         sb.append(emulator.mainBuffer.transcriptText)
         sb.toString()
     }
@@ -389,7 +203,7 @@ class SessionGrid(
      * @see GridSerializer.serialize
      */
     fun synthesizeRedraw(): ByteArray = synchronized(emulator) {
-        GridSerializer.serialize(emulator, servedHistory())
+        GridSerializer.serialize(emulator, history.lines())
     }
 
     /**
@@ -415,7 +229,7 @@ class SessionGrid(
      */
     fun attachSnapshot(): AttachSnapshot = synchronized(emulator) {
         AttachSnapshot(
-            GridSerializer.serialize(emulator, servedHistory()),
+            GridSerializer.serialize(emulator, history.lines()),
             emulator.mColumns,
             emulator.mRows,
         )
@@ -430,7 +244,7 @@ class SessionGrid(
      * @see GridSerializer.serializeForPersist
      */
     fun synthesizeForPersist(): ByteArray = synchronized(emulator) {
-        GridSerializer.serializeForPersist(emulator, servedHistory())
+        GridSerializer.serializeForPersist(emulator, history.lines())
     }
 
     private companion object {
@@ -446,18 +260,5 @@ class SessionGrid(
          * [HistoryLog]'s concern now, counted in logical lines rather than rows.
          */
         const val NO_EMULATOR_TRANSCRIPT = 0
-
-        /**
-         * How many chunks a reconciliation window may stay open before it is resolved
-         * anyway. A program's `SIGWINCH` response does not always land in the first chunk —
-         * stale in-flight output can precede it — but the window cannot stay open forever,
-         * or a later scroll-off would be judged against a long-past resize. Reads resolve
-         * the window too, so this is only the backstop for a session nobody is looking at.
-         */
-        const val WINDOW_MAX_CHUNKS = 24
-
-        /** How many discarded lines a [WindowVerdict] carries, and how wide, for logging. */
-        const val VERDICT_SAMPLE_LINES = 3
-        const val VERDICT_SAMPLE_CHARS = 60
     }
 }
