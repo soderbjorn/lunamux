@@ -103,6 +103,42 @@ The through-line: it reconciled the program's re-render against scrollback *afte
 fact*, on a data structure that tangles live screen and history together and offers no
 clean seam to reconcile on.
 
+## The driver renders native output (the mechanism that actually holds)
+
+A real Claude Code capture, replayed offline through `SessionGrid`
+(`PtyTrace` + `TraceAnalysis`), settled what synthetic fixtures could not: after a resize
+the program re-emits its *whole* view from the banner down, and on a conversation taller
+than the screen that re-emission's top scrolls straight back off — so it duplicates what is
+already in history, not what is on the screen. Two clean policies were measured and both
+failed: content reconciliation degrades once history holds its own partial misses (banner
+settled at ×2, and it is a heuristic), and a pure commit-gate discards the *entire*
+conversation when take-overs happen continuously while the program streams (all genuine
+output scrolls off through the windows). No window policy can separate re-emission from
+genuine output by timing, because during rapid take-over they arrive through the same
+window.
+
+What the capture also revealed is that the duplication a user sees on their **own** screen
+was not the program's — it was ours. On every cols change the server broadcasts a
+synthesized resync (RIS + history + screen) to *every* client, including the one that just
+took over. That client is at the PTY's width, so the program's native output is already
+width-correct for it; the resync then overwrites that clean native render with the server's
+reconstruction, built from the history a re-emission duplicates.
+
+So the driver renders native. `SessionEvent.Output.resync` marks the synthesized redraw,
+and the `/pty` route withholds it from whichever connection currently governs (tracked from
+the same ordered `Governance` events). The driving client applies the program's own output —
+width-correct by construction, no synthesis, no reconciliation — and the device the user is
+actually using is always clean. This is a subtraction, not an algorithm.
+
+**What this leaves.** The synthesized redraw still goes to *mirror* clients (a phone
+watching the laptop), and it is still built from history that a re-emission duplicates — so
+a mirror can still show duplication until the user switches to it (at which point it becomes
+the driver and renders native). Mirror-side duplication is the remaining, lower-stakes
+concern; the reconciliation window below only ever affected that synthesized path and is a
+candidate for removal once mirror scrollback is sourced from the program's re-emission
+rather than accumulated scroll-off. The attach redraw is always sent (a fresh connection has
+no native output to show yet); only the *live* resync is withheld from the driver.
+
 ## The split (implemented)
 
 **Live screen and history are separate.**

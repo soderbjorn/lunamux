@@ -629,7 +629,7 @@ class TerminalSession private constructor(
         resyncTrigger.debounce(RESYNC_DEBOUNCE_MS).collect {
             synchronized(outboundLock) {
                 val bytes = grid.synthesizeRedraw()
-                eventChannel.trySend(SessionEvent.Output(++eventSeq, bytes))
+                eventChannel.trySend(SessionEvent.Output(++eventSeq, bytes, resync = true))
             }
         }
     }

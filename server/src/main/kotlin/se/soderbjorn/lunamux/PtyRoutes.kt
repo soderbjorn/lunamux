@@ -152,23 +152,39 @@ internal suspend fun TermSession.streamAttach(
         setClientSize(clientId, qCols, qRows)
     }
     var attachSeq = Long.MIN_VALUE
+    // Whether this connection currently governs the PTY. Seeded from the attach payload and
+    // updated on every governance change, both under the same ordered stream as output — so
+    // when a resync arrives we already know, in order, whether it is meant for us.
+    var driving = false
     events
         .onSubscription {
             val attach = attachPayload()
             attachSeq = attach.seq
+            driving = attach.governorClientId != null && attach.governorClientId == clientId
             send(Frame.Text(sizeFrame(attach.cols, attach.rows)))
             // Before the redraw: the client must know whether the paint it is
             // about to apply is its own grid or someone else's, or it renders one
             // frame at the wrong presentation and corrects visibly.
             send(Frame.Text(governanceFrame(clientId, attach.governorClientId)))
+            // The attach redraw always goes out — a freshly-connected client has no native
+            // output yet, so it needs the seed even when it is the driver. Only the *live*
+            // resync (below) is withheld from the driver.
             if (attach.bytes.isNotEmpty()) send(Frame.Binary(true, attach.bytes))
         }
         .collect { ev ->
             when (ev) {
-                is SessionEvent.Output -> if (ev.seq > attachSeq) send(Frame.Binary(true, ev.bytes))
+                is SessionEvent.Output ->
+                    // Withhold a synthesized resync from the driving client: it is at the
+                    // PTY's width, so the program's own native output is already correct for
+                    // it, and the resync would overwrite that clean render with the server's
+                    // reconstruction (built from history that a full-screen repainter's
+                    // re-emission duplicates). Live output always flows. Mirrors get both.
+                    if (ev.seq > attachSeq && !(ev.resync && driving)) send(Frame.Binary(true, ev.bytes))
                 is SessionEvent.Size -> if (ev.seq > attachSeq) send(Frame.Text(sizeFrame(ev.cols, ev.rows)))
-                is SessionEvent.Governance ->
+                is SessionEvent.Governance -> {
+                    driving = ev.governorClientId != null && ev.governorClientId == clientId
                     if (ev.seq > attachSeq) send(Frame.Text(governanceFrame(clientId, ev.governorClientId)))
+                }
             }
         }
 }

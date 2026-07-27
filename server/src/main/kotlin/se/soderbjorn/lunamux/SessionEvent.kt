@@ -28,8 +28,16 @@ sealed interface SessionEvent {
     /**
      * A chunk of session output — live PTY bytes, a mode-reset broadcast, or a
      * synthesized resync redraw. Delivered to the client as a binary frame.
+     *
+     * @property resync true only for a synthesized whole-screen resync redraw emitted
+     *   after a cols change. Such a redraw is a width-correct reconstruction for a client
+     *   whose width differs from the PTY (a passive mirror). The *driving* client is at the
+     *   PTY's own width, so the program's native output is already correct for it and a
+     *   resync would only overwrite that clean render with the server's reconstruction — so
+     *   the `/pty` route withholds resync frames from whichever client currently governs.
+     *   Live PTY output ([resync] = false) always goes to everyone.
      */
-    class Output(override val seq: Long, val bytes: ByteArray) : SessionEvent
+    class Output(override val seq: Long, val bytes: ByteArray, val resync: Boolean = false) : SessionEvent
 
     /**
      * An effective grid size change. Delivered as a `Size` control frame so the
