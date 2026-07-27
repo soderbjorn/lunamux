@@ -464,12 +464,9 @@ fun updateOobOverlay(entry: TerminalEntry) {
  * @param entry the [TerminalEntry] to resize
  * @param cols the server-mandated column count (the live PTY width)
  * @param rows the server-mandated row count
- * @param maxReplayCols legacy field, now always 0 — the server no longer replays a
- *   raw byte ring, so there is no historical width to hold the grid open for.
  * @see applyMirrorPresentation @see spikeOnServerSize
  */
-@Suppress("UNUSED_PARAMETER")
-fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int, maxReplayCols: Int = 0) {
+fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
     // While the world is open, every server-mandated size is logged: a grid key
     // sends ForceResize(new) and, if some other client (or this client's own 2D
     // machinery) counter-votes, the very next broadcast arrives with the old

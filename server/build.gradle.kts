@@ -135,18 +135,4 @@ tasks.named<JavaExec>("run") {
         "Library/Application Support/Termtastic/lunamux-dev.db",
     )
     systemProperty("lunamux.dbPath", devDb.absolutePath)
-    // TEMPORARY DIAGNOSTIC: `-PsizeChurnLog=<path>` makes the server append every
-    // effective PTY size change to that file, so take-over repaint churn can be
-    // counted rather than guessed at. A Gradle property rather than an environment
-    // variable because this task forks a JVM from the daemon, whose environment can
-    // be stale. Remove with SizeChurnLog in TerminalSessionManager.
-    (findProperty("sizeChurnLog") as? String)?.let {
-        systemProperty("lunamux.sizeChurnLog", it)
-    }
-    // TEMPORARY DIAGNOSTIC: `-PptyTrace=<path>` records the raw PTY stream + resizes to a
-    // file for byte-exact offline replay. Same forking rationale as sizeChurnLog above.
-    // Remove with PtyTrace and SizeChurnLog.
-    (findProperty("ptyTrace") as? String)?.let {
-        systemProperty("lunamux.ptyTrace", it)
-    }
 }

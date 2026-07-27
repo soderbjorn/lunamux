@@ -52,7 +52,6 @@ import se.soderbjorn.lunamux.pty.ClientSizeArbiter
 import se.soderbjorn.lunamux.pty.GridSerializer
 import se.soderbjorn.lunamux.pty.OscScanner
 import se.soderbjorn.lunamux.pty.ProcessCwdReader
-import se.soderbjorn.lunamux.pty.PtyTrace
 import se.soderbjorn.lunamux.pty.SessionGrid
 import se.soderbjorn.lunamux.pty.ShellInitFiles
 import java.io.File
@@ -515,26 +514,12 @@ class TerminalSession private constructor(
      * The trigger is debounced, so a repaint arriving over several chunks still
      * costs one redraw. Referencing [resyncTrigger] here is safe despite it being
      * declared below: the lambda is invoked long after construction.
-     *
-     * `onWindowResolved` feeds the temporary size-churn diagnostic, so the one
-     * failure mode this design can still have — a window discarding something the
-     * program was not actually redrawing — is visible on device rather than
-     * inferred. It goes when `SizeChurnLog` does; the parameter defaults to a no-op.
      */
     private val grid = SessionGrid(
         initialCols,
         initialRows,
         onHistoryRevised = { resyncTrigger.tryEmit(Unit) },
-        onWindowResolved = { SizeChurnLog.recordVerdict(it) },
     )
-
-    /**
-     * TEMPORARY DIAGNOSTIC. Records this session's raw PTY stream and resizes to a file for
-     * offline replay, so the reconciliation rule can be developed against exactly what a
-     * real program emitted rather than a synthetic fixture. Armed by `LUNAMUX_PTY_TRACE`
-     * (or `-DlunamuxPtyTrace`); a no-op otherwise. Remove with `SizeChurnLog`.
-     */
-    private val ptyTrace = PtyTrace()
 
     // ── Ordered outbound stream (see SessionEvent) ──────────────────────────
     // seq assignment and the grid feed/resize/synthesize the seq refers to happen
@@ -594,12 +579,6 @@ class TerminalSession private constructor(
                 break
             }
             if (n <= 0) break
-            // TEMPORARY DIAGNOSTIC: capture what the program emits immediately after a
-            // SIGWINCH. Whether its repaint tries to ERASE first (cursor-up + ED, i.e.
-            // "redraw this region in place") or simply prints again decides how the
-            // duplicate can be suppressed, so read it rather than guess.
-            SizeChurnLog.recordPostResizeOutput(buf, n)
-            ptyTrace.recordOutput(buf, n)
             osc.feed(buf, n)
             screen.feed(buf, n)
             val chunk = buf.copyOf(n)
@@ -629,7 +608,7 @@ class TerminalSession private constructor(
         resyncTrigger.debounce(RESYNC_DEBOUNCE_MS).collect {
             synchronized(outboundLock) {
                 val bytes = grid.synthesizeRedraw()
-                eventChannel.trySend(SessionEvent.Output(++eventSeq, bytes, resync = true))
+                eventChannel.trySend(SessionEvent.Output(++eventSeq, bytes))
             }
         }
     }
@@ -774,13 +753,6 @@ class TerminalSession private constructor(
     private fun applySize(next: Pair<Int, Int>?) {
         val (c, r) = next ?: return
         val colsChanged = c != _sizeEvents.value.first
-        // TEMPORARY DIAGNOSTIC (remove once the take-over repaint churn is understood).
-        // Every effective size change is a SIGWINCH, and a live TUI answers a SIGWINCH
-        // by repainting — which, in the normal buffer, appends another copy of its
-        // output. Duplicated blocks are therefore a count of size changes, so record
-        // them with their cause to compare against the pre-refactor build.
-        SizeChurnLog.record(_sizeEvents.value, Pair(c, r), colsChanged)
-        ptyTrace.recordResize(c, r)
         try {
             pty.winSize = WinSize(c, r)
         } catch (_: Throwable) {
@@ -797,90 +769,6 @@ class TerminalSession private constructor(
         // Only a cols change rewraps the grid, so only then does the client need a
         // resync redraw; a rows-only change is carried by the Size event alone.
         if (colsChanged) resyncTrigger.tryEmit(Unit)
-    }
-
-    /**
-     * TEMPORARY DIAGNOSTIC. Appends every effective PTY size change to a file so the
-     * take-over repaint churn can be counted instead of guessed at.
-     *
-     * Enabled by pointing either the `lunamux.sizeChurnLog` system property (set from
-     * Gradle with `-PsizeChurnLog=<path>`) or the `LUNAMUX_SIZE_CHURN_LOG` environment
-     * variable at a path; a no-op otherwise, so it costs nothing when unset. The
-     * system property is the dependable one — `:server:run` forks a JVM from the
-     * Gradle daemon, whose environment can be stale from an earlier invocation.
-     * Remove together with its call site once the cause is found.
-     */
-    private object SizeChurnLog {
-        private val path: String? =
-            System.getProperty("lunamux.sizeChurnLog") ?: System.getenv("LUNAMUX_SIZE_CHURN_LOG")
-
-        fun record(from: Pair<Int, Int>, to: Pair<Int, Int>, colsChanged: Boolean) {
-            val target = path ?: return
-            runCatching {
-                val kind = if (colsChanged) "COLS+RESYNC" else "rows-only"
-                java.io.File(target).appendText(
-                    "${System.currentTimeMillis()} ${from.first}x${from.second} -> " +
-                        "${to.first}x${to.second}  [$kind]\n"
-                )
-            }
-            postResizeBudget.set(POST_RESIZE_CAPTURE_BYTES)
-        }
-
-        /**
-         * Record what a reconciliation window decided.
-         *
-         * The line to read is `dropped` together with `sample`. A window that discards the
-         * top of a program's frame is the design working; one that discards lines looking
-         * like the user's own output is the single failure mode this split can still have,
-         * and it is not self-healing — immutable history has no reabsorption. `pending=N
-         * dropped=0` on every take-over means the match is never firing and duplicates are
-         * being committed instead.
-         *
-         * @param v the verdict just taken.
-         */
-        fun recordVerdict(v: se.soderbjorn.lunamux.pty.WindowVerdict) {
-            val target = path ?: return
-            runCatching {
-                val sample = v.droppedSample.joinToString(" | ") { "\"$it\"" }
-                java.io.File(target).appendText(
-                    "${System.currentTimeMillis()} WINDOW ${v.trigger} pending=${v.pending} " +
-                        "dropped=${v.dropped} kept=${v.kept} sample=[$sample]\n"
-                )
-            }
-        }
-
-        /** Bytes of program output still to capture after the most recent resize. */
-        private val postResizeBudget = java.util.concurrent.atomic.AtomicInteger(0)
-        private const val POST_RESIZE_CAPTURE_BYTES = 3_000
-
-        /**
-         * Record the start of the program's response to a SIGWINCH, escaped so control
-         * sequences are legible. The question it answers: does the repaint begin by
-         * ERASING the region it is about to redraw (cursor-up + ED — meaning it intends
-         * to overwrite in place, and only duplicates because that region has scrolled
-         * out of the screen's reach), or does it simply print its output again?
-         */
-        fun recordPostResizeOutput(buf: ByteArray, n: Int) {
-            val target = path ?: return
-            val budget = postResizeBudget.get()
-            if (budget <= 0) return
-            val take = minOf(budget, n)
-            postResizeBudget.addAndGet(-take)
-            runCatching {
-                val sb = StringBuilder(take * 2)
-                for (i in 0 until take) {
-                    when (val b = buf[i].toInt() and 0xff) {
-                        0x1b -> sb.append("<ESC>")
-                        0x07 -> sb.append("<BEL>")
-                        0x0d -> sb.append("<CR>")
-                        0x0a -> sb.append("<LF>\n")
-                        in 0x20..0x7e -> sb.append(b.toChar())
-                        else -> sb.append('.')
-                    }
-                }
-                java.io.File(target).appendText("---- post-resize output ----\n$sb\n---- end ----\n")
-            }
-        }
     }
 
     override fun attachPayload(): AttachPayload = synchronized(outboundLock) {

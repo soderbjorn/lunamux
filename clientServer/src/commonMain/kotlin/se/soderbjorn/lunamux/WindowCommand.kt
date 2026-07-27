@@ -897,19 +897,12 @@ sealed class PtyServerMessage {
      *
      * @param cols number of columns in the PTY grid
      * @param rows number of rows in the PTY grid
-     * @param maxReplayCols the widest column width represented in the server's
-     *   replay history (see [se.soderbjorn.lunamux.TermSession.maxReplayCols]).
-     *   A client's render grid ratchets its width up to at least this so wide
-     *   replayed content is never reinterpreted at a narrower width (which
-     *   rewraps it lossily). Trailing/defaulted for wire back-compat: an older
-     *   server omits it, the client reads 0, and the term contributes nothing.
      */
     @Serializable
     @SerialName("size")
     data class Size(
         val cols: Int,
         val rows: Int,
-        val maxReplayCols: Int = 0,
     ) : PtyServerMessage()
 
     /**

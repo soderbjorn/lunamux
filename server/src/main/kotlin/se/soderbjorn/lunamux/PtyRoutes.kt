@@ -165,13 +165,6 @@ internal suspend fun TermSession.streamAttach(
         }
         .collect { ev ->
             when (ev) {
-                // NOTE: an earlier revision withheld a synthesized resync (ev.resync) from
-                // the governing client, on the theory that the driver renders native output
-                // and does not need it. On device that regressed the driver — removing the
-                // periodic RIS-resync let the client's xterm accumulate renders across width
-                // changes and stack them at mixed widths. Reverted to sending output to all.
-                // The real cause is height-driven scroll-off during Claude's re-emit; see the
-                // handoff comment on PR #10. The ev.resync flag is retained for that work.
                 is SessionEvent.Output -> if (ev.seq > attachSeq) send(Frame.Binary(true, ev.bytes))
                 is SessionEvent.Size -> if (ev.seq > attachSeq) send(Frame.Text(sizeFrame(ev.cols, ev.rows)))
                 is SessionEvent.Governance ->
@@ -201,12 +194,14 @@ private fun governanceFrame(clientId: String, governorClientId: String?): String
     )
 
 /**
- * Encode a `Size` control frame. `maxReplayCols` is always 0 now — the redraw is
- * synthesized at the client's own width, so the width-ratchet hint it fed is
- * retired (the field stays in the wire schema for old clients).
+ * Encode a `Size` control frame carrying the authoritative PTY grid.
+ *
+ * @param cols the effective PTY columns.
+ * @param rows the effective PTY rows.
+ * @return the JSON control frame body.
  */
 private fun sizeFrame(cols: Int, rows: Int): String =
-    windowJson.encodeToString<PtyServerMessage>(PtyServerMessage.Size(cols, rows, 0))
+    windowJson.encodeToString<PtyServerMessage>(PtyServerMessage.Size(cols, rows))
 
 /**
  * Handle a JSON control message received on a `/pty/{id}` WebSocket.

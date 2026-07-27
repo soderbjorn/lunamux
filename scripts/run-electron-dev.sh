@@ -76,45 +76,14 @@ STARTED_SERVER=0
 if port_is_free "$PORT"; then
     echo "==> Starting dev server on port $PORT (db: $DEV_DB)"
     echo "    Logs: $SERVER_LOG"
-    # TEMPORARY DIAGNOSTIC: with LUNAMUX_SIZE_CHURN_LOG set, forward it to the
-    # server as a Gradle property so it appends every effective PTY size change to
-    # that file. Converted here rather than exported, because `:server:run` forks
-    # its JVM from the Gradle daemon, whose environment can be stale from an
-    # earlier invocation — the command line is the dependable channel.
-    CHURN_ARGS=()
-    if [[ -n "${LUNAMUX_SIZE_CHURN_LOG:-}" ]]; then
-        echo "    Size-churn log: $LUNAMUX_SIZE_CHURN_LOG"
-        CHURN_ARGS+=("-PsizeChurnLog=$LUNAMUX_SIZE_CHURN_LOG")
-    fi
-    # TEMPORARY DIAGNOSTIC: with LUNAMUX_PTY_TRACE set, forward it so the server records
-    # the raw PTY stream + resizes to that file for byte-exact offline replay.
-    if [[ -n "${LUNAMUX_PTY_TRACE:-}" ]]; then
-        echo "    PTY trace: $LUNAMUX_PTY_TRACE"
-        CHURN_ARGS+=("-PptyTrace=$LUNAMUX_PTY_TRACE")
-    fi
     ./gradlew :server:run \
         -Dlunamux.port="$PORT" \
         -Dlunamux.dbPath="$DEV_DB" \
-        "${CHURN_ARGS[@]+"${CHURN_ARGS[@]}"}" \
         >"$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
     STARTED_SERVER=1
 else
     echo "==> Reusing server already listening on port $PORT (leaving it running on exit)"
-    # TEMPORARY DIAGNOSTIC guard: the reused server was started by an EARLIER invocation
-    # and does NOT pick up the diagnostic env vars set for this one — the JVM's -D flags
-    # are fixed at launch. Silently reusing it means a capture run traces nothing (the
-    # sessions you test live in the old, unarmed JVM). Fail loudly rather than hand back an
-    # empty trace. Remove with the PtyTrace/SizeChurnLog diagnostics.
-    if [[ -n "${LUNAMUX_PTY_TRACE:-}" || -n "${LUNAMUX_SIZE_CHURN_LOG:-}" ]]; then
-        echo "" >&2
-        echo "!! A diagnostic env var is set (LUNAMUX_PTY_TRACE / LUNAMUX_SIZE_CHURN_LOG)," >&2
-        echo "!! but the server on port $PORT is already running and will NOT pick it up." >&2
-        echo "!! Kill it first so a fresh, armed server starts:" >&2
-        echo "!!     LUNAMUX_DEV_PORT=$PORT scripts/kill-dev-server.sh" >&2
-        echo "!! Then re-run this script. Refusing to continue with an unarmed server." >&2
-        exit 3
-    fi
 fi
 
 cleanup() {

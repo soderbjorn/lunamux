@@ -413,7 +413,7 @@ fun connectPane(entry: TerminalEntry) {
                 val msg = windowJson.decodeFromString<PtyServerMessage>(data)
                 when (msg) {
                     is PtyServerMessage.Size ->
-                        applyServerSize(entry, msg.cols, msg.rows, msg.maxReplayCols)
+                        applyServerSize(entry, msg.cols, msg.rows)
                     is PtyServerMessage.Governance -> {
                         // The server names the governor; an ungoverned session
                         // (`governed = false`) restores the width-comparison
