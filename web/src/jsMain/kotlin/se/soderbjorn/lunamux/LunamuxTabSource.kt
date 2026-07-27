@@ -240,6 +240,12 @@ fun lunamuxTabSource(
                 id = "terminal",
                 label = "New terminal",
                 iconHtml = NEW_PANE_TERMINAL_SVG,
+                // The row `onPaneAdd` above already is: clicking the "+" runs
+                // this exact command. It is kept in the menu for
+                // discoverability (see the note there), and the mark is what
+                // makes that discoverable — the row now says, in the chrome
+                // accent, that the button beside it is already pointed here.
+                isDefault = true,
             ) {
                 launchCmd(WindowCommand.AddPaneToTab(tabId = tabId, cwd = cwdForNewPaneIn(tabId)))
             })
