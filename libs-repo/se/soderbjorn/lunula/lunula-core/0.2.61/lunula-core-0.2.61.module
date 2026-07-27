@@ -1,0 +1,331 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-core",
+    "version": "0.2.61",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "metadataApiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.platform.type": "common"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-serialization-json",
+          "version": {
+            "requires": "1.9.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-core-metadata-0.2.61.jar",
+          "url": "lunula-core-0.2.61.jar",
+          "size": 15581,
+          "sha512": "616fad3f621c34d86a9bb27561229c554c17e32613f409847f440d26962d94e8dac711c25366d62f3db194f82d5336ca668709c1db334fcc1b5a05353f3f2701",
+          "sha256": "612207a7aebed6bb1f4541d96dadc2b16379a1ddbfb9279ba3facfb75dec52f8",
+          "sha1": "211781634ff65f2c4c32adf8e19c34d8fda62fd9",
+          "md5": "70f23679501b24c4e9f05dd9fd761c05"
+        }
+      ]
+    },
+    {
+      "name": "metadataSourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.platform.type": "common"
+      },
+      "files": [
+        {
+          "name": "lunula-core-kotlin-0.2.61-sources.jar",
+          "url": "lunula-core-0.2.61-sources.jar",
+          "size": 60183,
+          "sha512": "5863c1ed2855f567a5bf249f66b3ec444e2ef8ed50ad90c818bcbdae15f5e9cb03fbd6eab8dde23a3c4f671da6cd1261fa2a44f612230eabfad6dce2b2ebe775",
+          "sha256": "a8467f5f7638e6cc2e9c3c700bd397a5ad8d4b792a80bf83a8aad249a960f81c",
+          "sha1": "02e1b688c16da8d448e605ff82ff763a9c055e90",
+          "md5": "a550be4c6ad0392b7b303e0b0e9b5db1"
+        }
+      ]
+    },
+    {
+      "name": "releaseApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../lunula-core-android/0.2.61/lunula-core-android-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-android",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "releaseRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../lunula-core-android/0.2.61/lunula-core-android-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-android",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "releaseSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "android",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "androidJvm"
+      },
+      "available-at": {
+        "url": "../../lunula-core-android/0.2.61/lunula-core-android-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-android",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "iosArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../lunula-core-iosarm64/0.2.61/lunula-core-iosarm64-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-iosarm64",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "iosArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../lunula-core-iosarm64/0.2.61/lunula-core-iosarm64-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-iosarm64",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "iosArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../lunula-core-iosarm64/0.2.61/lunula-core-iosarm64-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-iosarm64",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "iosSimulatorArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../lunula-core-iossimulatorarm64/0.2.61/lunula-core-iossimulatorarm64-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-iossimulatorarm64",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "iosSimulatorArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../lunula-core-iossimulatorarm64/0.2.61/lunula-core-iossimulatorarm64-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-iossimulatorarm64",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "iosSimulatorArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "available-at": {
+        "url": "../../lunula-core-iossimulatorarm64/0.2.61/lunula-core-iossimulatorarm64-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-iossimulatorarm64",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "jsApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "available-at": {
+        "url": "../../lunula-core-js/0.2.61/lunula-core-js-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-js",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "jsRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "available-at": {
+        "url": "../../lunula-core-js/0.2.61/lunula-core-js-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-js",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "jsSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "available-at": {
+        "url": "../../lunula-core-js/0.2.61/lunula-core-js-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-js",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "jvmApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../lunula-core-jvm/0.2.61/lunula-core-jvm-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-jvm",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "jvmRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../lunula-core-jvm/0.2.61/lunula-core-jvm-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-jvm",
+        "version": "0.2.61"
+      }
+    },
+    {
+      "name": "jvmSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "standard-jvm",
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime",
+        "org.jetbrains.kotlin.platform.type": "jvm"
+      },
+      "available-at": {
+        "url": "../../lunula-core-jvm/0.2.61/lunula-core-jvm-0.2.61.module",
+        "group": "se.soderbjorn.lunula",
+        "module": "lunula-core-jvm",
+        "version": "0.2.61"
+      }
+    }
+  ]
+}
