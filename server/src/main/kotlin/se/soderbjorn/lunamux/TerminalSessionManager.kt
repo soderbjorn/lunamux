@@ -890,9 +890,8 @@ class TerminalSession private constructor(
         // client cannot land between a governance change and its broadcast and
         // end up believing the wrong thing until the next one.
         val governor = sizeArbiter.governor()
-        grid.read { e ->
-            AttachPayload(eventSeq, e.mColumns, e.mRows, GridSerializer.serialize(e), governor)
-        }
+        val snap = grid.attachSnapshot()
+        AttachPayload(eventSeq, snap.cols, snap.rows, snap.bytes, governor)
     }
 
     /** Check the currently-rendered screen for AI assistant state markers. */

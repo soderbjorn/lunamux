@@ -106,6 +106,21 @@ class SessionGridTest {
     }
 
     @Test
+    fun `attach snapshot carries scrollback, not just the visible screen`() {
+        // Regression: attachPayload() used to serialize the emulator alone, so a
+        // fresh attach painted only the visible screen and showed no scrollback
+        // until the next cols change happened to fire a resync.
+        val grid = SessionGrid(40, 5)
+        for (i in 1..12) grid.feed("line-%02d\r\n".format(i))
+        val snap = grid.attachSnapshot()
+        val text = snap.bytes.toString(Charsets.UTF_8)
+        assertTrue(text.contains("line-01"), "a line long since scrolled off must be in the attach paint")
+        assertTrue(text.contains("line-12"), "the visible screen must be in the attach paint")
+        assertEquals(40, snap.cols)
+        assertEquals(5, snap.rows)
+    }
+
+    @Test
     fun `synthesizeForPersist round-trips committed scrollback into a fresh grid`() {
         // This is the Phase 4 persistence contract: persistSnapshot() bytes fed into a
         // fresh grid on restart reconstruct the scrollback. Scoped to *committed*

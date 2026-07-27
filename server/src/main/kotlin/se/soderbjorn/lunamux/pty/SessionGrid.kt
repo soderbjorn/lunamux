@@ -393,6 +393,35 @@ class SessionGrid(
     }
 
     /**
+     * The redraw bytes and the grid dims they were authored at, taken under one
+     * hold of the grid monitor so the two can never disagree.
+     *
+     * @property bytes the full redraw, exactly what [synthesizeRedraw] produces.
+     * @property cols the columns the redraw was authored at.
+     * @property rows the rows the redraw was authored at.
+     */
+    class AttachSnapshot(val bytes: ByteArray, val cols: Int, val rows: Int)
+
+    /**
+     * Snapshot the grid for a fresh attach: the same history + screen redraw a
+     * live resync carries, plus the dims it was authored at.
+     *
+     * Called by `TerminalSession.attachPayload()` when a client connects. It must
+     * serve the same paint as [synthesizeRedraw] — serializing the emulator alone
+     * would paint only the visible screen, leaving an attaching client with no
+     * scrollback until the next cols change happens to fire a resync.
+     *
+     * @return the redraw and its dims, consistent under one monitor hold.
+     */
+    fun attachSnapshot(): AttachSnapshot = synchronized(emulator) {
+        AttachSnapshot(
+            GridSerializer.serialize(emulator, servedHistory()),
+            emulator.mColumns,
+            emulator.mRows,
+        )
+    }
+
+    /**
      * Synthesize the persistence form: scrollback (and, for a live TUI, an inert
      * frozen frame) with no mode/cursor epilogue, safe to store and replay into a
      * fresh grid on restore without resurrecting a dead session's modes.
