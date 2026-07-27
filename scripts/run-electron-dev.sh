@@ -101,6 +101,20 @@ if port_is_free "$PORT"; then
     STARTED_SERVER=1
 else
     echo "==> Reusing server already listening on port $PORT (leaving it running on exit)"
+    # TEMPORARY DIAGNOSTIC guard: the reused server was started by an EARLIER invocation
+    # and does NOT pick up the diagnostic env vars set for this one — the JVM's -D flags
+    # are fixed at launch. Silently reusing it means a capture run traces nothing (the
+    # sessions you test live in the old, unarmed JVM). Fail loudly rather than hand back an
+    # empty trace. Remove with the PtyTrace/SizeChurnLog diagnostics.
+    if [[ -n "${LUNAMUX_PTY_TRACE:-}" || -n "${LUNAMUX_SIZE_CHURN_LOG:-}" ]]; then
+        echo "" >&2
+        echo "!! A diagnostic env var is set (LUNAMUX_PTY_TRACE / LUNAMUX_SIZE_CHURN_LOG)," >&2
+        echo "!! but the server on port $PORT is already running and will NOT pick it up." >&2
+        echo "!! Kill it first so a fresh, armed server starts:" >&2
+        echo "!!     LUNAMUX_DEV_PORT=$PORT scripts/kill-dev-server.sh" >&2
+        echo "!! Then re-run this script. Refusing to continue with an unarmed server." >&2
+        exit 3
+    fi
 fi
 
 cleanup() {
