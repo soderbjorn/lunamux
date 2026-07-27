@@ -255,6 +255,8 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     private var naturalCols: Int = 80
     private var naturalRows: Int = 24
     private var hasSentInitialSize = false
+    /// Trailing-debounce handle for ambient size votes (see `sizeChanged`).
+    private var sizeVoteTask: Task<Void, Never>?
 
     /// Our own pan recognizer that converts vertical finger swipes into mouse
     /// wheel events while the foreground program has mouse reporting enabled
@@ -449,9 +451,16 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         DispatchQueue.main.async { self.applyingServerSize = false }
     }
 
-    /// Called from updateUIView to assert the terminal's actual size once the
+    /// Called from updateUIView to report the terminal's actual size once the
     /// view has been laid out. This closes the race where the PTY socket is
     /// opened before SwiftUI has measured the TerminalView.
+    ///
+    /// Deliberately an ambient vote, not a force: merely opening a pane must not
+    /// seize the PTY's size from the device the user is actually working on —
+    /// every PTY resize makes the running program repaint, and a normal-buffer
+    /// repainter (Claude Code) leaks a duplicate frame into scrollback each time
+    /// (anthropics/claude-code#49086). Taking over stays an explicit act: the
+    /// Reformat toolbar button (`forceResize`).
     func assertSizeIfNeeded(_ view: SwiftTerm.TerminalView) {
         guard !hasSentInitialSize else { return }
         let cols = view.getTerminal().cols
@@ -460,7 +469,7 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         hasSentInitialSize = true
         naturalCols = cols
         naturalRows = rows
-        Task { try? await ptySocket.forceResize(cols: Int32(cols), rows: Int32(rows)) }
+        Task { try? await ptySocket.resize(cols: Int32(cols), rows: Int32(rows)) }
     }
 
     func forceResize() {
@@ -745,7 +754,15 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         if !applyingServerSize {
             naturalCols = newCols
             naturalRows = newRows
-            Task { try? await ptySocket.resize(cols: Int32(newCols), rows: Int32(newRows)) }
+            // Trailing debounce (matches Android's SIZE_VOTE_DEBOUNCE_MS): rotation
+            // and keyboard animation fire a burst of layout passes, and each vote
+            // that changes the effective size costs the program a SIGWINCH repaint.
+            sizeVoteTask?.cancel()
+            sizeVoteTask = Task {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled else { return }
+                try? await ptySocket.resize(cols: Int32(newCols), rows: Int32(newRows))
+            }
         }
     }
 
