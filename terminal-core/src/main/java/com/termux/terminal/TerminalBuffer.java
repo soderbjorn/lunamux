@@ -298,22 +298,27 @@ public final class TerminalBuffer {
                     shiftDownOfTopRow = actualShift;
                 }
             }
-            mScreenFirstRow += shiftDownOfTopRow;
-            mScreenFirstRow = (mScreenFirstRow < 0) ? (mScreenFirstRow + mTotalRows) : (mScreenFirstRow % mTotalRows);
-            mTotalRows = newTotalRows;
-            // LUNAMUX CHANGE. Derived from capacity rather than taken from altScreen: a
-            // buffer with no room beyond the screen (the alternate buffer, and the
-            // server's canonical screen, whose history lives outside the emulator) can
-            // never hold transcript rows, and letting a rows-shrink create them here
-            // would address rows past the end of the ring. For the alternate buffer this
-            // is the same answer altScreen gave, since it is allocated with
-            // totalRows == screenRows.
-            boolean keepsTranscript = newTotalRows > newRows;
-            mActiveTranscriptRows = (altScreen || !keepsTranscript)
-                ? 0
-                : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
-            cursor[1] -= shiftDownOfTopRow;
-            mScreenRows = newRows;
+            if (newTotalRows != mTotalRows) {
+                // LUNAMUX ADDITION. The ring itself changes size, so the screen cannot simply
+                // be rotated inside it — see resizeRowsOnlyReallocating.
+                resizeRowsOnlyReallocating(newRows, newTotalRows, shiftDownOfTopRow, cursor, altScreen);
+            } else {
+                mScreenFirstRow += shiftDownOfTopRow;
+                mScreenFirstRow = (mScreenFirstRow < 0) ? (mScreenFirstRow + mTotalRows) : (mScreenFirstRow % mTotalRows);
+                // LUNAMUX CHANGE. Derived from capacity rather than taken from altScreen: a
+                // buffer with no room beyond the screen (the alternate buffer, and the
+                // server's canonical screen, whose history lives outside the emulator) can
+                // never hold transcript rows, and letting a rows-shrink create them here
+                // would address rows past the end of the ring. For the alternate buffer this
+                // is the same answer altScreen gave, since it is allocated with
+                // totalRows == screenRows.
+                boolean keepsTranscript = newTotalRows > newRows;
+                mActiveTranscriptRows = (altScreen || !keepsTranscript)
+                    ? 0
+                    : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
+                cursor[1] -= shiftDownOfTopRow;
+                mScreenRows = newRows;
+            }
         } else {
             // Copy away old state and update new:
             TerminalRow[] oldLines = mLines;
@@ -358,6 +363,11 @@ public final class TerminalBuffer {
                     // After skipping some blank lines we encounter a non-blank line. Insert the skipped blank lines.
                     for (int i = 0; i < skippedBlankLines; i++) {
                         if (currentOutputExternalRow == mScreenRows - 1) {
+                            // LUNAMUX FIX. Scrolling moves an already-placed cursor up with the
+                            // content, exactly as the two sibling scroll sites below do; without
+                            // this the cursor was left pointing a row too low whenever a blank
+                            // run flushed after the cursor had been placed.
+                            if (newCursorPlaced) newCursorRow--;
                             scrollDownOneLine(0, mScreenRows, currentStyle);
                         } else {
                             currentOutputExternalRow++;
@@ -448,6 +458,83 @@ public final class TerminalBuffer {
 
         // Handle cursor scrolling off screen:
         if (cursor[0] < 0 || cursor[1] < 0) cursor[0] = cursor[1] = 0;
+    }
+
+    /**
+     * LUNAMUX ADDITION. The rows-only branch of {@link #resize} for the case where the ring
+     * itself has to change size ({@code newTotalRows != mTotalRows}) — a buffer with no room
+     * beyond the screen, i.e. the alternate buffer and the server's canonical screen-only
+     * main buffer, both of which are allocated with {@code mTotalRows == mScreenRows}.
+     * <p>
+     * The rotate-in-place code this replaces for that case was silently destructive: it
+     * advanced {@link #mScreenFirstRow} modulo the OLD ring size, then shrank
+     * {@code mTotalRows} without reallocating {@link #mLines}, so every later
+     * {@link #externalToInternalRow(int)} reduced modulo the NEW size and addressed a
+     * rotated, aliased set of rows — a screen that was neither the old one nor a coherent
+     * new one. It also dropped the rows shifted off the top on the floor: for a screen-only
+     * buffer those rows are the only copy, since its history lives outside the emulator and
+     * is fed by {@link RowEvictionListener}. Because a rows-only change fires no client
+     * resync, the damage stayed invisible until the next columns change baked it into
+     * history and repainted every attached client from it.
+     * <p>
+     * <b>The surviving screen here is deliberately identical to what the same-size ring path
+     * produces</b> (the same {@link TerminalRow} objects, in the same order, chosen by the
+     * same blank-trim rule): clients run transcript-ful buffers and take that path, and they
+     * receive no resync on a rows-only change, so any divergence would be a permanent split
+     * between what the server believes it shows and what a client actually shows. That is
+     * also why this does not simply defer to the reflow branch, which normalizes content
+     * (drops trailing blank rows, truncates the cursor row at the cursor).
+     *
+     * @param newRows           the new screen height, already blank-trimmed by the caller.
+     * @param newTotalRows      the new ring size; {@link #mLines} is reallocated to it.
+     * @param shiftDownOfTopRow how far the screen's top edge moves down, as computed by
+     *                          {@link #resize} (negative when growing).
+     * @param cursor            an int[2] of (column, row); the row is adjusted by the shift
+     *                          and clamped into the new screen.
+     * @param altScreen         whether this is the alternate buffer, which never has history.
+     * @see #resize(int, int, int, int[], long, boolean)
+     */
+    private void resizeRowsOnlyReallocating(int newRows, int newTotalRows, int shiftDownOfTopRow, int[] cursor, boolean altScreen) {
+        // Report the rows leaving the screen while they are still intact and still
+        // addressable through the old geometry, oldest first — the same order and the same
+        // one-call-per-row contract scrollDownOneLine honours, so a listener cannot tell a
+        // shrink from that many scrolls. Null-safe for buffers with no listener (the
+        // alternate buffer never has one).
+        if (mRowEvictionListener != null) {
+            for (int i = 0; i < shiftDownOfTopRow && i < mScreenRows; i++) {
+                TerminalRow leaving = mLines[externalToInternalRow(i)];
+                if (leaving != null) mRowEvictionListener.onRowLeavingScreen(leaving, leaving.mLineWrap);
+            }
+        }
+
+        // How much transcript the new ring can and does hold. Zero for every real caller of
+        // this path (a screen-only ring has no room beyond the screen), but kept general so
+        // the branch is keyed purely on the ring changing size.
+        boolean keepsTranscript = !altScreen && newTotalRows > newRows;
+        int newTranscriptRows = keepsTranscript
+            ? Math.min(newTotalRows - newRows, Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow))
+            : 0;
+
+        // The surviving window in OLD external coordinates: the new screen is old rows
+        // [shiftDownOfTopRow, shiftDownOfTopRow + newRows), preceded by whatever transcript
+        // the new ring still has room for.
+        final int firstSurvivingExternalRow = shiftDownOfTopRow - newTranscriptRows;
+        TerminalRow[] newLines = new TerminalRow[newTotalRows];
+        for (int i = 0; i < newTranscriptRows + newRows; i++)
+            newLines[i] = mLines[externalToInternalRow(firstSurvivingExternalRow + i)];
+
+        mLines = newLines;
+        mTotalRows = newTotalRows;
+        mScreenRows = newRows;
+        mActiveTranscriptRows = newTranscriptRows;
+        // Unrotated by construction: the copy above already put the window in order.
+        mScreenFirstRow = newTranscriptRows;
+
+        cursor[1] -= shiftDownOfTopRow;
+        // The blank-trim rule bounds the shift so the cursor stays on screen; clamp anyway
+        // rather than let an out-of-range row escape into setChar(). A negative row is left
+        // to resize()'s shared trailing clamp, which zeroes both coordinates together.
+        if (cursor[1] >= mScreenRows) cursor[1] = mScreenRows - 1;
     }
 
     /**

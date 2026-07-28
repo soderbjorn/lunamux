@@ -231,6 +231,18 @@ public final class TerminalEmulator {
     private boolean mAboutToAutoWrap;
 
     /**
+     * LUNAMUX ADDITION. The value {@link #mRightMargin} had when {@link #mAboutToAutoWrap} was
+     * last armed, i.e. the row width the pending wrap refers to.
+     * <p>
+     * A pending wrap says "the cursor is logically one cell right of the character it is parked
+     * on, and that cell is off the end of the row". Which cell is off the end depends on the
+     * width, so a resize can leave the wrap armed against a row that has since grown room. This
+     * records the width to compare against; see the use in {@link #emitCodePoint(int)}. Only
+     * meaningful while {@code mAboutToAutoWrap} is true.
+     */
+    private int mAboutToAutoWrapRightMargin;
+
+    /**
      * If the cursor blinking is enabled. It requires cursor itself to be enabled, which is controlled
      * byt whether {@link #DECSET_BIT_CURSOR_ENABLED} bit is set or not.
      */
@@ -2575,6 +2587,31 @@ public final class TerminalEmulator {
 
         final boolean autoWrap = isDecsetInternalBitSet(DECSET_BIT_AUTOWRAP);
         final int displayWidth = WcWidth.width(codePoint);
+
+        // LUNAMUX FIX. A pending auto-wrap means "the cursor is logically one cell to the
+        // right of the character it is parked on, and that cell is off the end of the row".
+        // Which cell is off the end is a property of the width the wrap was armed at, so a
+        // resize can leave the wrap armed against a row that has since grown room to the
+        // right of the cursor. Spend it there as the plain cursor advance it now denotes:
+        // left armed, the next character overwrote the character the cursor sits on instead
+        // of appending — a character swallowed on every window widening.
+        //
+        // Guarded on the cursor still standing exactly where the wrap was armed, because a
+        // stale flag can also mean "a cursor movement left the last column without clearing
+        // it" (DECBI/DECFI do not), and there the flag must stay inert as before.
+        //
+        // Deliberately here rather than in resizeScreen(): resize() stays a pure relayout, so
+        // the reflow keeps seeing the cursor on its own character (moving it onto the padding
+        // to the right makes the reflow materialize that padding and burn a screen row, which
+        // breaks the resize round trip), and the grid is never left in a state no real
+        // terminal can be in — and therefore none the serializer cannot express.
+        if (autoWrap && mAboutToAutoWrap && displayWidth > 0
+            && mRightMargin > mAboutToAutoWrapRightMargin
+            && mCursorCol == mAboutToAutoWrapRightMargin - 1) {
+            mCursorCol++;
+            mAboutToAutoWrap = false;
+        }
+
         final boolean cursorInLastColumn = mCursorCol == mRightMargin - 1;
 
         if (autoWrap) {
@@ -2610,8 +2647,11 @@ public final class TerminalEmulator {
         if (column < 0) column = 0;
         mScreen.setChar(column, mCursorRow, codePoint, getStyle());
 
-        if (autoWrap && displayWidth > 0)
+        if (autoWrap && displayWidth > 0) {
             mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);
+            // LUNAMUX ADDITION. Remember the width the wrap refers to; see the field kdoc.
+            if (mAboutToAutoWrap) mAboutToAutoWrapRightMargin = mRightMargin;
+        }
 
         mCursorCol = Math.min(mCursorCol + displayWidth, mRightMargin - 1);
     }

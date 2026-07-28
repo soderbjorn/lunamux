@@ -163,6 +163,36 @@ public class ResizeTest extends TerminalTestCase {
 		enterString("W").assertLinesAre("12345", "12345", "W    ").assertLineWraps(true, true, false);
 	}
 
+	/**
+	 * LUNAMUX ADDITION. A pending auto-wrap belongs to the width it was armed at: it says the
+	 * cursor is logically one cell right of the character it is parked on, and that cell is off
+	 * the end of the row. Widening gives the row room there, so the wrap has to be spent as a
+	 * plain cursor advance. Left armed it made the next character overwrite the one the cursor
+	 * sits on — a character swallowed on every window widening.
+	 */
+	public void testPendingWrapIsSpentWhenWideningGivesTheCursorRoom() {
+		withTerminalSized(10, 3).enterString("0123456789").assertCursorAt(0, 9);
+		// Resize itself is a pure relayout: it leaves the cursor on its own character.
+		resize(12, 3).assertLinesAre("0123456789  ", "            ", "            ").assertCursorAt(0, 9);
+		enterString("X").assertLinesAre("0123456789X ", "            ", "            ").assertCursorAt(0, 11);
+	}
+
+	/**
+	 * LUNAMUX ADDITION. The other half of the same rule: when the relayout leaves the cursor in
+	 * the last column the wrap is still genuinely pending, so the next character wraps rather
+	 * than overwriting. Covers a rows-only change (the width did not move at all) and a
+	 * narrowing that ends the row exactly at the cursor.
+	 */
+	public void testPendingWrapSurvivesWhenTheCursorIsStillInTheLastColumn() {
+		withTerminalSized(5, 3).enterString("12345").assertCursorAt(0, 4);
+		resize(5, 2).assertCursorAt(0, 4);
+		enterString("X").assertLinesAre("12345", "X    ").assertLineWraps(true, false);
+
+		withTerminalSized(10, 3).enterString("0123456789").assertCursorAt(0, 9);
+		resize(5, 3).assertLinesAre("01234", "56789", "     ").assertCursorAt(1, 4);
+		enterString("X").assertLinesAre("01234", "56789", "X    ");
+	}
+
 	public void testCursorPositionWhenShrinking() {
 		final int rows = 5, cols = 3;
 		withTerminalSized(cols, rows).enterString("$ ").assertLinesAre("$  ", "   ", "   ", "   ", "   ").assertCursorAt(0, 2);

@@ -145,6 +145,12 @@ public abstract class TerminalTestCase extends TestCase {
 		TerminalBuffer screen = mTerminal.getScreen();
 		TerminalRow[] lines = screen.mLines;
 
+		// LUNAMUX ADDITION. mTotalRows is the ring's modulus, so it must be the ring's actual
+		// length: a resize that changed one without the other left externalToInternalRow
+		// reducing modulo a size the array does not have, silently aliasing the screen onto a
+		// rotated subset of its own rows. Every other invariant here passed while that was true.
+		assertEquals("mTotalRows must be mLines.length", lines.length, screen.mTotalRows);
+
 		Set<LineWrapper> linesSet = new HashSet<>();
 		for (int i = 0; i < lines.length; i++) {
 			if (lines[i] == null) continue;
