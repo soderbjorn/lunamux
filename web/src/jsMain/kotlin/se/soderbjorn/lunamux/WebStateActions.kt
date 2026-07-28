@@ -434,8 +434,13 @@ internal fun applyUsageBarCollapsedState() {
  */
 internal fun applyGlobalFontSize(size: Int) {
     for ((_, entry) in terminals) {
-        entry.term.options.fontSize = size
-        try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+        // Through [setPaneFontSize], not by assigning options.fontSize: that bypassed
+        // [TerminalEntry.baseFontSize], so a global font change stomped a mirroring pane's
+        // deliberately shrunken font back to full size and lost the record of what the
+        // user's own size was.
+        try { setPaneFontSize(entry, size) } catch (_: Throwable) {}
+        // New cell metrics change the grid this pane fits; measure and vote it.
+        try { sendResize(entry) } catch (_: Throwable) {}
     }
     val mdRoots = kotlinx.browser.document.querySelectorAll(".md-rendered")
     for (i in 0 until mdRoots.length) {

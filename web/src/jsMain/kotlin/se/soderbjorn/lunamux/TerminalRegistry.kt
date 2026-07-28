@@ -101,16 +101,17 @@ internal val connectionState = HashMap<String, String>()
 internal var windowSocketConnected = false
 
 /**
- * Refits all visible terminal instances to their current container sizes.
+ * Re-measures every visible terminal and votes the grid it would like.
  *
- * Iterates all registered terminals and calls [fitPreservingScroll] on
- * those whose DOM element has a non-null offsetParent (i.e., is visible).
+ * Iterates all registered terminals and calls [sendResize] on those whose DOM element has
+ * a non-null offsetParent (i.e. is visible). It used to refit them locally; a client's grid
+ * is set only by a server `Size` frame now, so the most a sweep like this may do is ask.
  */
 internal fun fitVisible() {
     for (entry in terminals.values) {
         val parent = (entry.term.asDynamic().element as? HTMLElement)?.offsetParent
         if (parent != null) {
-            try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+            try { sendResize(entry) } catch (_: Throwable) {}
         }
     }
 }

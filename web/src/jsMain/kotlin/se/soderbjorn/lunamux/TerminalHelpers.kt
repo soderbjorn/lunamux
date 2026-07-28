@@ -13,6 +13,7 @@
 package se.soderbjorn.lunamux
 
 import kotlinx.browser.document
+import kotlinx.browser.window
 import org.khronos.webgl.Uint8Array
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.WebSocket
@@ -61,13 +62,25 @@ external class ResizeObserver(callback: (dynamic, dynamic) -> Unit) {
  *   has not said (no client governs yet, or it is too old to send the signal). The
  *   server decides governance, so this is authoritative; the width comparison in
  *   [applyMirrorPresentation] is only the fallback for null.
- * @property awaitingVoteAnswer true between casting a size vote and the server's next
- *   `Size` broadcast. A width mismatch in that gap is just the server not having
- *   answered us yet — not another client driving — so the size-mismatch affordances
- *   stay hidden. The server's answer, not a clock, is what normally clears this.
- * @property votePendingUntil backstop deadline (epoch ms) for [awaitingVoteAnswer].
- *   A vote that changes nothing produces no `Size` broadcast at all, so the wait
- *   needs an upper bound or a losing vote could suppress the mirror forever.
+ * @property awaitingVoteAnswer true between casting a size vote and the server
+ *   resolving it — a `Size` broadcast, or the discovery that the grid we want is the
+ *   grid the server already has. This is the "one vote in flight" latch of the
+ *   ack-clocked pipeline ([requestPtyGrid]) as well as the signal the size-mismatch
+ *   affordances key off: a width mismatch in that gap is just the server not having
+ *   answered us yet, not another client driving.
+ * @property votePendingUntil safety-valve deadline (epoch ms) for
+ *   [awaitingVoteAnswer]. A vote that loses to a THREE_D or governor decision
+ *   produces no `Size` broadcast at all, so the wait needs an upper bound or the
+ *   pipeline would latch shut. It is a valve, not a pacing mechanism — see
+ *   [requestPtyGrid].
+ * @property desiredCols the grid this pane wants the PTY to be, remembered while a
+ *   vote is in flight, or 0 when there is nothing outstanding. Only the LATEST desire
+ *   is kept: intermediate sizes from a drag are of no interest once superseded.
+ * @property desiredRows row half of [desiredCols].
+ * @property desiredPriority the tier [desiredCols]×[desiredRows] should be voted at.
+ * @property desiredForce true when the outstanding desire is a take-over (a
+ *   `ForceResize`) rather than a vote, so a deliberate user gesture deferred by an
+ *   in-flight vote is still delivered as a force.
  * @property takeOverBadge floating "Mirroring another device · Take over" pill shown
  *   while [passive], or null before it is created
  * @property oobOverlayRight DOM element for the right out-of-bounds overlay, or null
@@ -109,10 +122,12 @@ external class ResizeObserver(callback: (dynamic, dynamic) -> Unit) {
  *   frame; the shared `onData` handler drops input during this window so
  *   any terminal-query answer xterm emits for replayed bytes is not
  *   injected into the live shell as phantom keystrokes
- * @property pendingResizeTimer debounce timer handle for [sendResize], or
- *   null when no vote is pending (lives on the entry, not in a
+ * @property pendingResizeTimer handle for the in-flight vote's safety-valve timer,
+ *   or null when no vote is outstanding (lives on the entry, not in a
  *   per-connection closure, so the handler can be registered once per
- *   xterm instance)
+ *   xterm instance). This used to be a 200 ms trailing debounce on every vote; the
+ *   pipeline is ack-clocked now, so the timer only exists to unlatch a vote the
+ *   server never answers. See [requestPtyGrid].
  * @property restoreSettling true on a cold-restore first attach, from socket
  *   open until the pane's split geometry and webfont metrics settle. While
  *   set, the automatic fit/vote paths hold the grid at the server-restored
@@ -147,6 +162,10 @@ class TerminalEntry(
     var driving: Boolean? = null,
     var awaitingVoteAnswer: Boolean = false,
     var votePendingUntil: Double = 0.0,
+    var desiredCols: Int = 0,
+    var desiredRows: Int = 0,
+    var desiredPriority: SizePriority = SizePriority.NORMAL,
+    var desiredForce: Boolean = false,
     var takeOverBadge: HTMLElement? = null,
     var oobOverlayRight: HTMLElement? = null,
     var oobOverlayBottom: HTMLElement? = null,
@@ -167,19 +186,45 @@ class TerminalEntry(
 /**
  * Fits the terminal to its container while preserving the user's scroll position.
  *
- * Records the distance from the bottom of the scrollback before fitting, then
- * restores that distance after the resize so that content does not jump.
+ * Records the distance from the bottom of the scrollback before fitting, then restores that
+ * distance after the resize so that content does not jump.
+ *
+ * **Not an ambient path any more.** A connected client's grid is set only by a server `Size`
+ * frame ([applyServerSize]); the only caller left is the demo branch of [sendResize], where
+ * there is no server to mandate a grid. Everything that used to fit in answer to its own
+ * layout now measures ([measureNaturalGrid]) and asks ([requestPtyGrid]) instead.
  *
  * @param term the xterm.js [Terminal] instance
  * @param fit the [FitAddon] to use for dimension calculation
- * @see safeFit
+ * @see safeFit @see preservingScroll
  */
 fun fitPreservingScroll(term: Terminal, fit: FitAddon) {
+    preservingScroll(term) { safeFit(term, fit) }
+}
+
+/**
+ * Run [block] — anything that changes the grid — and restore the user's scroll position
+ * afterwards.
+ *
+ * Preserves the distance from the *bottom* of the scrollback rather than an absolute
+ * viewport offset, because `baseY` shifts whenever the resize grows or shrinks the
+ * scrollback: an absolute restore lands mid-scrollback the moment content height
+ * changes, while "I was at the bottom" has to stay at the bottom.
+ *
+ * Factored out of [fitPreservingScroll] so the one remaining grid-changing path —
+ * [applyServerSize] — gets the same treatment. It previously had none: the local fits
+ * that carried it are gone, so without this every server-driven reflow would jump a
+ * scrolled-back viewport.
+ *
+ * @param term the xterm.js [Terminal] whose scroll position to hold.
+ * @param block the grid change to perform.
+ */
+fun preservingScroll(term: Terminal, block: () -> Unit) {
     val buffer = term.asDynamic().buffer.active
     val baseYBefore = (buffer.baseY as? Number)?.toInt() ?: 0
     val viewportYBefore = (buffer.viewportY as? Number)?.toInt() ?: 0
     val distanceFromBottom = baseYBefore - viewportYBefore
-    safeFit(term, fit)
+    block()
     val bufferAfter = term.asDynamic().buffer.active
     val baseYAfter = (bufferAfter.baseY as? Number)?.toInt() ?: 0
     val viewportYAfter = (bufferAfter.viewportY as? Number)?.toInt() ?: 0
@@ -287,15 +332,21 @@ private fun remeasureCellMetrics(term: Terminal): Boolean = runCatching {
 }.getOrDefault(false)
 
 /**
- * Safely fits the terminal to its container, with extra validation to prevent
- * over-sizing that causes rendering artifacts.
+ * Safely fits the terminal to its container, with extra validation to prevent over-sizing
+ * that causes rendering artifacts.
  *
- * Applies the clamped target from [proposeSafeDimensions]. Skips the resize if
- * dimensions haven't changed.
+ * Applies the clamped target from [proposeSafeDimensions]. Skips the resize if dimensions
+ * haven't changed.
+ *
+ * **Two callers only**, both outside the server-driven path: the creation-time fit (which
+ * gives a brand-new terminal a sane grid before any socket exists) and the demo branch of
+ * [sendResize] (no server, so a demo pane is its own authority). A connected pane's grid is
+ * the server's — see [applyServerSize] — and the ambient fit callers this used to serve now
+ * measure with [measureNaturalGrid] and ask with [requestPtyGrid].
  *
  * @param term the xterm.js [Terminal] instance
  * @param fit the [FitAddon] to use for dimension calculation
- * @see proposeSafeDimensions
+ * @see proposeSafeDimensions @see measureNaturalGrid
  */
 fun safeFit(term: Terminal, fit: FitAddon) {
     // Never refit a mirror. Its grid is the server's — bending it to this container
@@ -479,19 +530,183 @@ fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
     }
     entry.ptyCols = cols
     entry.ptyRows = rows
-    // The server has spoken, so whatever we asked for has now been answered — this,
-    // not the elapsed-time backstop, is what normally ends the wait.
-    entry.awaitingVoteAnswer = false
     if (cols != entry.term.cols || rows != entry.term.rows) {
         entry.applyingServerSize = true
         try {
-            runCatching { entry.term.asDynamic().resize(cols, rows) }
+            // Hold the viewport across the reflow. This is now the ONLY path that changes
+            // the grid, so it is the only place scroll preservation can live; the local
+            // fits that used to carry it (fitPreservingScroll) no longer resize anything.
+            preservingScroll(entry.term) {
+                runCatching { entry.term.asDynamic().resize(cols, rows) }
+            }
         } finally {
             entry.applyingServerSize = false
         }
     }
+    // The server has spoken, so whatever we asked for has now been answered. This is the
+    // ack that clocks the vote pipeline — it may send the next vote, so it runs after the
+    // grid has been applied and ptyCols/ptyRows updated, never before.
+    resolvePendingVote(entry)
     applyMirrorPresentation(entry) // also refreshes the out-of-bounds overlay
     runCatching { spikeOnServerSize(entry) }
+}
+
+/**
+ * Measure the grid this pane *would* fit at the user's own font — without resizing
+ * anything.
+ *
+ * The pure-renderer counterpart of a local fit. A client's grid is now set only by a
+ * server `Size` frame, so a layout change cannot answer itself by refitting; all it may
+ * do is measure what it would like and ask. This is that measurement.
+ *
+ * While mirroring, the fit proposal is measured at the *shrunken mirror font*, so it is
+ * scaled back by the shown/base font ratio to express what the user's own font would
+ * fit. Without that, a mirror's proposal describes a grid several times too large.
+ *
+ * @param entry the pane to measure.
+ * @return the (cols, rows) this pane would fit at the user's font, or null while the
+ *   container is hidden or unmeasurable (in which case nothing may be concluded).
+ * @see refreshNaturalGrid @see requestPtyGrid
+ */
+fun measureNaturalGrid(entry: TerminalEntry): Pair<Int, Int>? {
+    val proposed = runCatching { proposeSafeDimensions(entry.term, entry.fit) }.getOrNull() ?: return null
+    val shown = (entry.term.options.fontSize as? Number)?.toDouble()
+    if (shown == null || shown <= 0.0 || entry.baseFontSize <= 0) return proposed
+    val k = shown / entry.baseFontSize.toDouble()
+    if (k == 1.0) return proposed
+    return (proposed.first * k).toInt().coerceAtLeast(2) to (proposed.second * k).toInt().coerceAtLeast(2)
+}
+
+/**
+ * Re-measure [entry]'s natural grid and record it on the entry.
+ *
+ * [TerminalEntry.naturalCols]/[TerminalEntry.naturalRows] used to be a side effect of
+ * `term.onResize` — i.e. of a local fit having already happened. With the grid pinned to
+ * the server there is no such fit, so every geometry, font or visibility change calls
+ * this instead: it is what keeps the mirror scale, the out-of-bounds hatch and the
+ * take-over target tracking the pane's real box.
+ *
+ * @param entry the pane to re-measure.
+ * @return true when a measurement was taken; false leaves the previous values in place.
+ */
+fun refreshNaturalGrid(entry: TerminalEntry): Boolean {
+    val (cols, rows) = measureNaturalGrid(entry) ?: return false
+    if (cols <= 0 || rows <= 0) return false
+    entry.naturalCols = cols
+    entry.naturalRows = rows
+    return true
+}
+
+/**
+ * Safety-valve timeout (ms) for a vote the server never answers.
+ *
+ * Not a pacing mechanism — the pipeline is clocked by the server's `Size` frames. A vote
+ * that *loses* (to a THREE_D override, or to a governing client) produces no broadcast
+ * at all, and without an upper bound the "one vote in flight" latch would stay shut
+ * forever. It replaces nothing: the 200 ms trailing debounce it sits next to in history
+ * was a guess at how long a drag lasts, which is exactly the kind of magic number the
+ * ack clock exists to remove.
+ */
+private const val VOTE_ACK_TIMEOUT_MS = 1_000
+
+/**
+ * Ask the server to make the PTY [cols]×[rows] — the single entry point for every size
+ * request this client makes.
+ *
+ * **Ack-clocked**, not debounced. A request is sent immediately when nothing is
+ * outstanding; while a vote is in flight only the LATEST desire is remembered, and it is
+ * sent when the in-flight one resolves ([resolvePendingVote]). One vote in flight at a
+ * time is what keeps a drag from turning into a vote storm, without guessing how long a
+ * drag lasts — the server's answer sets the pace, so a fast server means fast votes and a
+ * slow one means fewer.
+ *
+ * A request for the grid the server already has is not sent at all; it resolves the
+ * pipeline instead, since there is nothing to wait for.
+ *
+ * @param entry the pane making the request.
+ * @param cols desired columns. @param rows desired rows.
+ * @param priority the tier to vote at; ignored when [force].
+ * @param force true for a deliberate take-over (`ForceResize`, which seizes governance),
+ *   false for a plain vote. A force is a user gesture, so it is never dropped — only
+ *   deferred behind an in-flight vote, and it stays a force when it goes out.
+ * @see resolvePendingVote @see sendResizeVote @see sendForceResize
+ */
+fun requestPtyGrid(entry: TerminalEntry, cols: Int, rows: Int, priority: SizePriority, force: Boolean) {
+    if (cols < 2 || rows < 2) return
+    val socket = entry.socket ?: return
+    if (socket.readyState.toInt() != WebSocket.OPEN.toInt()) return
+
+    // Nothing to ask for: the server is already where we want it. Resolving rather than
+    // returning matters — this is the second of the two ack conditions, and it is what
+    // unlatches a pipeline whose in-flight vote will never draw a Size frame because it
+    // asked for the size the server was already at.
+    if (!force && cols == entry.ptyCols && rows == entry.ptyRows) {
+        entry.desiredCols = 0
+        entry.desiredRows = 0
+        clearVoteInFlight(entry)
+        return
+    }
+
+    if (entry.awaitingVoteAnswer) {
+        // Coalesce: keep only the latest desire. A force outranks a queued vote — it is a
+        // user gesture and must not be downgraded by a later ambient measurement.
+        entry.desiredCols = cols
+        entry.desiredRows = rows
+        entry.desiredPriority = priority
+        entry.desiredForce = entry.desiredForce || force
+        return
+    }
+
+    entry.desiredCols = 0
+    entry.desiredRows = 0
+    entry.desiredForce = false
+    if (force) sendForceResize(socket, cols, rows)
+    else sendResizeVote(socket, cols, rows, priority)
+
+    entry.awaitingVoteAnswer = true
+    entry.votePendingUntil = kotlin.js.Date.now() + VOTE_ACK_TIMEOUT_MS
+    entry.pendingResizeTimer?.let { window.clearTimeout(it) }
+    entry.pendingResizeTimer = window.setTimeout({
+        entry.pendingResizeTimer = null
+        // The valve: a vote that lost draws no Size frame, so unlatch and let any
+        // remembered desire through.
+        resolvePendingVote(entry)
+    }, VOTE_ACK_TIMEOUT_MS)
+}
+
+/**
+ * Resolve the in-flight vote and send the remembered desire if it still differs from the
+ * server's grid.
+ *
+ * Called on every `Size` frame ([applyServerSize]) — the normal clock — and from the
+ * safety-valve timeout for a vote the server never answers.
+ *
+ * @param entry the pane whose pipeline to advance.
+ */
+fun resolvePendingVote(entry: TerminalEntry) {
+    clearVoteInFlight(entry)
+    val cols = entry.desiredCols
+    val rows = entry.desiredRows
+    if (cols <= 0 || rows <= 0) return
+    if (cols == entry.ptyCols && rows == entry.ptyRows && !entry.desiredForce) {
+        entry.desiredCols = 0
+        entry.desiredRows = 0
+        return
+    }
+    val priority = entry.desiredPriority
+    val force = entry.desiredForce
+    entry.desiredCols = 0
+    entry.desiredRows = 0
+    entry.desiredForce = false
+    requestPtyGrid(entry, cols, rows, priority, force)
+}
+
+/** Drop the "one vote in flight" latch and its safety-valve timer. */
+private fun clearVoteInFlight(entry: TerminalEntry) {
+    entry.awaitingVoteAnswer = false
+    entry.votePendingUntil = 0.0
+    entry.pendingResizeTimer?.let { window.clearTimeout(it) }
+    entry.pendingResizeTimer = null
 }
 
 /**
@@ -513,7 +728,12 @@ fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
  * @see applyMirrorPresentation @see updateOobOverlay
  */
 private fun isAwaitingOwnSize(entry: TerminalEntry): Boolean =
-    entry.restoreSettling ||
+    // Never told anything yet: no `Size` frame has arrived on this connection, so there is
+    // no server grid to compare against and any mismatch is meaningless. This replaces the
+    // vote-pending grace that used to be armed at pane creation — a fact rather than a
+    // deadline, and one that cannot expire while startup is still in progress.
+    entry.ptyCols == null ||
+        entry.restoreSettling ||
         (entry.awaitingVoteAnswer && entry.votePendingUntil > kotlin.js.Date.now())
 
 /** Smallest / largest font (px) the passive mirror will scale the pane text to. */
@@ -659,12 +879,17 @@ fun reassertSoft(entry: TerminalEntry) {
 }
 
 /**
- * Shared body of [forceReassert] / [reassertSoft]: apply the common guards, fit
- * the terminal to its container, then push the grid to the server — as a
- * [PtyControl.ForceResize] when [force], else as a soft [PtyControl.Resize]
- * vote.
+ * Shared body of [forceReassert] / [reassertSoft]: apply the common guards, measure the
+ * grid this pane would like, then ask the server for it — as a [PtyControl.ForceResize]
+ * when [force], else as a soft [PtyControl.Resize] vote.
  *
- * @param entry the [TerminalEntry] to refit and reassert.
+ * No longer fits the terminal. The grid is set only by a server `Size` frame
+ * ([applyServerSize]), so a reassert is purely "measure and ask": the reflow arrives when
+ * the server answers, which is the tmux round trip Otto accepted for the driving client
+ * too. Fitting first also made the *request* wrong — the fit had already moved
+ * `term.cols` to the value being asked for, so a force read back its own answer.
+ *
+ * @param entry the [TerminalEntry] to re-measure and reassert.
  * @param force `true` to seize the PTY size (explicit Reformat), `false` to
  *   only register a vote (automatic refit).
  */
@@ -672,25 +897,16 @@ private fun reassertGrid(entry: TerminalEntry, force: Boolean) {
     val socket = entry.socket ?: return
     if (socket.readyState.toInt() != WebSocket.OPEN.toInt()) return
     if (entry.passive) {
-        // A mirror never votes: its grid is the *server's*, so fitting it to this
-        // container and voting the result would seize the PTY from whoever is
-        // driving simply because a pane got resized. An automatic reassert instead
-        // just rescales the mirror into the new box.
+        // A mirror never seizes: its grid is the *server's*, so voting a grid measured
+        // from this container would take the PTY from whoever is driving simply because a
+        // pane got resized. An automatic reassert instead just rescales the mirror into
+        // the new box — and re-measures, so the natural grid (and with it the mirror
+        // scale and the take-over target) tracks the box.
         if (!force) {
-            // The fit proposal is measured at the shrunken mirror font; scale it
-            // back to what the user's own font would fit so the natural grid (and
-            // with it the mirror scale and the take-over target) tracks the box.
-            val proposed = runCatching { proposeSafeDimensions(entry.term, entry.fit) }.getOrNull()
-            val shown = (entry.term.options.fontSize as? Number)?.toDouble()
-            if (proposed != null && shown != null && shown > 0.0 && entry.baseFontSize > 0) {
-                val k = shown / entry.baseFontSize.toDouble()
-                entry.naturalCols = (proposed.first * k).toInt().coerceAtLeast(2)
-                entry.naturalRows = (proposed.second * k).toInt().coerceAtLeast(2)
-            }
+            refreshNaturalGrid(entry)
             applyMirrorPresentation(entry)
-            // Still cast the soft vote (of the natural grid — see [sendResize]).
-            // Returning without voting is what let a lone client latch to passive
-            // with nothing able to release it.
+            // Still cast the soft vote of the natural grid. Returning without voting is
+            // what let a lone client latch to passive with nothing able to release it.
             sendResize(entry)
             return
         }
@@ -740,26 +956,28 @@ private fun reassertGrid(entry: TerminalEntry, force: Boolean) {
         entry.restoreSettling = false
     }
     if (entry.passive) {
-        // Explicit take-over: drop out of mirror mode and restore the user's own
-        // font FIRST — the fit below measures the live glyph size, so fitting
-        // while still shrunken would propose (and force) a grid several times too
-        // large. Only reached with [force]: the soft branch returned above.
+        // Explicit take-over: drop out of mirror mode and restore the user's own font
+        // FIRST — the measurement below reads the live glyph size, so measuring while
+        // still shrunken would ask for a grid several times too large. Only reached with
+        // [force]: the soft branch returned above.
         entry.passive = false
         entry.takeOverBadge?.classList?.remove("visible")
         runCatching { entry.term.options.fontSize = entry.baseFontSize.toDouble() }
     }
-    try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
-    if (force) sendForceResize(socket, entry.term)
-    else sendResizeVote(socket, entry.term.cols, entry.term.rows, SizePriority.NORMAL)
-    // The fit may be a no-op (dims unchanged), in which case no onResize fires to
-    // refresh the hatch — but the presentation may just have flipped above.
+    // Measure, then ask. The grid follows when the server answers.
+    refreshNaturalGrid(entry)
+    val cols = entry.naturalCols
+    val rows = entry.naturalRows
+    if (cols >= 2 && rows >= 2) requestPtyGrid(entry, cols, rows, SizePriority.NORMAL, force)
+    // Nothing resized locally, so no onResize fires to refresh the hatch — and the
+    // presentation may just have flipped above.
     updateOobOverlay(entry)
 }
 
 /**
- * Sends a [PtyControl.ForceResize] for [term]'s current grid over [socket] (a no-op
- * if the socket is not open) — the socket-level core of [forceReassert], factored out
- * so a caller that holds a live PTY socket but no [TerminalEntry] can reassert the
+ * Sends a [PtyControl.ForceResize] for an explicit [cols]×[rows] grid over [socket] (a
+ * no-op if the socket is not open) — the socket-level core of [forceReassert], factored
+ * out so a caller that holds a live PTY socket but no [TerminalEntry] can reassert the
  * session size the same way.
  *
  * This is what lets a 3D world **preview** pane reformat: a preview is a second live
@@ -767,16 +985,21 @@ private fun reassertGrid(entry: TerminalEntry, force: Boolean) {
  * pane the desktop also has open), so it can drive the shared PTY's size itself instead
  * of waiting to be promoted to the mounted terminal.
  *
+ * Takes explicit dims rather than reading `term.cols`: with the grid pinned to the server
+ * the local terminal is showing whatever the *server* last said, so a force derived from
+ * it would only ever re-assert the size we are trying to change. What a take-over wants is
+ * the grid this pane would fit at the user's own font ([measureNaturalGrid]).
+ *
  * @param socket the PTY WebSocket to send the resize over.
- * @param term the terminal whose current `cols`/`rows` become the reasserted size.
- * @see forceReassert @see se.soderbjorn.lunamux.reformatPane
+ * @param cols the column count to seize. @param rows the row count to seize.
+ * @see forceReassert @see requestPtyGrid @see se.soderbjorn.lunamux.reformatPane
  */
-fun sendForceResize(socket: WebSocket, term: Terminal) {
+fun sendForceResize(socket: WebSocket, cols: Int, rows: Int) {
     if (socket.readyState.toInt() != WebSocket.OPEN.toInt()) return
     runCatching {
         socket.send(
             windowJson.encodeToString<PtyControl>(
-                PtyControl.ForceResize(cols = term.cols, rows = term.rows)
+                PtyControl.ForceResize(cols = cols, rows = rows)
             )
         )
     }

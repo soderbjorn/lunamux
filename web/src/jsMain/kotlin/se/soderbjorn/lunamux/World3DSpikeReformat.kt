@@ -325,28 +325,35 @@ internal fun resizePaneBox(p: RingPane, dW: Int, dH: Int, animate: Boolean = tru
 }
 
 /**
- * Sets pane [p]'s grid to `cols × rows` **atomically**: resizes the local terminal,
- * re-presents the plane at the new grid ([presentPaneToGrid]), optionally reasserts
- * the size to the shared PTY, keeps a tail-following viewport pinned to the bottom,
- * and repaints. This is the single mutation point of the PTY-truth model — every
- * grid change (user command or server broadcast) funnels through here.
+ * Sets pane [p]'s grid to `cols × rows`: re-presents the plane at the grid
+ * ([presentPaneToGrid]), keeps a tail-following viewport pinned to the bottom, repaints,
+ * and — depending on [reassert] — either asks the PTY for that grid or follows a grid it
+ * has already moved to. Every 3D grid change (user command or server broadcast) funnels
+ * through here.
  *
- * With [reassert] `true` (user commands: grid keys, `r`) a [PtyControl.ForceResize]
- * is sent over the pane's own socket — mounted ([TerminalEntry.socket]) or preview
- * ([RingPane.mirrorSocket]) — deliberately bypassing the per-pane `autoReflow` gate
- * (an explicit resize is a reformat request, exactly like the 2D Reformat button).
- * On the alt screen ([isOnAltScreen]) the resize applies all the same — the user
- * must always be able to resize, even under a full-screen TUI — but a warning is
- * logged, since the TUI will repaint from scratch at the new grid (a momentary
- * blank is expected). With [reassert] `false` (a server `Size` broadcast) the
- * resize likewise always applies — the PTY has already changed and the pane must
- * follow to stay truthful.
+ * With [reassert] `true` (user commands: grid keys, `r`) a size **vote** at [votePriority]
+ * goes out over the pane's own socket — mounted ([TerminalEntry.socket]) or preview
+ * ([RingPane.mirrorSocket]) — deliberately bypassing the per-pane `autoReflow` gate (an
+ * explicit resize is a reformat request, exactly like the 2D Reformat button). The local
+ * terminal is **not** resized: the answering `Size` frame does that, through
+ * [applyServerSize] for a mounted pane or [applyMirrorSize] for a preview. That is what
+ * keeps the world from being a second authority able to move a grid the server has not
+ * agreed to — a vote that loses to a mobile floor or a governing client used to leave the
+ * plane showing a grid the PTY never had, until the next broadcast snapped it back.
+ *
+ * On the alt screen ([isOnAltScreen]) the request goes out all the same — the user must
+ * always be able to resize, even under a full-screen TUI — but a warning is logged, since
+ * the TUI will repaint from scratch at the new grid (a momentary blank is expected).
+ *
+ * With [reassert] `false` (a server `Size` broadcast) the local resize DOES apply: the PTY
+ * has already changed and the pane must follow to stay truthful.
  *
  * @param p the pane to resize.
  * @param cols target column count (already validated by the caller).
  * @param rows target row count (already validated by the caller).
- * @param reassert `true` to push the new grid to the PTY (user command),
- *   `false` to only follow it (server broadcast).
+ * @param reassert `true` to ask the PTY for this grid (user command), `false` to follow a
+ *   grid it already has (server broadcast).
+ * @param votePriority the tier a [reassert] request competes in.
  * @see growGridAxis @see reformatPane @see applyMirrorSize @see spikeOnServerSize
  */
 internal fun setPaneGrid(
@@ -368,10 +375,16 @@ internal fun setPaneGrid(
         val buf = term.asDynamic().buffer.active
         val atBottom =
             ((buf.baseY as? Number)?.toInt() ?: 0) == ((buf.viewportY as? Number)?.toInt() ?: 0)
-        // xterm fires onResize listeners *synchronously inside* resize(); isolate it
-        // so a throwing listener elsewhere in the app can never abort the
-        // presentation below (that exact failure hid every grid/reformat change).
-        if (cols != term.cols || rows != term.rows) {
+        // Only a **follow** resizes the grid here. A user grid command ([reassert] = true)
+        // asks the server and lets the answering Size frame do the resize, like every other
+        // client path — so the world stops being a second place that can move a grid the
+        // server has not agreed to, and a vote that loses (a mobile floor, a governing
+        // client) no longer leaves the plane showing a grid the PTY never had.
+        //
+        // xterm fires onResize listeners *synchronously inside* resize(); isolate it so a
+        // throwing listener elsewhere in the app can never abort the presentation below
+        // (that exact failure hid every grid/reformat change).
+        if (!reassert && (cols != term.cols || rows != term.rows)) {
             runCatching { term.asDynamic().resize(cols, rows) }.onFailure {
                 console.error(
                     "[world3d-spike] xterm resize(${cols}x$rows) threw for pane ${p.paneId} " +
