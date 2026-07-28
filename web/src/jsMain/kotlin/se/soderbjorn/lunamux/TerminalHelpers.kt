@@ -77,10 +77,9 @@ external class ResizeObserver(callback: (dynamic, dynamic) -> Unit) {
  *   vote is in flight, or 0 when there is nothing outstanding. Only the LATEST desire
  *   is kept: intermediate sizes from a drag are of no interest once superseded.
  * @property desiredRows row half of [desiredCols].
- * @property desiredPriority the tier [desiredCols]×[desiredRows] should be voted at.
- * @property desiredForce true when the outstanding desire is a take-over (a
- *   `ForceResize`) rather than a vote, so a deliberate user gesture deferred by an
- *   in-flight vote is still delivered as a force.
+ * @property desiredPriority the tier [desiredCols]×[desiredRows] should be voted at. Only
+ *   ever a vote: a take-over preempts the in-flight latch instead of queueing, so nothing
+ *   deferred here is ever a force.
  * @property takeOverBadge floating "Mirroring another device · Take over" pill shown
  *   while [passive], or null before it is created
  * @property oobOverlayRight DOM element for the right out-of-bounds overlay, or null
@@ -165,7 +164,6 @@ class TerminalEntry(
     var desiredCols: Int = 0,
     var desiredRows: Int = 0,
     var desiredPriority: SizePriority = SizePriority.NORMAL,
-    var desiredForce: Boolean = false,
     var takeOverBadge: HTMLElement? = null,
     var oobOverlayRight: HTMLElement? = null,
     var oobOverlayBottom: HTMLElement? = null,
@@ -627,8 +625,10 @@ private const val VOTE_ACK_TIMEOUT_MS = 1_000
  * @param cols desired columns. @param rows desired rows.
  * @param priority the tier to vote at; ignored when [force].
  * @param force true for a deliberate take-over (`ForceResize`, which seizes governance),
- *   false for a plain vote. A force is a user gesture, so it is never dropped — only
- *   deferred behind an in-flight vote, and it stays a force when it goes out.
+ *   false for a plain vote. A force **preempts** the one-in-flight rule and goes out at
+ *   once: the rule exists to keep ambient measurement from becoming a vote storm, and making
+ *   a user gesture wait up to the safety-valve timeout behind an ambient vote it is about to
+ *   overrule would be a second of dead UI for no benefit.
  * @see resolvePendingVote @see sendResizeVote @see sendForceResize
  */
 fun requestPtyGrid(entry: TerminalEntry, cols: Int, rows: Int, priority: SizePriority, force: Boolean) {
@@ -647,19 +647,17 @@ fun requestPtyGrid(entry: TerminalEntry, cols: Int, rows: Int, priority: SizePri
         return
     }
 
-    if (entry.awaitingVoteAnswer) {
-        // Coalesce: keep only the latest desire. A force outranks a queued vote — it is a
-        // user gesture and must not be downgraded by a later ambient measurement.
+    if (entry.awaitingVoteAnswer && !force) {
+        // Coalesce: keep only the latest desire. A force already queued stays a force — it is
+        // a user gesture and must not be downgraded by a later ambient measurement.
         entry.desiredCols = cols
         entry.desiredRows = rows
         entry.desiredPriority = priority
-        entry.desiredForce = entry.desiredForce || force
         return
     }
 
     entry.desiredCols = 0
     entry.desiredRows = 0
-    entry.desiredForce = false
     if (force) sendForceResize(socket, cols, rows)
     else sendResizeVote(socket, cols, rows, priority)
 
@@ -688,17 +686,12 @@ fun resolvePendingVote(entry: TerminalEntry) {
     val cols = entry.desiredCols
     val rows = entry.desiredRows
     if (cols <= 0 || rows <= 0) return
-    if (cols == entry.ptyCols && rows == entry.ptyRows && !entry.desiredForce) {
-        entry.desiredCols = 0
-        entry.desiredRows = 0
-        return
-    }
     val priority = entry.desiredPriority
-    val force = entry.desiredForce
     entry.desiredCols = 0
     entry.desiredRows = 0
-    entry.desiredForce = false
-    requestPtyGrid(entry, cols, rows, priority, force)
+    // Always a vote: a take-over never queues here (see [requestPtyGrid]). requestPtyGrid
+    // itself drops it when it turns out to match the grid the server now has.
+    requestPtyGrid(entry, cols, rows, priority, force = false)
 }
 
 /** Drop the "one vote in flight" latch and its safety-valve timer. */

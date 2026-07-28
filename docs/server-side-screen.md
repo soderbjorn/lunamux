@@ -313,6 +313,11 @@ server already has. A ~1 s timer is a **safety valve only** — a vote that lose
 override or a governing client produces no broadcast at all, and without an upper bound the
 latch would stay shut — not a pacing mechanism. The server's answers set the pace.
 
+A **take-over preempts** the one-in-flight rule and goes out at once. The rule exists to keep
+ambient measurement from becoming a vote storm; making a user gesture wait up to the
+safety-valve timeout behind an ambient vote it is about to overrule would be a second of dead
+UI for nothing.
+
 The Android take-over font-walk storm that motivated the debounce (19 row-only votes in
 250 ms as the font walked from the mirror size back to the driving size) disappears
 structurally: font changes no longer touch the emulator or the natural grid, so they

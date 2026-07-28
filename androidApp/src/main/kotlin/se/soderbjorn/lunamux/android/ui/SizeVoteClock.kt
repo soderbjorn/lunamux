@@ -56,9 +56,6 @@ internal class SizeVoteClock(
     /** The latest desired grid while [inFlight], or null when nothing is outstanding. */
     private var desired: Pair<Int, Int>? = null
 
-    /** Whether [desired] is a take-over rather than a vote. A force is never downgraded. */
-    private var desiredForce = false
-
     /** The safety-valve timer for the in-flight request. */
     private var timeoutJob: Job? = null
 
@@ -68,33 +65,35 @@ internal class SizeVoteClock(
     /**
      * Ask for [cols]×[rows].
      *
-     * Sent immediately when nothing is outstanding. While a request is in flight this only
+     * Sent immediately when nothing is outstanding. While a *vote* is in flight this only
      * remembers the desire, replacing any earlier one: intermediate sizes from a settling
-     * layout are of no interest once superseded.
+     * layout are of no interest once superseded. A take-over is not deferred at all.
      *
      * A request for the grid the server already has is not sent — there would be nothing to
      * wait for — and resolves the pipeline instead.
      *
      * @param cols desired columns. @param rows desired rows.
      * @param force true for a take-over (seizes governance), false for a soft vote. Called
-     *   with true by real input, tap-to-focus, the take-over badge and Reformat.
+     *   with true by real input, tap-to-focus, the take-over badge and Reformat. A force
+     *   preempts the one-in-flight rule rather than queueing behind an ambient vote.
      */
     @Synchronized
     fun request(cols: Int, rows: Int, force: Boolean) {
         if (cols < 2 || rows < 2) return
         if (!force && cols to rows == serverGrid) {
             desired = null
-            desiredForce = false
             unlatch()
             return
         }
-        if (inFlight) {
+        // A force PREEMPTS the one-in-flight rule and goes out at once. That rule exists to
+        // keep ambient measurement from becoming a vote storm; making a take-over wait up to
+        // the safety-valve timeout behind an ambient vote it is about to overrule would be a
+        // second of dead UI for no benefit.
+        if (inFlight && !force) {
             desired = cols to rows
-            desiredForce = desiredForce || force
             return
         }
         desired = null
-        desiredForce = false
         inFlight = true
         scope.launch { runCatching { if (force) sendForce(cols, rows) else sendVote(cols, rows) } }
         timeoutJob?.cancel()
@@ -123,7 +122,6 @@ internal class SizeVoteClock(
     @Synchronized
     fun cancel() {
         desired = null
-        desiredForce = false
         unlatch()
     }
 
@@ -136,11 +134,10 @@ internal class SizeVoteClock(
     private fun resolve() {
         unlatch()
         val next = desired ?: return
-        val force = desiredForce
         desired = null
-        desiredForce = false
-        if (!force && next == serverGrid) return
-        request(next.first, next.second, force)
+        // Always a vote: a take-over never queues here (see [request]). request() itself drops
+        // it when it turns out to match the grid the server now has.
+        request(next.first, next.second, force = false)
     }
 
     private fun unlatch() {
