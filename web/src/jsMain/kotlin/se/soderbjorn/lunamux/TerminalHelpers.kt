@@ -490,8 +490,7 @@ fun applyServerSize(entry: TerminalEntry, cols: Int, rows: Int) {
             entry.applyingServerSize = false
         }
     }
-    applyMirrorPresentation(entry)
-    updateOobOverlay(entry)
+    applyMirrorPresentation(entry) // also refreshes the out-of-bounds overlay
     runCatching { spikeOnServerSize(entry) }
 }
 
@@ -584,6 +583,12 @@ fun applyMirrorPresentation(entry: TerminalEntry) {
     entry.takeOverBadge?.let { badge ->
         if (passive) badge.classList.add("visible") else badge.classList.remove("visible")
     }
+    // The verdict gates the out-of-bounds hatch ([updateOobOverlay] hides it for a
+    // mirror), and a verdict can flip with no resize event to piggyback on — a
+    // Governance frame carries no Size — so re-evaluate the overlay on every
+    // reconcile or it displays the previous verdict's answer until something else
+    // happens to resize the pane.
+    updateOobOverlay(entry)
 }
 
 /**
@@ -689,29 +694,25 @@ private fun reassertGrid(entry: TerminalEntry, force: Boolean) {
             sendResize(entry)
             return
         }
-        // Forced = an explicit take-over. Drop out of mirror mode and restore the
-        // user's own font FIRST: the fit below measures the live glyph size, so
-        // fitting while still shrunken would propose (and force) a grid several
-        // times too large.
-        entry.passive = false
-        entry.takeOverBadge?.classList?.remove("visible")
-        runCatching { entry.term.options.fontSize = entry.baseFontSize.toDouble() }
+        // Forced = an explicit take-over; handled below, after the guards. It used
+        // to drop out of mirror mode right here — before the guards — so a guard
+        // bailing left a half-taken-over pane: no longer presented as a mirror,
+        // but with the ForceResize never sent, the PTY still at the other client's
+        // grid, and the out-of-bounds hatch painted over live content. The guards
+        // must run before any presentation is touched.
     }
     // Skip while a server-mandated resize is in flight so we don't echo
     // the PTY's just-applied size back to it — that would lock the PTY at the
     // size it just told us it has, defeating the purpose of the reassert.
     if (entry.applyingServerSize) return
-    // Hold off while a cold-restored pane is still settling: its grid is
-    // pinned to the server-restored width and a reassert here would fit to a
-    // transient container size and reflow the just-replayed transcript. The
-    // one-shot [finishRestoreSettle] pass does the reconciling fit + vote once
-    // the geometry is stable. See [TerminalEntry.restoreSettling].
-    if (entry.restoreSettling) return
     // Stand down while the 3D world is open — for ANY pane, not just one the ring
     // currently holds. While the world is up it is the sole size authority
     // (setPaneGrid sends its own ForceResize) and the 2D shell is hidden, so every
     // 2D-driven reassert here fits the grid to a hidden/transitional container and
-    // resizes the shared PTY, reverting the 3D grid.
+    // resizes the shared PTY, reverting the 3D grid. A forced take-over stands
+    // down too — its pane stays a mirror, and typing still moves governance
+    // server-side ([TermSession.noteClientInput]), which is what flips the
+    // presentation once the verdict comes back.
     //
     // The old guard bailed only for panes *currently in the ring*
     // ([isRidingSpikePlane] = `spikeOpen && paneId in spikePanes`). But a **world
@@ -725,9 +726,34 @@ private fun reassertGrid(entry: TerminalEntry, force: Boolean) {
     // [closeWorld3dSpike] clears `spikeOpen` before its deferred reassert.
     // @see isRidingSpikePlane @see maybeReapplyPreset
     if (spikeOpen) return
+    // Hold off while a cold-restored pane is still settling: its grid is
+    // pinned to the server-restored width and a reassert here would fit to a
+    // transient container size and reflow the just-replayed transcript. The
+    // one-shot [finishRestoreSettle] pass does the reconciling fit + vote once
+    // the geometry is stable. A *forced* reassert overrides the settle instead:
+    // every force is a deliberate user gesture (Reformat, ⌃⌥R, the take-over
+    // pill, typing on a mirror), and dropping it left the pane wedged — the
+    // exact "hatch over a pane I can type into" report. See
+    // [TerminalEntry.restoreSettling].
+    if (entry.restoreSettling) {
+        if (!force) return
+        entry.restoreSettling = false
+    }
+    if (entry.passive) {
+        // Explicit take-over: drop out of mirror mode and restore the user's own
+        // font FIRST — the fit below measures the live glyph size, so fitting
+        // while still shrunken would propose (and force) a grid several times too
+        // large. Only reached with [force]: the soft branch returned above.
+        entry.passive = false
+        entry.takeOverBadge?.classList?.remove("visible")
+        runCatching { entry.term.options.fontSize = entry.baseFontSize.toDouble() }
+    }
     try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
     if (force) sendForceResize(socket, entry.term)
     else sendResizeVote(socket, entry.term.cols, entry.term.rows, SizePriority.NORMAL)
+    // The fit may be a no-op (dims unchanged), in which case no onResize fires to
+    // refresh the hatch — but the presentation may just have flipped above.
+    updateOobOverlay(entry)
 }
 
 /**

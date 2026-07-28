@@ -428,8 +428,9 @@ fun connectPane(entry: TerminalEntry) {
             val bytes = org.khronos.webgl.Uint8Array(buf)
             if (entry.awaitingSnapshot) {
                 // First binary frame of this connection = the server's
-                // synthesized attach redraw (the /pty protocol sends Size then the
-                // redraw, and WebSocket frames are ordered). It is self-clearing —
+                // synthesized attach redraw (the /pty protocol sends Governance,
+                // then Size, then the redraw, and WebSocket frames are ordered).
+                // It is self-clearing —
                 // a RIS (ESC c) + ED3 (CSI 3 J) prefix resets the emulator and
                 // clears scrollback before repainting — so, unlike the old ring
                 // replay, no explicit pre-reset is needed even on a reconnect: the
