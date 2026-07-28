@@ -159,6 +159,29 @@ class GridSerializerRoundTripTest {
         feed("short\r\n")
     }
 
+    @Test fun rowsOnlyShrink() = roundTrip("rows-shrink", cols = 40, rows = 12, resizeTo = 40 to 5) {
+        // Columns unchanged, rows down: the fast path, which for a screen-only grid has to
+        // reallocate the ring. It fires no client resync, so a grid it left rotated or aliased
+        // would first become visible through a serialized redraw exactly like this one.
+        for (i in 1..20) feed("line $i\r\n")
+        feed("$ prompt")
+    }
+
+    @Test fun rowsOnlyShrinkWithWrappedContent() = roundTrip("rows-shrink-wrapped", cols = 24, rows = 10, resizeTo = 24 to 4) {
+        // Same path with soft-wrapped rows in the surviving window, so the wrap flags have to
+        // survive the reallocation as well as the cells.
+        feed("a line comfortably longer than twenty-four columns wide\r\n")
+        for (i in 1..6) feed("short $i\r\n")
+    }
+
+    @Test fun narrowerAndShorter() = roundTrip("reflow-shorter", cols = 120, rows = 10, resizeTo = 60 to 4) {
+        // Both dimensions at once — the take-over shape, where a reflow and a rows shrink land
+        // in the same resize.
+        feed("A line long enough that narrowing to sixty columns has to fold it more than once.\r\n")
+        for (i in 1..8) feed("row $i\r\n")
+        feed("$ ")
+    }
+
     @Test fun combiningChars() = roundTrip("combining", cols = 20, rows = 4) {
         // Base letters plus combining marks in the same cell (e + acute, n + tilde).
         feed("café piñata done")

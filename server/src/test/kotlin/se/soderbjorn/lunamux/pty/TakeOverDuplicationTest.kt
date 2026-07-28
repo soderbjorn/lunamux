@@ -126,11 +126,45 @@ class TakeOverDuplicationTest {
         assertEquals(1, text.countOf(MARKER_BOTTOM), "the tail never scrolls off at these sizes")
     }
 
+    /**
+     * The viewport row indices the composite holds, in the order they are read.
+     *
+     * Counting markers alone cannot tell a faithful archive from a mangled one: a rotated ring
+     * keeps every marker and every row, just not in the right order. Reading the row indices
+     * back as a sequence is what makes order and multiplicity assertable.
+     */
+    private fun SessionGrid.viewportRowSequence(): List<Int> =
+        VIEWPORT_ROW.findAll(transcriptText()).map { it.groupValues[1].toInt() }.toList()
+
+    /**
+     * Split an ordered index sequence at each restart, so a composite holding an archived frame
+     * followed by a repainted one reads as two runs.
+     *
+     * @return one list per run, in order.
+     */
+    private fun runsOf(sequence: List<Int>): List<List<Int>> {
+        val runs = mutableListOf<MutableList<Int>>()
+        for (n in sequence) {
+            val current = runs.lastOrNull()
+            if (current == null || n <= current.last()) runs.add(mutableListOf(n)) else current.add(n)
+        }
+        return runs
+    }
+
+    /** Assert a run is a complete, gapless ascending count from zero. */
+    private fun assertIntactRun(run: List<Int>, label: String) {
+        assertEquals(List(run.size) { it }, run, "$label: rows must be intact, gapless and in order")
+    }
+
     @Test
     fun `a two-step resize burst archives the frame top once, not per step`() {
         // A single take-over commonly fires two size changes: the cols change from the new
-        // device, then a rows-only adjust as its soft keyboard settles. The frame's top
-        // leaves the screen on the first shrink and cannot leave again on the second.
+        // device, then a rows-only adjust as its soft keyboard settles. The frame's top leaves
+        // the screen on the first shrink and cannot leave again on the second.
+        //
+        // The rows-only second step is also the one that used to corrupt the screen-only ring
+        // while firing no client resync, so this asserts the *content* of both copies and not
+        // just how many markers survived: a rotated ring keeps every marker.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         grid.feedText(repaint(WIDE_ROWS))
 
@@ -141,6 +175,20 @@ class TakeOverDuplicationTest {
         val text = grid.transcriptText()
         assertEquals(2, text.countOf(MARKER_TOP), "one archived copy + the repainted screen")
         assertEquals(1, text.countOf(MARKER_BOTTOM))
+
+        val runs = runsOf(grid.viewportRowSequence())
+        assertEquals(2, runs.size, "exactly two copies: the archived frame top and the repaint, got $runs")
+        assertIntactRun(runs[0], "archived copy")
+        assertIntactRun(runs[1], "repainted copy")
+        assertEquals(
+            List(NARROW_ROWS - 2) { it },
+            runs[1],
+            "the repainted copy is the whole narrow viewport",
+        )
+        assertTrue(
+            runs[0].size < WIDE_ROWS - 2,
+            "the archived copy is the frame's TOP — a prefix, not the whole frame — got ${runs[0].size} rows",
+        )
     }
 
     @Test
@@ -223,6 +271,9 @@ class TakeOverDuplicationTest {
     private companion object {
         /** The ESC byte, spelled out so no editor or copy-paste can silently eat it. */
         const val ESC = "\u001b"
+
+        /** Captures the index off a `viewport row NN` line, for order assertions. */
+        val VIEWPORT_ROW = Regex("""viewport row (\d\d)""")
 
         const val MARKER_TOP = "MARKER-TOP-OF-FRAME"
         const val MARKER_BOTTOM = "MARKER-BOTTOM-OF-FRAME"
