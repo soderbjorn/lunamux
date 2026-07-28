@@ -225,6 +225,12 @@ Append -P<config.toolkit.gradleProperty>=<config.toolkit.relativeFromWorktree, {
 substituted> to EVERY Gradle invocation. It must stay relative — an absolute path
 silently resolves to nothing and your toolkit edits vanish from a green build.
 
+**When `config.toolkit` is null** — this repo *is* the toolkit, or has no such
+dependency — drop the "Your toolkit worktree" bullet, drop this whole "The toolkit"
+section except `repos.md`'s **Checkouts** table, and drop the `-P…` rule from every
+instruction below. There is no companion PR: the ticket's own PR is the toolkit
+change. Say so rather than leaving a subagent to wonder which repo to edit.
+
 # Scope
 
 Implement the whole ticket. Do not split it into "part 1" or descope because the
