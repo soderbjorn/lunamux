@@ -3,9 +3,10 @@
  * driven against a controllable fake [TermSession] so the frame order is asserted
  * without a real WebSocket or PTY:
  *  - a declared grid (?cols/?rows) is registered via setClientSize before attach;
- *  - the very first frames are the attach Size, this connection's governance
- *    verdict, then the redraw binary — governance BEFORE the redraw so a client
- *    never paints a frame under the wrong presentation;
+ *  - the very first frames are this connection's governance verdict, the attach
+ *    Size, then the redraw binary — governance BEFORE the Size because clients
+ *    decide mirror-vs-driving inside their Size handler, and both before the
+ *    redraw so a client never paints a frame under the wrong presentation;
  *  - live events already folded into the attach payload (seq ≤ attach.seq) are
  *    dropped, and only later events (Output, Size and Governance) are forwarded;
  *  - a broadcast governance id is rendered as a per-connection boolean, so a
@@ -74,7 +75,7 @@ class PtyAttachFlowTest {
             as PtyServerMessage.Governance
 
     @Test
-    fun `attach sends Size then redraw, then gates live events`() = runBlocking(Dispatchers.Default) {
+    fun `attach sends Governance, Size, redraw, then gates live events`() = runBlocking(Dispatchers.Default) {
         val fake = FakeSession(AttachPayload(seq = 5, cols = 80, rows = 24, bytes = "REDRAW".toByteArray()))
         val frames = mutableListOf<Frame>()
 
@@ -84,10 +85,12 @@ class PtyAttachFlowTest {
         // The declared grid was registered before attach.
         assertEquals(listOf(Triple("c1", 80, 24)), fake.setClientSizeCalls)
 
-        // First frames: attach Size, governance verdict, then the redraw binary. The
-        // verdict precedes the redraw because it decides how that paint is presented.
-        assertTrue(frames.size >= 3, "expected attach Size + governance + redraw, got ${frames.size}")
-        assertEquals(80 to 24, sizeOf(frames[0]))
+        // First frames: governance verdict, attach Size, then the redraw binary. The
+        // verdict precedes the Size because clients decide mirror-vs-driving in their
+        // Size handler; both precede the redraw because they decide how it is presented.
+        assertTrue(frames.size >= 3, "expected governance + attach Size + redraw, got ${frames.size}")
+        assertEquals(PtyServerMessage.Governance(driving = false, governed = false), governanceOf(frames[0]))
+        assertEquals(80 to 24, sizeOf(frames[1]))
         assertEquals("REDRAW", (frames[2] as Frame.Binary).readBytes().toString(Charsets.UTF_8))
 
         // Live events: one already covered by the attach (skipped), then newer ones.
@@ -113,9 +116,9 @@ class PtyAttachFlowTest {
         delay(120)
 
         assertTrue(fake.setClientSizeCalls.isEmpty(), "absent ?cols/?rows must not vote")
-        // Empty redraw → only the Size + governance frames are sent.
+        // Empty redraw → only the governance + Size frames are sent.
         assertEquals(2, frames.size)
-        assertEquals(120 to 32, sizeOf(frames[0]))
+        assertEquals(120 to 32, sizeOf(frames[1]))
 
         job.cancel()
     }
@@ -131,7 +134,7 @@ class PtyAttachFlowTest {
         delay(120)
         assertEquals(
             PtyServerMessage.Governance(driving = true, governed = true),
-            governanceOf(driverFrames[1]),
+            governanceOf(driverFrames[0]),
         )
         j1.cancel()
 
@@ -144,7 +147,7 @@ class PtyAttachFlowTest {
         delay(120)
         assertEquals(
             PtyServerMessage.Governance(driving = false, governed = true),
-            governanceOf(mirrorFrames[1]),
+            governanceOf(mirrorFrames[0]),
         )
         j2.cancel()
     }
@@ -164,7 +167,7 @@ class PtyAttachFlowTest {
 
             assertEquals(
                 PtyServerMessage.Governance(driving = false, governed = false),
-                governanceOf(frames[1]),
+                governanceOf(frames[0]),
             )
             job.cancel()
         }

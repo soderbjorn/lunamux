@@ -193,9 +193,15 @@ and never another client's identity. `governed = false` means nobody governs (a 
 session nobody has touched, or the governor just disconnected); clients then fall back to
 the width comparison, which is also what an older server produces by saying nothing.
 
-The frame is sent *before* the attach redraw, because the verdict decides how that paint is
-presented — after it, a client would render one frame under the wrong presentation and
-visibly correct itself.
+The frame is sent *before* the attach Size and redraw — and on live mutations the
+Governance event is seq'd before the Size event — because clients compute their
+mirror-vs-driving verdict inside their Size handler: Size-first meant every take-over was
+judged with the previous verdict, which on Android momentarily dropped the mirror's grid
+pin (and with it, correct addressing) on the very frame that changed hands. The same
+ordering discipline applies one level down: `applySize` issues the `SIGWINCH` ioctl *last*,
+after the grid resize and the Size event are seq'd, so the program's repaint bytes can
+never reach clients ahead of the Size frame nor be fed into an old-geometry grid
+(poisoning the next resync).
 
 iOS ignores the new event (it casts events by type), so it keeps its current behaviour
 until the mirror is driven further there. What iOS did get: opening a pane no longer

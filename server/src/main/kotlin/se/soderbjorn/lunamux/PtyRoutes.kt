@@ -122,19 +122,20 @@ internal fun Route.ptyRoutes(settingsRepo: SettingsRepository) {
 
 /**
  * Stream a `/pty` attach to [send]: adopt the client's declared grid (if any),
- * then send the attach `Size` + synthesized redraw, followed by the live
- * [TermSession.events] — each gated so events already folded into the attach
- * payload are not re-sent. Suspends until the collecting coroutine is cancelled.
+ * then send the attach `Governance` + `Size` + synthesized redraw, followed by
+ * the live [TermSession.events] — each gated so events already folded into the
+ * attach payload are not re-sent. Suspends until the collecting coroutine is
+ * cancelled.
  *
- * The Size + redraw are sent inside [onSubscription], which runs after the
+ * The attach frames are sent inside [onSubscription], which runs after the
  * subscription is registered but before any event is delivered to this collector.
  * That closes the gap the old snapshot-then-subscribe flow had: an event emitted
  * between capturing the redraw and starting to collect can't be lost, because the
  * subscription already exists when [attachPayload] samples the seq, and any event
  * with a greater seq is delivered by the collector.
  *
- * Factored out of the socket handler so the ordering (Size-before-redraw, seq
- * gating) is unit-testable without a real WebSocket.
+ * Factored out of the socket handler so the ordering (Governance-before-Size,
+ * Size-before-redraw, seq gating) is unit-testable without a real WebSocket.
  *
  * @param clientId this connection's size-arbitration id.
  * @param qCols the client's declared grid width from the connect URL, or null.
@@ -156,11 +157,13 @@ internal suspend fun TermSession.streamAttach(
         .onSubscription {
             val attach = attachPayload()
             attachSeq = attach.seq
-            send(Frame.Text(sizeFrame(attach.cols, attach.rows)))
-            // Before the redraw: the client must know whether the paint it is
-            // about to apply is its own grid or someone else's, or it renders one
-            // frame at the wrong presentation and corrects visibly.
+            // Governance first: clients decide mirror-vs-driving inside their Size
+            // handler, so the verdict must be current when the Size lands — Size
+            // first meant it was judged with the previous connection's answer. And
+            // both before the redraw, or the client renders one frame at the wrong
+            // size/presentation and corrects visibly.
             send(Frame.Text(governanceFrame(clientId, attach.governorClientId)))
+            send(Frame.Text(sizeFrame(attach.cols, attach.rows)))
             if (attach.bytes.isNotEmpty()) send(Frame.Binary(true, attach.bytes))
         }
         .collect { ev ->

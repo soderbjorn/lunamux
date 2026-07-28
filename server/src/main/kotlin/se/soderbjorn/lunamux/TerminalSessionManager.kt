@@ -660,8 +660,9 @@ class TerminalSession private constructor(
     /** Register the declared terminal size for [clientId] at [priority]. */
     override fun setClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
         val vote = SizeVote(max(MIN_GRID_COLS, cols), max(MIN_GRID_ROWS, rows), priority)
-        applySize(sizeArbiter.setSize(clientId, vote))
+        val next = sizeArbiter.setSize(clientId, vote)
         publishGovernance()
+        applySize(next)
     }
 
     /** Register [clientId]'s declared governance [posture] for this connection. */
@@ -682,14 +683,16 @@ class TerminalSession private constructor(
      */
     override fun forceClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
         val only = SizeVote(max(MIN_GRID_COLS, cols), max(MIN_GRID_ROWS, rows), priority)
-        applySize(sizeArbiter.forceSize(clientId, only))
+        val next = sizeArbiter.forceSize(clientId, only)
         publishGovernance()
+        applySize(next)
     }
 
     /** Unregister a client's size entry when its WebSocket disconnects. */
     override fun removeClient(clientId: String) {
-        applySize(sizeArbiter.remove(clientId))
+        val next = sizeArbiter.remove(clientId)
         publishGovernance()
+        applySize(next)
     }
 
     /**
@@ -699,8 +702,9 @@ class TerminalSession private constructor(
      * ping-eviction hasn't fired yet). See [ClientSizeArbiter].
      */
     override fun noteClientInput(clientId: String) {
-        applySize(sizeArbiter.noteInput(clientId))
+        val next = sizeArbiter.noteInput(clientId)
         publishGovernance()
+        applySize(next)
     }
 
     /**
@@ -721,6 +725,13 @@ class TerminalSession private constructor(
      * assignment and the send are one atomic step; concurrent callers therefore
      * cannot interleave into a stale final broadcast, and a no-op change costs
      * one lock and one comparison on the input hot path.
+     *
+     * Every mutation site calls this **before** [applySize], so a Governance
+     * frame is always seq'd ahead of the Size frame from the same mutation:
+     * clients compute their mirror-vs-driving verdict when the Size arrives,
+     * and the verdict must already be current or a take-over is judged with
+     * the previous connection's answer (the stale-verdict race both web and
+     * Android had).
      */
     private fun publishGovernance() {
         synchronized(outboundLock) {
@@ -741,17 +752,22 @@ class TerminalSession private constructor(
     private fun applySize(next: Pair<Int, Int>?) {
         val (c, r) = next ?: return
         val colsChanged = c != _sizeEvents.value.first
-        try {
-            pty.winSize = WinSize(c, r)
-        } catch (_: Throwable) {
-            // Ignore; resize races are benign.
-        }
         screen.resize(c, r)
         // Resize the grid and emit the Size event atomically with seq assignment,
         // ordered ahead of any output authored at the new width.
         synchronized(outboundLock) {
             grid.resize(c, r)
             eventChannel.trySend(SessionEvent.Size(++eventSeq, c, r))
+        }
+        // The ioctl goes LAST: it fires SIGWINCH, and the program's repaint answer
+        // can hit readJob within the same scheduler quantum. Emitters seq'd before
+        // the ioctl guarantee every client sees the Size frame before any byte the
+        // program authored at the new geometry, and that those bytes land in an
+        // already-resized grid instead of poisoning the next resync.
+        try {
+            pty.winSize = WinSize(c, r)
+        } catch (_: Throwable) {
+            // Ignore; resize races are benign.
         }
         _sizeEvents.value = Pair(c, r)
         // Only a cols change rewraps the grid, so only then does the client need a
