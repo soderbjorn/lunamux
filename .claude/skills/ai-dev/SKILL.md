@@ -148,7 +148,15 @@ reason "the subagent did not report back".
 
 ## 6. Close the loop on each ticket
 
-As each result arrives — do not wait for the whole batch:
+As each result arrives, close that ticket out **completely, then and there** —
+comment, column, e-mail, all three. Do not wait for the whole batch, and do not
+save the e-mail for the end of the cycle. A ticket that has landed is news the
+moment it lands: the point of this automation is that the owner can wake up, read
+one message per finished ticket, and act on it. Batching turns three separate
+results into one digest that arrives only when the slowest ticket does.
+
+Other tickets are still running while you do this. Finish one ticket's three calls
+before starting the next one's, so a result can never be half-reported.
 
 **`done`** →
 
@@ -156,6 +164,7 @@ As each result arrives — do not wait for the whole batch:
    (the detail lives in the PR), the PR link, and the toolkit PR link when there is
    one. Say plainly that nobody has reviewed it yet.
 2. `move_issue(issue_id, status: "<config.statuses.review>", agent_name: "Claude Code")`
+3. `send_email(…)` — see §8.
 
 ```
 **Claude Code** (an AI coding agent) finished this via the `/ai-dev` automation and
@@ -170,8 +179,9 @@ Companion toolkit change: <toolkit PR url> — both need to merge together.
 has reviewed this yet.
 ```
 
-**`blocked`** → comment, and **leave the ticket in `config.statuses.claimed`**. Do
-not move it, do not open a PR.
+**`blocked`** → comment, e-mail (§8), and **leave the ticket in
+`config.statuses.claimed`**. Do not move it, do not open a PR. A blocked ticket is
+the *more* urgent e-mail of the two: it is the one waiting on a human.
 
 ```
 **Claude Code** (an AI coding agent) worked on this via the `/ai-dev` automation but
@@ -307,16 +317,27 @@ TOOLKIT_PR: <url, or - if none>
 SUMMARY: <2–5 sentences. If blocked, state exactly what decision is needed.>
 ```
 
-## 8. E-mail one report
+## 8. E-mail, one per ticket, as it lands
 
-After the last ticket resolves, send **one** `send_email` for the whole cycle —
-never one per ticket. `send_email` has no recipient parameter: it reaches the
-account whose token this MCP connection holds, which is the person who armed the
-automation.
+Send the e-mail as the third call of §6, immediately after the comment and the
+column move — **not** batched at the end of the cycle. One ticket, one message.
 
-Subject: `<n> ticket(s) worked — <d> done, <b> blocked`. Body is plain text (no
-markdown), one short paragraph per ticket: key, title, outcome, and the PR URL or
-the decision needed. Skip the e-mail entirely on an idle cycle.
+`send_email` has no recipient parameter: it reaches the account whose token this
+MCP connection holds, which is the person who armed the automation.
+
+Subject: `<KEY> <done | needs a decision> — <short title>`.
+
+Body is **plain text**, not markdown — asterisks and backticks arrive as
+themselves, so lay it out with blank lines instead. Keep it to a few lines; the
+detail is in the PR and the ticket comment, and this is the message read on a
+phone before getting up.
+
+- `done` — what changed, in a sentence or two. The PR URL on its own line. The
+  toolkit PR URL too when there is one. Any assumption worth checking.
+- `blocked` — the decision needed, stated concretely, and where the work got to.
+
+Send nothing on an idle cycle, and send nothing when the cycle merely starts —
+a claimed ticket is not news, a resolved one is.
 
 ## 9. Report, and do not clean up
 
@@ -350,5 +371,6 @@ precisely the tickets where the toolkit side mattered most.
 - Never move a ticket to `config.statuses.review` without a PR URL.
 - Never move a blocked ticket out of `config.statuses.claimed`.
 - Never commit or push in `config.repoRoot` or `config.toolkit.repoRoot`.
-- One `send_email` per cycle, maximum.
+- Exactly one `send_email` per *resolved* ticket, sent as it resolves. None for a
+  ticket that is merely claimed, and none at all on an idle cycle.
 - A failing ticket must never stop the others. Record it and carry on.
