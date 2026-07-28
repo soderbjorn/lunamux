@@ -68,6 +68,36 @@ class PtyPresentationTest {
     }
 
     @Test
+    fun passiveFontSizeFitsBothAxes() {
+        // Width is the binding axis: same result as the cols-only overload.
+        assertEquals(
+            8f,
+            PtyPresentation.passiveFontSize(
+                16f, naturalCols = 100, serverCols = 200, floorPx = 6f,
+                naturalRows = 50, serverRows = 60,
+            ),
+        )
+        // Height is the binding axis: a server screen twice as tall halves the font
+        // even though the widths match — with rows pinned, anything less renders the
+        // bottom rows (the prompt) outside the view with no way to scroll to them.
+        assertEquals(
+            8f,
+            PtyPresentation.passiveFontSize(
+                16f, naturalCols = 100, serverCols = 100, floorPx = 6f,
+                naturalRows = 25, serverRows = 50,
+            ),
+        )
+        // Rows omitted (0) → width-only behaviour is preserved.
+        assertEquals(
+            16f,
+            PtyPresentation.passiveFontSize(
+                16f, naturalCols = 100, serverCols = 100, floorPx = 6f,
+                naturalRows = 0, serverRows = 50,
+            ),
+        )
+    }
+
+    @Test
     fun classifierTreatsMouseAndFocusReportsAsAmbient() {
         assertTrue(PtyPresentation.isAmbientReport("$esc[<64;10;5M".toByteArray()))   // SGR wheel
         assertTrue(PtyPresentation.isAmbientReport("$esc[<0;3;4m".toByteArray()))      // SGR release

@@ -41,10 +41,23 @@ import java.util.concurrent.atomic.AtomicReference
  * **Passive mirror pin.** In the server-authoritative model the phone renders
  * the server's grid (a live mirror), not its own pixel-derived one. When
  * [passiveGridPin] holds a `(cols, rows)`, `updateSize` resizes the emulator to
- * *that* — the server grid — instead of the view's computed grid, so the
- * synthesized redraw the server sends (authored at those dims) reconstructs
+ * *that* — the server grid, both axes — instead of the view's computed grid, so
+ * the synthesized redraw the server sends (authored at those dims) reconstructs
  * cell-for-cell regardless of the phone's font/viewport. Null → drive the
  * view's own grid (the phone is the governor).
+ *
+ * Tombstone: the pin used to hold only the *columns*, with rows left to the
+ * view's capacity so a server screen taller than the phone could draw would
+ * bottom-anchor instead of clipping the prompt. That was measured wrong on
+ * device: the mirrored stream is absolutely cursor-addressed for exactly the
+ * server's screen (Claude Code's repaints anchor at `ESC[H`; the synthesized
+ * redraw ends in an absolute CUP), and with `viewRows − serverRows` extra rows
+ * the *content* bottom-anchors but the *addresses* do not shift with it — every
+ * echo and partial repaint landed that many rows too high, splicing typed
+ * characters into the middle of the mirrored transcript. The clipping problem
+ * the free rows solved is handled where it belongs instead: the mirror font is
+ * fitted on both axes ([PtyPresentation.passiveFontSize]), so the pinned screen
+ * fits the view whenever the font is above the legibility floor.
  *
  * Input the view produces (keystrokes, mouse/focus reports) goes to
  * [handleInput], which decides per burst: while passively mirroring, ambient
@@ -77,15 +90,15 @@ internal fun createExternalTerminalSession(
 
         override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
             val e = externalEmulator ?: return
-            // While passively mirroring, pin only the COLUMNS to the server's grid:
-            // cols decide wrapping, so the synthesized redraw must be reconstructed at
-            // exactly that width. ROWS always follow the view's own capacity. Pinning
-            // rows too made a server screen taller than the phone can draw (the font is
-            // clamped at a legibility floor, so cells are bigger than a pure fit) clip
-            // at the bottom — losing the prompt and newest output. With rows free, a
-            // taller server screen simply scrolls its earlier rows into scrollback, so
-            // the mirror is bottom-anchored and the rest stays reachable by scrolling.
-            val cols = passiveGridPin.get()?.first ?: columns
+            // While passively mirroring, pin BOTH axes to the server's grid: cols
+            // decide wrapping, and rows decide where every absolutely-addressed
+            // sequence lands — the mirrored stream is authored for exactly the
+            // server's screen. (Rows used to follow the view so a too-tall screen
+            // would bottom-anchor; that shifted every address and spliced echoed
+            // input mid-transcript — see the pin tombstone in the factory kdoc.)
+            val pin = passiveGridPin.get()
+            val effectiveCols = pin?.first ?: columns
+            val effectiveRows = pin?.second ?: rows
             // Resize on the CALLING (main) thread rather than hopping to the emulator
             // dispatcher. TerminalView renders and reads the buffer (onScreenUpdated ->
             // getText) on the main thread WITHOUT taking the emulator lock, so a resize
@@ -95,7 +108,7 @@ internal fun createExternalTerminalSession(
             // Running it here makes resize and render mutually exclusive by being on one
             // thread; the lock still excludes the background append path.
             synchronized(e) {
-                runCatching { e.resize(cols, rows, cellWidthPixels, cellHeightPixels) }
+                runCatching { e.resize(effectiveCols, effectiveRows, cellWidthPixels, cellHeightPixels) }
             }
             terminalViewRef.value?.invalidate()
             // Deliberately no ptySocket.resize() here — see the kdoc: the grid

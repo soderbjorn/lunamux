@@ -101,21 +101,43 @@ object PtyPresentation {
     }
 
     /**
-     * Passive mirror font size: the user's font scaled so [serverCols] columns
-     * occupy the width [naturalCols] columns did at [userFontSize], floored at
-     * [floorPx] (below the floor the renderer clips the right edge rather than
-     * shrinking further).
+     * Passive mirror font size: the user's font scaled so the server grid fits
+     * the space this client's own grid occupied at [userFontSize], floored at
+     * [floorPx] (below the floor the renderer clips the right/bottom edges
+     * rather than shrinking further).
+     *
+     * Fits **both axes** when rows are supplied: a mirror renders the server
+     * grid pinned cell-for-cell (cols *and* rows — the stream is absolutely
+     * cursor-addressed for exactly that screen), so a server screen taller than
+     * this client's natural one must shrink the font vertically too, or its
+     * bottom rows — the prompt, the newest output — render outside the view
+     * with no way to scroll to them. Rows default to 0 (ignored) for callers
+     * that only fit width.
      *
      * @param userFontSize the user's chosen (driving) font size in px/pt.
      * @param naturalCols this client's own-font/viewport width.
      * @param serverCols the server grid width being mirrored.
      * @param floorPx smallest legible font size.
+     * @param naturalRows this client's own-font/viewport height, or 0 to fit
+     *   width only.
+     * @param serverRows the server grid height being mirrored, or 0 to fit
+     *   width only.
      * @return the mirror font size, ≥ [floorPx].
      */
-    fun passiveFontSize(userFontSize: Float, naturalCols: Int, serverCols: Int, floorPx: Float): Float {
+    fun passiveFontSize(
+        userFontSize: Float,
+        naturalCols: Int,
+        serverCols: Int,
+        floorPx: Float,
+        naturalRows: Int = 0,
+        serverRows: Int = 0,
+    ): Float {
         if (serverCols <= 0 || naturalCols <= 0) return userFontSize
-        val scaled = userFontSize * naturalCols.toFloat() / serverCols.toFloat()
-        return maxOf(scaled, floorPx)
+        var ratio = naturalCols.toFloat() / serverCols.toFloat()
+        if (serverRows > 0 && naturalRows > 0) {
+            ratio = minOf(ratio, naturalRows.toFloat() / serverRows.toFloat())
+        }
+        return maxOf(userFontSize * ratio, floorPx)
     }
 
     /**

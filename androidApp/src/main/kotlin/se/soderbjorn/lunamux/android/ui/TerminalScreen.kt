@@ -97,9 +97,12 @@ private val HeaderAccent: Color
 private const val PTY_RESUME_STALE_MS = 3_000L
 
 /**
- * Smallest legible font (px) for the passive mirror. When mirroring a grid wider
- * than the phone natively fits, the font shrinks proportionally down to this
- * floor; below it the right edge is clipped rather than shrinking illegibly.
+ * Smallest legible font (px) for the passive mirror. When mirroring a grid larger
+ * than the phone natively fits, the font shrinks proportionally (fitting both
+ * axes — see [PtyPresentation.passiveFontSize]) down to this floor; below it the
+ * right/bottom edges are clipped rather than shrinking illegibly. The explicit
+ * pinch zoom can still go below the floor ([MIRROR_FONT_MIN_PX]) to reach a
+ * clipped edge.
  */
 private const val PASSIVE_FONT_FLOOR_PX = 12f
 
@@ -291,15 +294,19 @@ fun TerminalScreen(
     )
 
     // The font actually applied to the view: the user's size while driving; while
-    // mirroring, shrunk so the (wider) server grid fits the phone, floored so it
-    // stays legible (below the floor the right edge clips). Applied in the
-    // AndroidView update block.
+    // mirroring, shrunk so the server grid fits the phone on BOTH axes, floored so
+    // it stays legible (below the floor the right/bottom edges clip). Height must
+    // fit too because the mirror emulator is pinned to the server's rows — a
+    // taller-than-fits server screen would put its bottom rows (the prompt)
+    // outside the view with no way to scroll to them. Applied in the AndroidView
+    // update block.
     val appliedFontSize = if (passive) {
         val lg = localGrid
         val sg = serverGrid
         if (lg != null && sg != null) {
             val fit = PtyPresentation.passiveFontSize(
                 userFontSize.toFloat(), lg.cols, sg.first, PASSIVE_FONT_FLOOR_PX,
+                lg.rows, sg.second,
             )
             // Pinch scales the mirror around that fit. Zooming out below the legibility
             // floor is allowed here because it is explicit intent (see more at once),
@@ -430,11 +437,16 @@ fun TerminalScreen(
                     // Deliberately NOT on the emulator dispatcher: this collector runs on
                     // the UI dispatcher, and the view reads the buffer on the main thread
                     // without the lock, so a background resize can reallocate it mid-read
-                    // (see the note in TerminalEmulatorHolder.updateSize). Width only —
-                    // rows stay at the view's capacity so a taller server screen
-                    // bottom-anchors instead of clipping the prompt.
+                    // (see the note in TerminalEmulatorHolder.updateSize). While passive,
+                    // BOTH axes follow the server: the mirrored stream is absolutely
+                    // cursor-addressed (ESC[H-anchored repaints, the redraw's CUP
+                    // epilogue) for exactly the server's screen, so extra local rows
+                    // shift every address — see the tombstone in TerminalEmulatorHolder.
+                    // While driving, rows keep following the view's own capacity.
                     synchronized(emulator) {
-                        runCatching { emulator.resize(sz.first, emulator.mRows, 1, 1) }
+                        runCatching {
+                            emulator.resize(sz.first, if (passiveNow) sz.second else emulator.mRows, 1, 1)
+                        }
                     }
                     // Repaint after the resize. A cols change is followed by the
                     // synthesized redraw Bytes (which repaint), but a rows-only Size
@@ -479,6 +491,21 @@ fun TerminalScreen(
                         driving = driving,
                     )
                     passiveGridPin.set(if (nowPassive && sg != null) sg else null)
+                    if (nowPassive && sg != null) {
+                        // Adopt the server grid NOW, on the event stream, not on the
+                        // next layout pass: a same-size take-over moves governance
+                        // with no Size frame at all, and the emulator's rows may
+                        // still be the view's own — every absolutely-addressed byte
+                        // that follows would land shifted until a relayout happened
+                        // to run. No-op when the dims already match.
+                        synchronized(emulator) {
+                            runCatching { emulator.resize(sg.first, sg.second, 1, 1) }
+                        }
+                        terminalViewRef.value?.post {
+                            val view = terminalViewRef.value ?: return@post
+                            if (view.topRow < 0) view.invalidate() else view.onScreenUpdated()
+                        }
+                    }
                     return@collect
                 }
                 is PtyEvent.Bytes -> Unit

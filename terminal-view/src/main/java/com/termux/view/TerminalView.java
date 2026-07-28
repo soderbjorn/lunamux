@@ -1028,6 +1028,14 @@ public final class TerminalView extends View {
         }
 
         if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows)) {
+            // LUNAMUX CHANGE. The session may pin the emulator to the server's grid while
+            // passively mirroring (see TerminalEmulatorHolder), in which case the emulator's
+            // dims deliberately differ from the view-derived ones and this branch is entered
+            // on every layout pass with nothing actually changing. Resetting the scroll
+            // unconditionally yanked a mirror out of scrollback on any relayout (IME
+            // show/hide, recomposition), so reset it only when the emulator's grid moved.
+            int oldColumns = mEmulator == null ? -1 : mEmulator.mColumns;
+            int oldRows = mEmulator == null ? -1 : mEmulator.mRows;
             mTermSession.updateSize(newColumns, newRows, (int) mRenderer.getFontWidth(), mRenderer.getFontLineSpacing());
             mEmulator = mTermSession.getEmulator();
             mClient.onEmulatorSet();
@@ -1036,8 +1044,10 @@ public final class TerminalView extends View {
             if (mTerminalCursorBlinkerRunnable != null)
                 mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
 
-            mTopRow = 0;
-            scrollTo(0, 0);
+            if (mEmulator == null || mEmulator.mColumns != oldColumns || mEmulator.mRows != oldRows) {
+                mTopRow = 0;
+                scrollTo(0, 0);
+            }
             invalidate();
         }
     }
