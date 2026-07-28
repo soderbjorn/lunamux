@@ -9,6 +9,7 @@
   ],
 
   "project": "Lunamux - next-gen terminal",
+  "maintainer": "soderbjorn",
   "keyPrefix": "LMX",
   "issueUrl": "https://issues.lunicle.dev/?issue={id}",
 
