@@ -329,8 +329,20 @@ Cycle — <n> ticket(s): <d> done, <b> blocked.
 ```
 
 Leave every app worktree and branch in place; the owner wants to revisit the work.
-Remove a paired toolkit worktree only if it has no changes
-(`git -C <path> status --porcelain` is empty) — an untouched one is just clutter.
+
+Remove a paired toolkit worktree only if it is **untouched** — clutter, not work.
+Untouched means both of these, and checking only the first is a trap:
+
+```
+git -C <path> status --porcelain          # empty: nothing uncommitted
+git -C <path> log --oneline origin/main..HEAD   # empty: nothing committed either
+```
+
+`status --porcelain` alone is empty *right after a commit*, so on its own it deletes
+the toolkit worktrees where real work happened and keeps the ones left in a mess —
+exactly backwards. The commits are pushed by then so nothing is lost, but the owner
+would come back to an app worktree whose paired toolkit worktree had vanished, for
+precisely the tickets where the toolkit side mattered most.
 
 ## Guard rails
 
