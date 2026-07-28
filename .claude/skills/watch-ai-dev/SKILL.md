@@ -1,20 +1,22 @@
 ---
 name: watch-ai-dev
-description: Run an immediate /ai-dev sweep, then arm a background loop that repeats it on an interval. Default cadence 15m, configurable.
+description: Arm a background loop that runs /ai-dev on an interval, then sweep once immediately so waiting work starts now rather than a cadence from now. Default cadence 15m, configurable.
 ---
 
 Arguments: $ARGUMENTS
 
-Sweep the board **now**, then start a `/loop` that keeps sweeping it on a recurring
-cadence. Stopping it is the user's business (interrupt the loop).
+Start a `/loop` that sweeps the board on a recurring cadence, and sweep once
+immediately rather than making the first one wait a full interval. Stopping it is
+the user's business (interrupt the loop).
 
 Each sweep snapshots this repo's Lunicle "ready for AI development" column, claims
 everything in it, and drives each ticket to a pull request in its own sibling
 worktree. See `/ai-dev` for what a sweep actually does.
 
-**The first sweep runs immediately, before the loop is armed.** Somebody who arms a
+**A sweep runs immediately, right after the loop is armed.** Somebody who arms a
 watcher because there is work waiting should not sit through a full interval of
 nothing happening — and if the column is empty, an idle sweep costs one board read.
+Arming comes first because it is instant and the sweep is not; see §2.
 
 ## 1. Parse arguments
 
@@ -58,23 +60,7 @@ nothing: they would walk away believing the loop runs on their number.
 | `--max 2` | `15m` | `--max 2` |
 | `30mn` | — | refuse, do not arm |
 
-## 2. Sweep once, now
-
-Invoke the `ai-dev` skill via the Skill tool with the tail as its arguments, and let
-it finish. This is a full sweep — if the column has work in it, this step runs for as
-long as that work takes.
-
-Keep its report; you print it in §4.
-
-Do this **before** arming the loop, not after. Arming first would let a tick fire
-while this sweep is still running, and two sweeps overlapping would snapshot the same
-column twice and dispatch every ticket twice over. Sweeping first also means the
-cadence starts counting from a clean board.
-
-If the sweep fails outright, still arm the loop — a transient failure should not
-leave the user with no watcher — but say so in the report.
-
-## 3. Arm the loop
+## 2. Arm the loop — first, before anything slow
 
 Invoke the `loop` skill via the Skill tool:
 
@@ -83,6 +69,30 @@ Invoke the `loop` skill via the Skill tool:
 
 Trim the trailing space when the tail is empty. Do not wrap the call in another
 layer — calling `/loop` directly is this skill's entire job here.
+
+**Arm before you sweep, not after.** Arming is a two-second call that cannot
+really fail; the sweep in §3 routinely runs for half an hour. Put the sweep first
+and the arming sits behind it, where anything that ends the turn — the turn
+boundary itself, an interruption, or simply judging the work finished once the
+pull requests are open — leaves the loop unarmed. That failure is silent and
+looks exactly like success: a clean cycle report, and no watcher.
+
+A tick firing while §3's sweep is still running is not a problem, because
+`/ai-dev` takes a cycle lock as its first act and a second cycle skips on a live
+lock. That protection is the whole reason this order is safe; before the lock
+existed it was not.
+
+## 3. Sweep once, now
+
+Invoke the `ai-dev` skill via the Skill tool with the tail as its arguments, and let
+it finish. This is a full sweep — if the column has work in it, this step runs for as
+long as that work takes.
+
+Keep its report; you print it in §4.
+
+If the sweep fails outright, say so in the report. The loop is already armed by
+then, so a transient failure never leaves the user without a watcher — which is
+the other reason for this order.
 
 ## 4. Report and exit
 
@@ -105,9 +115,10 @@ Then stop.
 - Never arm a cadence the user did not ask for. An unreadable duration is a refusal
   (§1), not a fallback to 15m.
 - If a `/loop` is already running `/ai-dev` in this session, do **not** sweep and do
-  **not** arm a second one. Two loops would both snapshot the same column and
-  dispatch the same tickets twice. Report that it is already armed and exit.
+  **not** arm a second one. The cycle lock keeps two loops from dispatching the same
+  ticket twice, but it does not stop them waking each other's sweeps into a
+  permanent skip-and-retry. Report that it is already armed and exit.
 - Warn inline if the cadence is under 5 minutes: one `/ai-dev` sweep routinely takes
   longer than that, since it builds and verifies real changes.
-- Beyond the one sweep in §2, touch nothing yourself. No `git`, no worktrees, no
+- Beyond the one sweep in §3, touch nothing yourself. No `git`, no worktrees, no
   `gh`, no Lunicle MCP writes — all of that belongs to `/ai-dev`.
