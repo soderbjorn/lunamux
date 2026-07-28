@@ -75,25 +75,30 @@ your assigned port and {key} by <KEY>>
 Commit in logical chunks, then:
 
     git push -u origin HEAD
-    gh label create ai-generated --repo <config.github> \
-        --description "Opened by an AI coding agent, unreviewed" --color BFD4F2 || true
-    gh pr create --repo <config.github> --title "<short title>" \
-        --label ai-generated --body "..."
+    GH_TOKEN="$(~/.config/ai-dev/gh-app-token.sh)" \
+        gh pr create --repo <config.github> --title "<short title>" --body "..."
 
 The PR must be full, not draft. Do NOT write "Closes #<n>": that targets a GitHub
 issue which does not exist, since the tickets live in Lunicle.
 
-**The label is not decoration.** `gh` authenticates as the repo owner's own
-account, so GitHub shows these pull requests as authored by a human, with their
-avatar and an Owner badge — in the list view there is otherwise nothing to say an
-agent opened it. The label is the only signal at that level. `gh label create`
-fails harmlessly once the label exists, which is why it is `|| true`; never let it
-stop the PR. If `--label` itself is rejected, open the PR without it and say so in
-your summary rather than dropping the PR.
+**Only `gh pr create` gets the token, and that is deliberate.** GitHub does not
+let anyone approve their own pull request, so a PR filed under the maintainer's
+account is one the maintainer cannot approve. The helper mints a short-lived
+GitHub App token, which files it as a bot instead and leaves the maintainer free
+to review it as a third party. The push stays under the maintainer's own
+credentials.
 
-If you changed the toolkit, do the same in its worktree: commit, push, label and
-open a PR against <config.toolkit.github>. Cross-link the two PRs in both bodies.
-Do not bump any version. Do not file a ticket in the toolkit's own project.
+The bot's name on the pull request is also what marks the change as agent-written,
+in the list view and on the PR itself. That is why there is no label to manage.
+
+If the helper is missing or fails, do not stop: open the PR without the prefix, as
+the maintainer, and say so in your summary — that PR needs a bypass to merge and
+wears no bot name, so the summary is the only place the human learns either fact.
+
+If you changed the toolkit, do the same in its worktree: commit, push and open a
+PR against <config.toolkit.github> — including the `GH_TOKEN` prefix, which covers
+every repo the app is installed on. Cross-link the two PRs in both bodies. Do not
+bump any version. Do not file a ticket in the toolkit's own project.
 
 PR body structure — a reviewer who has not seen the ticket must be able to follow
 it. Write prose where prose belongs. **The banner and the ticket line come first,
