@@ -157,6 +157,13 @@ class SessionGrid(cols: Int, rows: Int) {
                 // Resize races are benign; the next feed settles the layout.
                 Swallowed.note("resize", t)
             }
+            // A re-layout is a logical-line boundary in a way ordinary scrolling is not: what
+            // it evicted was wrapped at the OLD width, and the continuation of that line was
+            // rewrapped and is still on the live screen. Closing the line here keeps a
+            // wrapped last eviction from sitting invisible in the log — absent from every
+            // paint — until an unrelated later eviction fuses onto it. Inside the same monitor
+            // hold as the resize, so no reader can observe the gap.
+            history.closeOpenLine()
         }
     }
 

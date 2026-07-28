@@ -113,6 +113,34 @@ class HistoryLog(private val maxLines: Int = DEFAULT_MAX_LINES) {
     }
 
     /**
+     * Close the logical line currently being assembled, committing it if it holds anything.
+     *
+     * Called by [SessionGrid.resize] right after the emulator's re-layout, under the same
+     * hold of the grid monitor. A re-layout is a boundary in a way ordinary scrolling is
+     * not: the rows it pushes off the top are the tail of the OLD width's wrapping, and the
+     * screen it leaves behind has been rewrapped at the new width. When the last row it
+     * evicted was `wrapped == true`, the runs collected from it are stranded in [open] —
+     * absent from [lines] and therefore from every paint — until some unrelated later
+     * eviction happens to fuse onto them, at which point two unrelated fragments appear as
+     * one line.
+     *
+     * The semantic this chooses: the archived head becomes its own logical line, i.e. a hard
+     * break at the point the old width happened to wrap. That is the honest representation —
+     * the continuation of that line was not archived, it was rewrapped and is still on the
+     * live screen, so the archived part genuinely ends there. Fusing it to whatever scrolls
+     * off next would invent a line the session never wrote.
+     *
+     * Idempotent: a no-op when nothing is half-assembled, so a resize that evicts nothing
+     * (or ends on an unwrapped row) commits nothing.
+     */
+    fun closeOpenLine() {
+        if (open.isEmpty()) return
+        val line = LogicalLine(mergeAdjacent(open))
+        open.clear()
+        if (!line.isEmpty) commit(line)
+    }
+
+    /**
      * Committed history, oldest first.
      *
      * @return an immutable snapshot; the log itself is unaffected by what callers do

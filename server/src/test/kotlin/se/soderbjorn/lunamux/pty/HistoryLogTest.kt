@@ -108,6 +108,57 @@ class HistoryLogTest {
         assertEquals(listOf("after"), log.texts(), "the half-assembled line must not resurface")
     }
 
+    // ── reflow boundaries ─────────────────────────────────────────────────────
+
+    @Test
+    fun `closeOpenLine commits a line left open by a wrapped last eviction`() {
+        // The reflow hole: a re-layout whose last eviction still carries the wrap flag left
+        // its runs stranded in the open line — absent from lines(), so absent from every
+        // paint — with nothing to finish them.
+        val log = HistoryLog()
+        log.appendRow(row("archived head"), wrapped = true)
+        assertEquals(0, log.size, "still open before the boundary")
+
+        log.closeOpenLine()
+
+        assertEquals(listOf("archived head"), log.texts())
+    }
+
+    @Test
+    fun `closeOpenLine breaks the line rather than fusing the next eviction onto it`() {
+        // The semantic: the archived head is its own logical line. Its continuation was not
+        // archived — it was rewrapped at the new width and is still on the live screen — so
+        // whatever scrolls off next is unrelated content and must not join it.
+        val log = HistoryLog()
+        log.appendRow(row("old width tail"), wrapped = true)
+        log.closeOpenLine()
+        log.appendRow(row("later output"), wrapped = false)
+
+        assertEquals(listOf("old width tail", "later output"), log.texts())
+    }
+
+    @Test
+    fun `closeOpenLine is a no-op when nothing is half-assembled`() {
+        // Every resize calls it, and most evict nothing or end on an unwrapped row; none of
+        // those may plant a stray blank line in the scrollback.
+        val log = HistoryLog()
+        log.appendRow(row("done"), wrapped = false)
+
+        log.closeOpenLine()
+        log.closeOpenLine()
+
+        assertEquals(listOf("done"), log.texts())
+    }
+
+    @Test
+    fun `closeOpenLine keeps the styles of the head it commits`() {
+        val log = HistoryLog()
+        log.appendRow(listOf(StyledRun("bo", bold), StyledRun("ld", bold)), wrapped = true)
+        log.closeOpenLine()
+
+        assertEquals(listOf(LogicalLine(listOf(StyledRun("bold", bold)))), log.lines())
+    }
+
     @Test
     fun `an empty logical line reports itself empty`() {
         assertTrue(LogicalLine(emptyList()).isEmpty)
