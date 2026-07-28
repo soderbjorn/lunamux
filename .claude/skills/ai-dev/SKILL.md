@@ -341,17 +341,37 @@ your assigned port and {key} by <KEY>>
 Commit in logical chunks, then:
 
     git push -u origin HEAD
-    gh pr create --repo <config.github> --title "<short title>" --body "..."
+    gh label create ai-generated --repo <config.github> \
+        --description "Opened by an AI coding agent, unreviewed" --color BFD4F2 || true
+    gh pr create --repo <config.github> --title "<short title>" \
+        --label ai-generated --body "..."
 
-The PR must be full, not draft. Link the ticket by URL — <tracker link> — and do
-NOT write "Closes #<n>", which would target a GitHub issue that does not exist.
+The PR must be full, not draft. Do NOT write "Closes #<n>": that targets a GitHub
+issue which does not exist, since the tickets live in Lunicle.
 
-If you changed the toolkit, do the same in its worktree: commit, push, and open a
-PR against <config.toolkit.github>. Cross-link the two PRs in both bodies. Do not
-bump any version. Do not file a ticket in the toolkit's own project.
+**The label is not decoration.** `gh` authenticates as the repo owner's own
+account, so GitHub shows these pull requests as authored by a human, with their
+avatar and an Owner badge — in the list view there is otherwise nothing to say an
+agent opened it. The label is the only signal at that level. `gh label create`
+fails harmlessly once the label exists, which is why it is `|| true`; never let it
+stop the PR. If `--label` itself is rejected, open the PR without it and say so in
+your summary rather than dropping the PR.
+
+If you changed the toolkit, do the same in its worktree: commit, push, label and
+open a PR against <config.toolkit.github>. Cross-link the two PRs in both bodies.
+Do not bump any version. Do not file a ticket in the toolkit's own project.
 
 PR body structure — a reviewer who has not seen the ticket must be able to follow
-it. Write prose where prose belongs:
+it. Write prose where prose belongs. **The banner and the ticket line come first,
+before the first heading**, and are not optional:
+
+    > [!NOTE]
+    > **Automatically generated.** Claude Code opened this pull request working
+    > autonomously from <KEY> via the `/ai-dev` automation. It is unreviewed, and
+    > the assumptions listed below have not been confirmed by a human.
+
+    Ticket: <tracker link> (<KEY>)
+    <when a toolkit PR exists:> Companion toolkit change: <url> — merge together.
 
     ## Summary — what changed and why, in user-facing terms (2–4 sentences).
     ## Background — the problem, paraphrased from the ticket. If it was ambiguous,
