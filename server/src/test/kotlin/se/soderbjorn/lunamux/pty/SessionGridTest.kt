@@ -3,13 +3,15 @@
  * vendored Termux emulator:
  *  - fed bytes are interpreted into a readable transcript;
  *  - a width change runs the emulator's reflow without losing content;
- *  - device queries in ingested bytes are answered into the discard sink
- *    (proving nothing can escape toward a PTY), not re-injected;
+ *  - device queries are discarded while no answer sink is armed (proving nothing can
+ *    escape toward a PTY on the restore path), and reach the sink in order once armed —
+ *    the grid is the session's single answerer;
  *  - alternate-buffer state and the new serialization getters are readable;
  *  - a malformed sequence never throws out of [SessionGrid.feed].
  */
 package se.soderbjorn.lunamux.pty
 
+import se.soderbjorn.lunamux.TerminalInputClassifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -44,7 +46,7 @@ class SessionGridTest {
     }
 
     @Test
-    fun `device queries are answered into the discard sink, never escape`() {
+    fun `device queries are discarded while no answer sink is armed`() {
         val grid = SessionGrid(80, 24)
         // OSC 10 color query — the emulator replies (see OperatingSystemControlTest);
         // that reply lands in the discard sink and is counted, proving the grid
@@ -53,6 +55,64 @@ class SessionGridTest {
         grid.feed("after")
         assertTrue(grid.discardedOutputBytes > 0, "emulator answered the query into the sink")
         assertTrue(grid.transcriptText().contains("after"), "text after a query still renders")
+    }
+
+    @Test
+    fun `an armed sink receives the answers in order`() {
+        // The grid is the terminal's single answerer: its replies are what actually reaches
+        // the shell, so they must arrive complete and in the order the emulator produced them.
+        val answers = mutableListOf<String>()
+        val grid = SessionGrid(80, 24) { answers.add(it.toString(Charsets.UTF_8)) }
+
+        grid.feed("$esc[6n")   // DSR-6: cursor position report
+        grid.feed("$esc[5n")   // DSR-5: device status report
+        grid.feed("$esc[0c")   // DA1: device attributes
+
+        assertEquals(3, answers.size, "one answer per query, got $answers")
+        assertTrue(answers[0].endsWith("R"), "first answer is the cursor position report: ${answers[0]}")
+        assertEquals("$esc[0n", answers[1], "second answer is the device status report")
+        assertTrue(answers[2].endsWith("c"), "third answer is the device attributes report: ${answers[2]}")
+        assertEquals(0L, grid.discardedOutputBytes, "nothing is discarded once a sink is armed")
+    }
+
+    @Test
+    fun `answers reaching the sink are exactly what the shared classifier calls a device reply`() {
+        // The classifier is what the server uses to drop the clients' duplicate answers; the
+        // grid's own answers must be the same shape, or the two halves of the single-answerer
+        // rule would disagree about what a device reply is.
+        val answers = mutableListOf<ByteArray>()
+        val grid = SessionGrid(80, 24) { answers.add(it) }
+
+        grid.feed("$esc[6n$esc[5n$esc[>0c")
+
+        assertTrue(answers.isNotEmpty(), "the grid answered")
+        for (answer in answers)
+            assertTrue(
+                TerminalInputClassifier.isDeviceReply(answer),
+                "the classifier must recognise the grid's own answer: ${answer.toString(Charsets.UTF_8)}",
+            )
+    }
+
+    @Test
+    fun `a restore feed containing a query produces no sink output`() {
+        // The restore path replays a DEAD session's bytes, and a legacy raw blob can contain
+        // queries. Answering one would push a reply for a query nobody asked into the fresh
+        // shell's stdin, where ZLE reads it as typed input — so the sink is armed only after
+        // the restore feed, and this pins that ordering.
+        val answers = mutableListOf<ByteArray>()
+        val grid = SessionGrid(80, 24)
+
+        // A properly terminated OSC query (BEL), as a legacy raw blob would carry it: left
+        // unterminated the emulator would swallow the rest of the blob as OSC payload.
+        grid.feed("restored scrollback $esc[6n$esc]10;?\u0007 and more\r\n")
+        grid.armAnswerSink { answers.add(it) }
+
+        assertTrue(answers.isEmpty(), "a query replayed from history must never be answered")
+        assertTrue(grid.discardedOutputBytes > 0, "it was answered into nothing, not left unparsed")
+
+        // Live queries after arming do reach the sink.
+        grid.feed("$esc[6n")
+        assertEquals(1, answers.size, "the sink is live from here on")
     }
 
     @Test

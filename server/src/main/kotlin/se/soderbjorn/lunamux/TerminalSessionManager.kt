@@ -509,6 +509,32 @@ class TerminalSession private constructor(
      */
     private val grid = SessionGrid(initialCols, initialRows)
 
+    /**
+     * Device-query replies the canonical grid produced, waiting to be written to the PTY.
+     *
+     * The queue exists to get the write off the generating thread. Replies are produced
+     * inside `emulator.append`, on the PTY reader thread, while both [outboundLock] and the
+     * grid monitor are held — and `PtyProcess.outputStream.write` is a raw blocking
+     * `write(2)`. Writing there is the classic both-ends-blocked deadlock: the reader thread
+     * blocks in the write because the pty buffer is full, and the pty cannot drain because
+     * the only thing reading it is the thread now stuck in the write.
+     *
+     * `UNLIMITED` so [SessionGrid]'s sink can never suspend or fail to enqueue; a single
+     * consumer ([answerWriterJob]) keeps replies in the order the emulator produced them,
+     * which is what makes them a valid answer stream rather than an interleaving.
+     */
+    private val answerChannel = Channel<ByteArray>(Channel.UNLIMITED)
+
+    /**
+     * The one writer that drains [answerChannel] into the PTY.
+     *
+     * Single consumer by design: a query stream has one correct answer sequence, so replies
+     * must reach the shell in the order the grid generated them.
+     */
+    private val answerWriterJob: Job = scope.launch {
+        for (reply in answerChannel) write(reply)
+    }
+
     // ── Ordered outbound stream (see SessionEvent) ──────────────────────────
     // seq assignment and the grid feed/resize/synthesize the seq refers to happen
     // together under [outboundLock], so [attachPayload] captures a grid state and a
@@ -534,10 +560,11 @@ class TerminalSession private constructor(
             // Reconstruct the persisted scrollback into the canonical grid. The
             // blob is normally the server's own serializeForPersist() output
             // (self-contained styled rows); a legacy raw-byte blob works too —
-            // its device queries are answered harmlessly into the grid's discard
-            // sink, and the mode-reset epilogue below cancels any sticky modes
-            // (mouse/paste/focus/alt) a dead full-screen app may have left set,
-            // so a restore never leaves the fresh shell wedged (issue #91).
+            // its device queries are answered into nothing, because the grid's
+            // answer sink is armed only below, after this feed — and the mode-reset
+            // epilogue cancels any sticky modes (mouse/paste/focus/alt) a dead
+            // full-screen app may have left set, so a restore never leaves the
+            // fresh shell wedged (issue #91).
             grid.feed(initialScrollback, initialScrollback.size)
             grid.feed(RESTORE_MODE_RESET, RESTORE_MODE_RESET.size)
             // Break the line so the new shell's prompt starts below the restored
@@ -554,6 +581,16 @@ class TerminalSession private constructor(
                 val gap = "\r\n".toByteArray(Charsets.UTF_8)
                 grid.feed(gap, gap.size)
             }
+        }
+        // Only now does the canonical grid become the session's answerer. Everything above
+        // replayed a *dead* session's bytes; answering a query out of that replay would put a
+        // reply for a query nobody asked into the fresh shell's stdin, where ZLE reads it as
+        // typed input. From here on the grid answers for the terminal and every client's own
+        // reply is dropped at the server (see PtyRoutes) — one query, one answer.
+        grid.armAnswerSink { reply ->
+            // Enqueue only. The sink runs on the PTY reader thread inside emulator.append
+            // with outboundLock and the grid monitor held; see answerChannel.
+            answerChannel.trySend(reply)
         }
     }
 

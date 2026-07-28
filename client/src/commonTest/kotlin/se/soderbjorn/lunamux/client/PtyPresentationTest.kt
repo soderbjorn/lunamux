@@ -118,6 +118,16 @@ class PtyPresentationTest {
         assertTrue(PtyPresentation.isDeviceReply("$esc]10;rgb:abab/cdcd/0000\u0007".toByteArray())) // OSC reply (BEL)
         assertTrue(PtyPresentation.isDeviceReply("$esc]11;rgb:0/0/0$esc\\".toByteArray()))          // OSC reply (ST)
         assertTrue(PtyPresentation.isDeviceReply("$esc[24;80R$esc[?62;c".toByteArray()))// a burst of them
+        // DSR-5 and the XTWINOPS window reports. Missing these was what made an idle mirror's
+        // answers read as real typing: the mirror was promoted to size governor and the
+        // resulting take-over produced a SIGWINCH repaint storm, caused by nothing but the
+        // terminal answering a question it was asked.
+        assertTrue(PtyPresentation.isDeviceReply("$esc[0n".toByteArray()))               // DSR-5 "ok"
+        assertTrue(PtyPresentation.isDeviceReply("$esc[3n".toByteArray()))               // DSR-5 "not ok"
+        assertTrue(PtyPresentation.isDeviceReply("$esc[8;24;80t".toByteArray()))         // XTWINOPS text-area size
+        assertTrue(PtyPresentation.isDeviceReply("$esc[6;16;8t".toByteArray()))          // XTWINOPS cell size
+        assertTrue(PtyPresentation.isDeviceReply("$esc[4;384;640t".toByteArray()))       // XTWINOPS pixel size
+        assertTrue(PtyPresentation.isDeviceReply("$esc[0n$esc[8;24;80t".toByteArray()))  // a mixed burst
     }
 
     @Test

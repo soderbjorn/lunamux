@@ -28,14 +28,21 @@ object TerminalInputClassifier {
      * Whether [bytes] consists *entirely* of device replies the emulator generated
      * itself in answer to a query from the running program — cursor position
      * (`CSI … R`), device attributes (`CSI ? … c` / `CSI > … c`), mode reports
-     * (`CSI ? … $ y`) and OSC/DCS replies (e.g. a colour query answered with
-     * `OSC 10 ; rgb:… ST`).
+     * (`CSI ? … $ y`), device status (`CSI 0 n`, the DSR-5 "terminal ok" answer),
+     * window reports (`CSI … t`, the XTWINOPS size/position answers) and OSC/DCS
+     * replies (e.g. a colour query answered with `OSC 10 ; rgb:… ST`).
      *
-     * These must still be *delivered* — the program is blocked waiting for the
-     * answer — but they are never user intent. Callers use this to deliver them
-     * without letting them count as activity: on the client that means not seizing
-     * the grid, on the server that means not recording the sender as the most
-     * recently active client for size arbitration.
+     * These are never user intent. Callers use this to keep them from counting as
+     * activity: on the client that means not seizing the grid, on the server that
+     * means not recording the sender as the most recently active client for size
+     * arbitration. The server additionally *drops* them, because the canonical grid
+     * is the session's single answerer — a client's copy of the answer would be a
+     * duplicate the shell reads as typed input.
+     *
+     * The `n` and `t` finals were originally missing, which is what made an idle
+     * mirror's DSR-5 and XTWINOPS reports read as real typing: that promoted the
+     * mirror to size governor and triggered a spurious take-over, i.e. a SIGWINCH
+     * repaint storm caused by the terminal answering a question.
      *
      * Conservative by construction: any byte that is not part of a complete,
      * properly terminated reply makes the whole burst false, so real typing (which
@@ -60,8 +67,11 @@ object TerminalInputClassifier {
                     ) j++
                     if (j >= n) return false
                     val f = bytes[j]
-                    // R = cursor position report, c = device attributes, y = mode report.
-                    if (f != 'R'.code.toByte() && f != 'c'.code.toByte() && f != 'y'.code.toByte()) return false
+                    // R = cursor position report, c = device attributes, y = mode report,
+                    // n = device status report (DSR), t = window report (XTWINOPS).
+                    if (f != 'R'.code.toByte() && f != 'c'.code.toByte() && f != 'y'.code.toByte() &&
+                        f != 'n'.code.toByte() && f != 't'.code.toByte()
+                    ) return false
                     i = j + 1
                 }
                 ']'.code.toByte(), 'P'.code.toByte() -> {     // OSC / DCS … BEL or ST

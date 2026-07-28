@@ -88,27 +88,7 @@ internal fun Route.ptyRoutes(settingsRepo: SettingsRepository) {
         try {
             for (frame in incoming) {
                 when (frame) {
-                    is Frame.Binary -> {
-                        // Input marks this client as the most recently active
-                        // one for size arbitration (latest-active wins) —
-                        // recorded here, not inside write(), because write()
-                        // is also used by MCP tools with no client identity.
-                        //
-                        // Device replies are excluded: an emulator answers the
-                        // running program's queries (cursor position, device
-                        // attributes, colour/mode reports) by itself, over this
-                        // same channel. Counting those as activity let a client
-                        // that was merely mirroring seize the grid whenever the
-                        // program happened to probe the terminal — so a phone
-                        // left attached silently owned every session. They must
-                        // still be written (the program is blocked on the
-                        // answer), just not treated as the user acting here.
-                        val bytes = frame.readBytes()
-                        if (!TerminalInputClassifier.isDeviceReply(bytes)) {
-                            session.noteClientInput(clientId)
-                        }
-                        session.write(bytes)
-                    }
+                    is Frame.Binary -> acceptClientBytes(session, clientId, frame.readBytes())
                     is Frame.Text -> handleControl(session, clientId, frame.readText())
                     else -> Unit
                 }
@@ -118,6 +98,38 @@ internal fun Route.ptyRoutes(settingsRepo: SettingsRepository) {
             session.removeClient(clientId)
         }
     }
+}
+
+/**
+ * Handle one inbound binary frame from an attached `/pty` client: record it as activity and
+ * write it to the PTY — unless it is a device reply, which is dropped outright.
+ *
+ * **The canonical grid is the session's single answerer** (see
+ * [se.soderbjorn.lunamux.pty.SessionGrid.armAnswerSink]). Every attached interactive client's
+ * emulator also answers the running program's queries — cursor position, device attributes,
+ * colour, mode and window reports — over this same channel. Forwarding those meant N answers
+ * to a question that has exactly one: two attached devices produced two answers, ZLE consumed
+ * the surplus as typed input and echoed it into canonical state, which is the spliced echo and
+ * duplicated prompt lines on-device testing kept surfacing. Dropping them here mutes web,
+ * Android and iOS uniformly with no client change; each keeps its local auto-answer machinery
+ * and its answers simply die at the server.
+ *
+ * They are not activity either: counting a reply as input let a client that was merely
+ * mirroring seize the grid whenever the program happened to probe the terminal, so a phone
+ * left attached silently owned every session. Activity is recorded here rather than inside
+ * [TermSession.write] because that is also used by MCP tools, which have no client identity.
+ *
+ * Extracted from the socket handler so the rule is unit-testable without a real WebSocket.
+ *
+ * @param session the attached session.
+ * @param clientId this connection's size-arbitration id.
+ * @param bytes one inbound burst, verbatim from the frame.
+ * @see TerminalInputClassifier.isDeviceReply
+ */
+internal fun acceptClientBytes(session: TermSession, clientId: String, bytes: ByteArray) {
+    if (TerminalInputClassifier.isDeviceReply(bytes)) return
+    session.noteClientInput(clientId)
+    session.write(bytes)
 }
 
 /**

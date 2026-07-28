@@ -34,6 +34,8 @@ import kotlin.test.assertTrue
 
 class PtyAttachFlowTest {
 
+    private val esc = "\u001b"
+
     /** A [TermSession] whose event stream and attach payload the test drives directly. */
     private class FakeSession(private var attach: AttachPayload) : TermSession {
         private val _events = MutableSharedFlow<SessionEvent>(replay = 0, extraBufferCapacity = 64)
@@ -45,11 +47,16 @@ class PtyAttachFlowTest {
 
         val setClientSizeCalls = mutableListOf<Triple<String, Int, Int>>()
 
+        /** Everything that reached the PTY, and everything counted as client activity. */
+        val written = mutableListOf<ByteArray>()
+        val activityFrom = mutableListOf<String>()
+
         suspend fun emit(ev: SessionEvent) = _events.emit(ev)
 
         override fun attachPayload(): AttachPayload = attach
         override fun bytesWritten(): Long = 0
-        override fun write(bytes: ByteArray) {}
+        override fun write(bytes: ByteArray) { written.add(bytes) }
+        override fun noteClientInput(clientId: String) { activityFrom.add(clientId) }
         override fun resetTerminalModes() {}
         override fun shutdown() {}
         override fun setClientSize(clientId: String, cols: Int, rows: Int, priority: SizePriority) {
@@ -214,4 +221,46 @@ class PtyAttachFlowTest {
             assertEquals(before, frames.size, "stale governance must be gated like any event")
             job.cancel()
         }
+
+    // ── inbound: the server is the single answerer ─────────────────────────────
+
+    @Test
+    fun `real typing is written and counts as activity`() {
+        val fake = FakeSession(AttachPayload(seq = 0, cols = 80, rows = 24, bytes = ByteArray(0)))
+
+        acceptClientBytes(fake, "c1", "ls -la\r".toByteArray())
+
+        assertEquals(1, fake.written.size)
+        assertEquals("ls -la\r", fake.written[0].decodeToString())
+        assertEquals(listOf("c1"), fake.activityFrom)
+    }
+
+    @Test
+    fun `a client's device reply is dropped, never written to the PTY`() {
+        // The canonical grid answers for the terminal. A client's own answer is a duplicate
+        // of a reply that has exactly one correct value; forwarded, ZLE reads the surplus as
+        // typed input and echoes it into canonical state.
+        val fake = FakeSession(AttachPayload(seq = 0, cols = 80, rows = 24, bytes = ByteArray(0)))
+
+        acceptClientBytes(fake, "c1", "$esc[24;80R".toByteArray())        // cursor position
+        acceptClientBytes(fake, "c1", "$esc[0n".toByteArray())            // DSR-5
+        acceptClientBytes(fake, "c1", "$esc[8;24;80t".toByteArray())      // XTWINOPS size
+        acceptClientBytes(fake, "c1", "$esc[?62;c".toByteArray())         // device attributes
+        acceptClientBytes(fake, "c1", "$esc]11;rgb:0/0/0$esc\\".toByteArray()) // OSC colour reply
+
+        assertTrue(fake.written.isEmpty(), "device replies must not reach the PTY, got ${fake.written.size}")
+        assertTrue(fake.activityFrom.isEmpty(), "nor count as the user acting on this client")
+    }
+
+    @Test
+    fun `a reply with typing appended is not dropped`() {
+        // The classifier is conservative on purpose: one burst carrying a reply AND real
+        // keystrokes is real input, because dropping it would swallow what the user typed.
+        val fake = FakeSession(AttachPayload(seq = 0, cols = 80, rows = 24, bytes = ByteArray(0)))
+
+        acceptClientBytes(fake, "c1", "$esc[24;80Rls".toByteArray())
+
+        assertEquals(1, fake.written.size, "a mixed burst is delivered whole")
+        assertEquals(listOf("c1"), fake.activityFrom)
+    }
 }

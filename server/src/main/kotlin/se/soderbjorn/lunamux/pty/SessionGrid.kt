@@ -11,7 +11,10 @@
  *
  * The grid is the authority: [GridSerializer] reads it back to synthesize an
  * attach/resync redraw at each client's width (the tmux/mosh model), which
- * dissolves the width-bound byte-replay bug class instead of managing it.
+ * dissolves the width-bound byte-replay bug class instead of managing it. It is also
+ * the terminal's single *answerer* — device queries are answered here and every
+ * attached client's own answer is dropped at the server, so a question with one
+ * correct answer gets exactly one (see [SessionGrid.armAnswerSink]).
  *
  * The emulator holds only the live screen; scrollback is [HistoryLog], outside it,
  * as logical lines no reflow can reach. A resize therefore re-lays out the screen and
@@ -40,26 +43,59 @@ import com.termux.terminal.TerminalOutput
  *
  * @param cols initial grid columns.
  * @param rows initial grid rows.
+ * @param initialAnswerSink where the emulator's device-query replies go, or `null` (the
+ *   default) to discard them. Production arms the sink after construction instead — see
+ *   [armAnswerSink] for why, and for what the owner must guarantee about the callback.
  */
-class SessionGrid(cols: Int, rows: Int) {
+class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)? = null) {
 
     /**
-     * Where the emulator writes its device-query replies (DSR, DA, OSC color
-     * reads, …). On the server that reply has nowhere legitimate to go: the
-     * running program's queries are already answered by every attached client's
-     * real terminal, so a server answer would be a duplicate, and a *replayed*
-     * query would be answered again as phantom shell input. Sinking them here is
-     * why the grid can ingest arbitrary (even legacy, query-laden) bytes safely,
-     * and why a synthesized redraw — which never contains queries — has no
-     * re-answer hazard at all.
+     * The wired answer sink, or `null` while replies are discarded. `@Volatile` because
+     * [armAnswerSink] runs on the constructing thread while feeds arrive on the PTY reader.
      *
-     * [discardedOutputBytes] counts what was sunk, purely so tests can assert the
-     * emulator really did answer-and-drop rather than leak to a PTY (it never has
-     * a PTY handle to leak to).
+     * Note the constructor parameter is deliberately named differently: a same-named parameter
+     * stays in scope throughout the class body and would shadow this property inside
+     * [gridOutput]'s object expression, silently pinning the sink to its construction-time
+     * value and making [armAnswerSink] a no-op.
+     *
+     * @see armAnswerSink
      */
-    private val discardOutput = object : TerminalOutput() {
+    @Volatile
+    private var answerSink: ((ByteArray) -> Unit)? = initialAnswerSink
+
+    /**
+     * Where the emulator writes its device-query replies (DSR, DA, OSC colour reads,
+     * XTWINOPS reports, mouse reports, …).
+     *
+     * **The canonical grid is the terminal's single answerer.** A device query has exactly
+     * one correct answer, and this emulator is the one emulator that speaks for the session
+     * — so when [answerSink] is wired, replies are handed to the owner to write to the PTY,
+     * and every attached client's own reply is dropped at the server (see `PtyRoutes`). The
+     * arrangement this replaces had N answerers: each interactive client answered every
+     * query and the server wrote them all, so two clients meant two answers and ZLE consumed
+     * the surplus as typed input and echoed it into canonical state.
+     *
+     * With no [answerSink] the replies are discarded, which is what tests, the round-trip
+     * harness, and the restore feed want: a *replayed* query must never be answered into a
+     * live shell's stdin, and a synthesized redraw never contains queries at all.
+     *
+     * The callback must not block and must not write to the PTY inline — see the contract
+     * documented on the constructor parameter's use site in `TerminalSessionManager`: this
+     * runs on the PTY reader thread inside `emulator.append`, holding both the caller's
+     * outbound lock and this grid's monitor.
+     *
+     * [discardedOutputBytes] counts what was sunk while no sink was wired, purely so tests
+     * can assert the emulator really did answer-and-drop rather than leak.
+     */
+    private val gridOutput = object : TerminalOutput() {
         override fun write(data: ByteArray?, offset: Int, count: Int) {
-            if (count > 0) discardedOutputBytes += count.toLong()
+            if (count <= 0 || data == null) return
+            val sink = answerSink
+            if (sink == null) {
+                discardedOutputBytes += count.toLong()
+                return
+            }
+            sink(data.copyOfRange(offset, offset + count))
         }
 
         override fun titleChanged(oldTitle: String?, newTitle: String?) {}
@@ -70,10 +106,10 @@ class SessionGrid(cols: Int, rows: Int) {
     }
 
     /**
-     * Bytes the emulator wrote back to [discardOutput] (query replies, mouse
-     * reports, …) and this grid discarded. Observability-only; see the field doc
-     * on [discardOutput]. `@Volatile` because feeds may arrive from the PTY read
-     * coroutine while a test thread reads the counter.
+     * Bytes the emulator wrote back to [gridOutput] (query replies, mouse reports, …) that
+     * this grid discarded because no answer sink was wired. Observability-only; see the field
+     * doc on [gridOutput]. `@Volatile` because feeds may arrive from the PTY read coroutine
+     * while a test thread reads the counter.
      */
     @Volatile
     var discardedOutputBytes: Long = 0L
@@ -85,7 +121,7 @@ class SessionGrid(cols: Int, rows: Int) {
      * Session client). Cell pixel sizes are nominal (headless).
      */
     private val emulator = TerminalEmulator(
-        discardOutput,
+        gridOutput,
         cols.coerceAtLeast(MIN_DIM),
         rows.coerceAtLeast(MIN_DIM),
         NOMINAL_CELL_WIDTH_PX,
@@ -115,6 +151,27 @@ class SessionGrid(cols: Int, rows: Int) {
         emulator.mainBuffer.setTranscriptClearedListener {
             history.clear()
         }
+    }
+
+    /**
+     * Start routing the emulator's device-query replies to [sink], making this grid the
+     * session's single answerer.
+     *
+     * Separate from the constructor on purpose: the owner feeds the persisted scrollback blob
+     * into a fresh grid before the session goes live, and a legacy raw blob can contain device
+     * queries. Answering those would push a reply for a query from a *dead* session into the
+     * new shell's stdin, where ZLE reads it as typed input. Arming after the restore feed
+     * makes that impossible by construction rather than by filtering.
+     *
+     * @param sink receives each reply as its own byte array, in the order the emulator
+     *   produced it. **It must not block and must not write to the PTY inline**: it is called
+     *   from inside `emulator.append` on the PTY reader thread while the caller's outbound
+     *   lock and this grid's monitor are both held, and a blocking `write(2)` there is the
+     *   both-ends-blocked deadlock shape. Hand the bytes to a queue and let one writer drain
+     *   it (see `TerminalSessionManager`).
+     */
+    fun armAnswerSink(sink: (ByteArray) -> Unit) {
+        synchronized(emulator) { answerSink = sink }
     }
 
     /**
