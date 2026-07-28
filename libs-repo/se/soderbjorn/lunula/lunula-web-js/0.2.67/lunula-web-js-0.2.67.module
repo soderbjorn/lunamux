@@ -1,0 +1,144 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../lunula-web/0.2.67/lunula-web-0.2.67.module",
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-web",
+    "version": "0.2.67",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "jsApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.67"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-dom-api-compat",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-web-js-0.2.67.klib",
+          "url": "lunula-web-js-0.2.67.klib",
+          "size": 890886,
+          "sha512": "cb7f5ee903f9f95f3f29a85447ca3dba682922c30113efa039a3326a887b24f39d151c767a395b0686748d3263356c971c3d67faac3bd58a23877d7158bf7454",
+          "sha256": "1070872735cbf45790733e7f28ae05c70d5d8e563f94a64be5904ddea5ecebb5",
+          "sha1": "3a56e38a6e76979dbcc07975cb41e25927499d78",
+          "md5": "27bcbb864aee9a617cf048add34f7fbe"
+        }
+      ]
+    },
+    {
+      "name": "jsRuntimeElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.67"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-dom-api-compat",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-html",
+          "version": {
+            "requires": "0.12.0"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlinx",
+          "module": "kotlinx-coroutines-core",
+          "version": {
+            "requires": "1.10.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-web-js-0.2.67.klib",
+          "url": "lunula-web-js-0.2.67.klib",
+          "size": 890886,
+          "sha512": "cb7f5ee903f9f95f3f29a85447ca3dba682922c30113efa039a3326a887b24f39d151c767a395b0686748d3263356c971c3d67faac3bd58a23877d7158bf7454",
+          "sha256": "1070872735cbf45790733e7f28ae05c70d5d8e563f94a64be5904ddea5ecebb5",
+          "sha1": "3a56e38a6e76979dbcc07975cb41e25927499d78",
+          "md5": "27bcbb864aee9a617cf048add34f7fbe"
+        }
+      ]
+    },
+    {
+      "name": "jsSourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.js.compiler": "ir",
+        "org.jetbrains.kotlin.platform.type": "js"
+      },
+      "files": [
+        {
+          "name": "lunula-web-js-0.2.67-sources.jar",
+          "url": "lunula-web-js-0.2.67-sources.jar",
+          "size": 397014,
+          "sha512": "ea41f13aeeb2a31c0608a9cd3ac2381c0409e37651daa687267760337b553ec3bb5e10fb00b228a877f4874a454a42a33e55b6c8b2da51ecc36e3a97bcd8ba63",
+          "sha256": "49a9f6930ad321c1f4cc5e490742eccac1192b359f5321fd03979f02cd0b75f8",
+          "sha1": "4341538e4eddb869e30e9dfdc0ed5d99dcd0a57a",
+          "md5": "458df72f0aa4a1176386cde019deb56a"
+        }
+      ]
+    }
+  ]
+}

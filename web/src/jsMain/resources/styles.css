@@ -168,6 +168,32 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     border: 2px solid transparent;
 }
 
+/* Terminal panes keep a *visible* track, unlike every other scroller above.
+
+   Chromium paints nothing at all for a scroller that has no overflow: no
+   thumb (there is nothing to represent) and no track either, since the track
+   above is transparent. Every other scroller in the app is `overflow: auto`
+   and collapses its gutter in that state, so the strip is simply not there.
+   `.xterm-viewport` is `overflow-y: scroll` and keeps its 11px gutter — so a
+   terminal with nothing in its scrollback showed a blank strip where the
+   scrollbar used to be, which reads as the scrollbar having disappeared
+   (issue LMX-102). It bit full-screen TUI panes hardest: they never build
+   scrollback (the alternate screen holds exactly one screen), and their wheel
+   events go to the application rather than the DOM scroller, so the pane
+   scrolls happily while its gutter stays empty.
+
+   A faint track makes the groove read as an intentional, currently-empty
+   scrollbar in that state, and gives the thumb something to sit in once
+   scrollback does build up. Wash strengths track the thumbs above, so the
+   pair stays consistent per appearance. */
+.terminal-inner .xterm-viewport {
+    scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.08);
+}
+
+body.appearance-light .terminal-inner .xterm-viewport {
+    scrollbar-color: rgba(0, 0, 0, 0.25) rgba(0, 0, 0, 0.08);
+}
+
 #app {
     display: flex;
     flex-direction: column;
