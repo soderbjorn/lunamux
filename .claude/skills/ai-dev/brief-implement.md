@@ -72,28 +72,18 @@ your assigned port and {key} by <KEY>>
 
 # Shipping
 
-Commit in logical chunks, then:
+<paste github.md here>
+
+Commit in logical chunks, then write the body to
+<config.worktreeParent>/.ai-dev/<KEY>-pr.md and:
 
     git push -u origin HEAD
     GH_TOKEN="$(~/.config/ai-dev/gh-app-token.sh)" \
-        gh pr create --repo <config.github> --title "<short title>" --body "..."
+        gh pr create --repo <config.github> --title "<short title>" \
+            --body-file <config.worktreeParent>/.ai-dev/<KEY>-pr.md
 
 The PR must be full, not draft. Do NOT write "Closes #<n>": that targets a GitHub
 issue which does not exist, since the tickets live in Lunicle.
-
-**Only `gh pr create` gets the token, and that is deliberate.** GitHub does not
-let anyone approve their own pull request, so a PR filed under the maintainer's
-account is one the maintainer cannot approve. The helper mints a short-lived
-GitHub App token, which files it as a bot instead and leaves the maintainer free
-to review it as a third party. The push stays under the maintainer's own
-credentials.
-
-The bot's name on the pull request is also what marks the change as agent-written,
-in the list view and on the PR itself. That is why there is no label to manage.
-
-If the helper is missing or fails, do not stop: open the PR without the prefix, as
-the maintainer, and say so in your summary — that PR needs a bypass to merge and
-wears no bot name, so the summary is the only place the human learns either fact.
 
 If you changed the toolkit, do the same in its worktree: commit, push and open a
 PR against <config.toolkit.github> — including the `GH_TOKEN` prefix, which covers
@@ -101,13 +91,11 @@ every repo the app is installed on. Cross-link the two PRs in both bodies. Do no
 bump any version. Do not file a ticket in the toolkit's own project.
 
 PR body structure — a reviewer who has not seen the ticket must be able to follow
-it. Write prose where prose belongs. **The banner and the ticket line come first,
-before the first heading**, and are not optional:
+it. Write prose where prose belongs, one paragraph per line. **The banner and the
+ticket line come first, before the first heading**, and are not optional:
 
     > [!NOTE]
-    > **Automatically generated.** Claude Code opened this pull request working
-    > autonomously from <KEY> via the `/ai-dev` automation. It is unreviewed, and
-    > the assumptions listed below have not been confirmed by a human.
+    > **Automatically generated.** Claude Code opened this pull request working autonomously from <KEY> via the `/ai-dev` automation. It is unreviewed, and the assumptions listed below have not been confirmed by a human.
 
     Ticket: <tracker link> (<KEY>)
     <when a toolkit PR exists:> Companion toolkit change: <url> — merge together.

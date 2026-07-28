@@ -14,9 +14,10 @@ loop and does not schedule itself.
 
 ## 0. Load the configuration
 
-Read `config.json` and `repos.md` from this skill's own directory. `config.json`
-is the only per-repo file — every path, project name, column name and build
-command below comes from it. Never hardcode any of them into your reasoning.
+Read `config.json`, `repos.md` and `github.md` from this skill's own directory.
+`config.json` is the only per-repo file — every path, project name, column name
+and build command below comes from it. Never hardcode any of them into your
+reasoning.
 
 `$ARGUMENTS` may contain:
 
@@ -138,14 +139,19 @@ snapshot and for each ticket:
 2. `add_comment(issue_id, agent_name: "Claude Code", body: …)`:
 
 ```
-**Claude Code** (an AI coding agent) picked this up via the `/ai-dev` automation. A
-subagent has been assigned and is starting work now.
+**Claude Code** (an AI coding agent) picked this up via the `/ai-dev` automation. A subagent has been assigned and is starting work now.
 
-I'll comment again with a summary when it's done, or with what I'm stuck on if I
-can't finish it.
+I'll comment again with a summary when it's done, or with what I'm stuck on if I can't finish it.
 
 🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously.
 ```
+
+**Write every comment body one paragraph per line**, as above, however long the
+line gets. Lunicle renders a single newline inside a paragraph as a line break,
+so a body hard-wrapped at 80 columns renders as a narrow column down the left of
+a wide card. Blank lines between paragraphs; let the browser wrap. Lists and code
+fences are structure and keep their newlines. `github.md` says the same thing
+about GitHub, for the same reason.
 
 Claiming first is the point of the design: it is what stops the next cycle — or a
 human glancing at the board — from picking up work that is already in flight.
@@ -303,16 +309,13 @@ before starting the next one's, so a result can never be half-reported.
 3. `send_email(…)` — see §9.
 
 ```
-**Claude Code** (an AI coding agent) finished this via the `/ai-dev` automation and
-opened a pull request: <PR url>
+**Claude Code** (an AI coding agent) finished this via the `/ai-dev` automation and opened a pull request: <PR url>
 
 <2–3 sentences on what changed and any assumption a reviewer should check.>
 
-<When a toolkit PR exists:>
-Companion toolkit change: <toolkit PR url> — both need to merge together.
+<When a toolkit PR exists:>Companion toolkit change: <toolkit PR url> — both need to merge together.
 
-🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously. Nobody
-has reviewed this yet.
+🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously. Nobody has reviewed this yet.
 ```
 
 A **rework** ticket closes out the same way, but say what it was: the pull request
@@ -325,17 +328,13 @@ done about it, and link the PR comment the subagent posted. Then move it to
 the *more* urgent e-mail of the two: it is the one waiting on a human.
 
 ```
-**Claude Code** (an AI coding agent) worked on this via the `/ai-dev` automation but
-stopped without opening a pull request.
+**Claude Code** (an AI coding agent) worked on this via the `/ai-dev` automation but stopped without opening a pull request.
 
-**What I need from you:** <the concrete decision — quote the ambiguous phrase, name
-the contradiction, or list the options to pick between. "The requirements are
-unclear" is not enough.>
+**What I need from you:** <the concrete decision — quote the ambiguous phrase, name the contradiction, or list the options to pick between. "The requirements are unclear" is not enough.>
 
 <What was done so far, if anything, and where the worktree is.>
 
-🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously. The
-ticket stays in <claimed column> until this is resolved.
+🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously. The ticket stays in <claimed column> until this is resolved.
 ```
 
 ## 7.1 Then review it
@@ -353,11 +352,13 @@ Once a `done` ticket is closed out, spawn a second subagent for it from
 Review subagents **share `maxConcurrent`** with implementers. Without that a full
 cycle is six agents rather than three, and the cap was sized for three.
 
-The reviewer posts its findings inline on the pull request itself — that is where
-line-anchored comments belong and where the maintainer will read them. It does not
-fix anything: a review that edits the branch stops being a record of what review
-found, and this automation's whole rework path depends on those findings still
-being there to point at.
+The reviewer runs the `review` skill — **not** `code-review`, which refuses model
+invocation and so cannot be run by an agent at all — and posts the result as a
+single review on the pull request itself, under the bot, with the line-specific
+findings anchored to their lines. That is where the maintainer will read them. It
+does not fix anything: a review that edits the branch stops being a record of what
+review found, and this automation's whole rework path depends on those findings
+still being there to point at.
 
 When it returns, post its `VERDICT` to the ticket as a short second comment, and
 send its own e-mail (§9):
@@ -367,12 +368,9 @@ send its own e-mail (§9):
 
 <the VERDICT, verbatim.>
 
-<FINDINGS> finding(s) are posted inline on the pull request.<when BLOCKING is yes:>
-At least one looks like it should block a merge.
+<FINDINGS> finding(s) are posted on the pull request.<when BLOCKING is yes:> At least one looks like it should block a merge.
 
-To have them addressed, comment here saying so and move this ticket back to
-<ready column> — the next cycle will pick it up and work your comments rather than
-starting over.
+To have them addressed, comment here saying so and move this ticket back to <ready column> — the next cycle will pick it up and work your comments rather than starting over.
 
 🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously.
 ```
@@ -399,6 +397,11 @@ text rather than procedure and they were burying it:
 | `brief-implement.md` | a fresh ticket — no prior pull request |
 | `brief-rework.md` | a ticket that came back, with a pull request already open |
 | `brief-review.md` | reviewing a pull request after §7 has closed its ticket out |
+
+All three paste in `github.md`, which is how everything this automation writes to
+GitHub goes out under the bot rather than under the maintainer — and how it stops
+being hard-wrapped into a narrow column. Substituting a brief means pasting that
+file too, wherever the brief says so.
 
 Read the one you need, substitute every `<…>`, and pass the result as the
 subagent's entire prompt. Write the filled-in copy to

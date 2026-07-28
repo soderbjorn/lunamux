@@ -107,6 +107,8 @@ your assigned port and {key} by <KEY>>
 
 # Shipping
 
+<paste github.md here>
+
 Commit your changes in logical chunks, with messages that say which piece of
 feedback each one answers. Then push to the SAME branch:
 
@@ -116,12 +118,17 @@ That updates the existing pull request. Do NOT open a new one. Do NOT close the
 old one. If you changed the toolkit, push its branch too — its pull request
 updates the same way.
 
-Then post ONE comment on the pull request recording what you did:
+Then post ONE comment on the pull request recording what you did. Write it to
+<config.worktreeParent>/.ai-dev/<KEY>-rework.md and:
+
+    GH_TOKEN="$(~/.config/ai-dev/gh-app-token.sh)" \
+        gh pr comment <PR number> --repo <config.github> \
+            --body-file <config.worktreeParent>/.ai-dev/<KEY>-rework.md
+
+The comment:
 
     > [!NOTE]
-    > **Automatically generated.** Claude Code made these changes working
-    > autonomously from <KEY> via the `/ai-dev` automation, in response to the
-    > maintainer's feedback on the ticket. Still unreviewed.
+    > **Automatically generated.** Claude Code made these changes working autonomously from <KEY> via the `/ai-dev` automation, in response to the maintainer's feedback on the ticket. Still unreviewed.
 
     ## What was asked
     <the maintainer's requests, in your own words, one bullet each>
