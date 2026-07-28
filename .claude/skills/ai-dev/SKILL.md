@@ -1,6 +1,6 @@
 ---
 name: ai-dev
-description: One cycle of autonomous ticket work. Snapshots the Lunicle "ready for AI development" column, claims every ticket in it immediately, and drives each to a reviewed pull request in its own sibling worktree via its own subagent. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
+description: One cycle of autonomous ticket work. Snapshots the Lunicle "ready for agent development" column, claims every ticket in it immediately, and drives each to a reviewed pull request in its own sibling worktree via its own subagent. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
 ---
 
 Arguments: $ARGUMENTS

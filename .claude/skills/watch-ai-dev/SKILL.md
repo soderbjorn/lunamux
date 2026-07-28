@@ -9,7 +9,7 @@ Start a `/loop` that sweeps the board on a recurring cadence, and sweep once
 immediately rather than making the first one wait a full interval. Stopping it is
 the user's business (interrupt the loop).
 
-Each sweep snapshots this repo's Lunicle "ready for AI development" column, claims
+Each sweep snapshots this repo's Lunicle "ready for agent development" column, claims
 everything in it, and drives each ticket to a pull request in its own sibling
 worktree. See `/ai-dev` for what a sweep actually does.
 

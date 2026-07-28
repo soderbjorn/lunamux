@@ -14,9 +14,9 @@
   "issueUrl": "https://issues.lunicle.dev/?issue={id}",
 
   "statuses": {
-    "ready": "Ready for AI development",
+    "ready": "Ready for agent development",
     "claimed": "In progress",
-    "review": "Ready for review"
+    "review": "Ready for human code review"
   },
 
   "github": "soderbjorn/lunamux",
