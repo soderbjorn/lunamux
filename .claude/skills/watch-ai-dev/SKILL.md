@@ -18,24 +18,45 @@ nothing happening — and if the column is empty, an idle sweep costs one board 
 
 ## 1. Parse arguments
 
-Split `$ARGUMENTS` into a **cadence token** and a **passthrough tail**:
+Split `$ARGUMENTS` into a **cadence** and a **passthrough tail** forwarded verbatim
+to `/ai-dev`. Default cadence: **15m**. Default tail: empty.
 
-- The first whitespace-separated token is the cadence if it looks like an interval
-  (`15m`, `1h`, `45s`, `2h30m`) or is one of `auto` / `self-paced` / `dynamic` (all
-  three mean "let the model pace itself").
-- Everything after it is the tail, forwarded verbatim to `/ai-dev`.
-- If the first token is not a cadence, the whole of `$ARGUMENTS` is the tail and the
-  cadence is the default.
+`$ARGUMENTS` opens with a cadence when its first token starts with a digit, or is
+one of `auto` / `self-paced` / `dynamic` (all three mean "let the model pace
+itself"). Read it generously — all of these are the same thing:
 
-Default cadence: **15m**. Default tail: empty.
+```
+30m      30 minutes      30 min      30
+1h       1 hour          1 hr        90m      1h30m
+```
+
+- **A bare number is minutes.** `30` is half an hour, `2` is two minutes — one
+  rule, no guessing from magnitude. A mistyped `2` trips the under-5-minutes
+  warning in §5 rather than quietly thrashing.
+- **A word form may be two tokens.** `1 hour` is a cadence followed by an empty
+  tail, not a cadence of `1` and a tail of `hour`. Consume the unit word.
+- **Everything after the cadence is the tail**, untouched.
+- **No leading cadence at all** — `$ARGUMENTS` is empty, or starts with something
+  that is plainly an argument like `--max 2` — means the default cadence and the
+  whole string as tail. That is not an error.
+
+**If the first token starts with a digit but you cannot read it as a duration,
+stop.** `30mn`, `1hh`, `5x` — do not arm anything, do not sweep. Say what you
+could not parse and list the accepted forms. Somebody typing a number meant a
+cadence, and arming a 15m default they did not ask for is worse than doing
+nothing: they would walk away believing the loop runs on their number.
 
 | `$ARGUMENTS` | Cadence | Tail forwarded |
 |---|---|---|
 | *(empty)* | `15m` | *(empty)* |
 | `30m` | `30m` | *(empty)* |
+| `30` | `30m` | *(empty)* |
+| `2 hours` | `2h` | *(empty)* |
 | `1h --max 1` | `1h` | `--max 1` |
+| `45 min --max 1` | `45m` | `--max 1` |
 | `auto` | self-paced | *(empty)* |
 | `--max 2` | `15m` | `--max 2` |
+| `30mn` | — | refuse, do not arm |
 
 ## 2. Sweep once, now
 
@@ -81,6 +102,8 @@ Then stop.
 
 ## 5. Guard rails
 
+- Never arm a cadence the user did not ask for. An unreadable duration is a refusal
+  (§1), not a fallback to 15m.
 - If a `/loop` is already running `/ai-dev` in this session, do **not** sweep and do
   **not** arm a second one. Two loops would both snapshot the same column and
   dispatch the same tickets twice. Report that it is already armed and exit.
