@@ -17,10 +17,27 @@ explicit cursor/mode epilogue). Because the redraw is constructed rather than re
 is width-correct by construction and contains no device queries, so it carries no
 re-answer hazard.
 
+Three invariants make that authority real rather than nominal. Each has a section below;
+each was arrived at by finding what broke without it.
+
+1. **One emulator speaks for the terminal.** The canonical grid answers device queries, and
+   client replies are dropped server-side. N answerers to a question with one answer put the
+   surplus into the shell as typed input.
+2. **Geometry rides the byte stream.** Client grids are resized only by server frames, never
+   by a local layout pass — including on the driving client. A client that refits itself is a
+   second geometry authority, and two authorities disagree about the width a redraw was
+   authored at.
+3. **Canonical state is composite-tested.** History *plus* screen, read as one document,
+   across resize ping-pong with realistic relative (zsh-style) repaints. Both structural
+   holes this arc closed were invisible to tests that checked either half alone.
+
 ## Acceptance criteria
 
 1. **Both devices edit at their own native size.** The driver is native; the other mirrors.
-   *Met.*
+   *Met.* Since geometry became fully server-driven, the driver reaches its native size via
+   the server rather than by fitting itself: it measures, asks, and reflows when the answer
+   comes back. Same destination, one round trip later — the tmux feel, accepted
+   deliberately (see "Clients as pure renderers").
 2. **A device switch adds nothing beyond what one standalone-terminal resize of the
    running program produces; lunamux itself never duplicates, drops, or rewrites
    output.** *Met.* This is a restatement — the original read "no duplicated output when
@@ -145,6 +162,180 @@ With history separate, the remaining known cost is that the resync still sends t
 log per cols change — sending it once and streaming deltas afterwards is now possible and
 remains future work.
 
+## Two structural holes, closed
+
+On-device testing of this branch kept producing canonical-state mangling — spliced echo,
+duplicated prompt lines, interleaved transcript. Two investigations root-caused *all* of it
+to two holes, both invisible to the tests that existed.
+
+**1. The rows-only shrink corrupted the canonical ring.** `TerminalBuffer.resize`'s fast
+path rotated the screen inside the ring: it advanced `mScreenFirstRow` modulo the OLD ring
+size, then assigned the new (smaller) `mTotalRows` without reallocating `mLines`. Every
+later `externalToInternalRow` then reduced modulo a size the array did not have, so the
+screen aliased onto a rotated subset of its own rows — and the rows shifted off the top were
+dropped on the floor. That is only reachable for a buffer with no room beyond the screen
+(the alternate buffer, and the server's screen-only main buffer), and for the latter those
+rows are the only copy, because its history lives outside the emulator behind
+`RowEvictionListener`.
+
+It hid because a **rows-only change fires no client resync**: nothing repainted from the
+damaged grid until the next columns change baked it into immutable history and pushed it to
+every attached client. The trigger is mundane — any rows-only resize, i.e. a phone
+soft-keyboard settle.
+
+`resizeRowsOnlyReallocating` handles that case: evict the departing top rows oldest-first,
+then copy the surviving window into a fresh `mLines` with `mScreenFirstRow = 0`. **The
+surviving screen is deliberately the same rows the same-size-ring path yields**, because
+clients run transcript-ful buffers, take that path, and receive no resync — any divergence
+would be a permanent, invisible split between what the server believes it shows and what a
+client shows. For the same reason it does not defer to the reflow branch, which normalizes
+content (drops trailing blank rows, truncates the cursor row at the cursor).
+
+Two cursor bugs surfaced alongside. The reflow's blank-run flush was missing the
+`newCursorRow--` its two sibling scroll sites already do, leaving the cursor a row too low —
+on a blank row rather than on its own content. And a pending auto-wrap belongs to the width
+it was armed at: it means the cursor is logically one cell right of the character it is
+parked on, off the end of the row. After a widening that cell exists, so the wrap is spent
+as a plain cursor advance in `emitCodePoint`; left armed, the next character overwrote the
+one the cursor sat on — a character swallowed on every window widening. It is guarded on the
+cursor still standing where the wrap was armed, because a stale flag can also mean a cursor
+movement left the last column without clearing it (DECBI/DECFI do not). Deliberately *not*
+in `resizeScreen`: `resize` stays a pure relayout, so the reflow keeps seeing the cursor on
+its own character — moving it onto the padding to the right makes the reflow materialize that
+padding and burn a screen row, which breaks the resize round trip.
+
+`assertInvariants` now checks `mLines.length == mTotalRows`. Every existing invariant passed
+while the ring was incoherent.
+
+**2. A reflow ending on a wrapped eviction left that row out of every paint.** `HistoryLog`
+assembles a logical line from consecutive soft-wrapped evictions and commits it when an
+unwrapped row arrives. A re-layout whose *last* eviction still carried the wrap flag
+therefore stranded that row's runs in the open line: absent from `lines()`, so absent from
+history and from every paint, until some unrelated later eviction happened to fuse onto them
+— at which point two unrelated fragments read as one line.
+
+`closeOpenLine()` commits the half-assembled head, called by `SessionGrid.resize` inside the
+same monitor hold as the resize. A resize is a genuine logical-line boundary: what it
+evicted was wrapped at the OLD width, and the continuation of that line was rewrapped and is
+still on the live screen. The archived head therefore becomes its own logical line — a hard
+break at the point the old width happened to wrap. Fusing it onto whatever scrolls off next
+would invent a line the session never wrote.
+
+**How they are pinned.** `RelativeRepaintPingPongTest` asserts the **composite** — committed
+history plus the live screen, read as one document — across a laptop↔phone ping-pong, and
+drives it with the repaint shape a plain shell actually uses: zsh's ZLE answers `SIGWINCH`
+*relatively* (`\r`, `ESC[<n>A`, `ESC[J`, reprint), not with the absolute `ESC[H` full-frame
+repaint `TakeOverDuplicationTest` models for TUIs. A relative repaint erases only what it is
+about to rewrite, so unlike the TUI case there is no faithful duplicate to account for:
+every line must appear exactly once, in order. Verified against the unfixed code — four of
+five scenarios fail with exactly the reported symptoms, including rotated content
+(`L011, L028, L029, L030, L012, L021…`) and the cursor landing on an output row instead of
+the prompt being edited.
+
+## One answerer for the terminal
+
+Every attached interactive client's emulator answered the running program's device queries —
+CPR, DA, DSR, XTWINOPS, OSC colour — and the server wrote all of them to the PTY. A question
+with exactly one correct answer got as many answers as there were clients, and ZLE consumed
+the surplus as typed input and echoed it into canonical state. That is the spliced echo and
+the duplicated prompt lines. The canonical grid, meanwhile, answered into a discard sink:
+the one emulator entitled to speak for the session was the one being ignored.
+
+Inverted. **The canonical grid is the session's single answerer:**
+
+- `SessionGrid` gained an answer sink (default still discard, so tests and the round-trip
+  harness are untouched). `TerminalSession` wires it to an `UNLIMITED` channel drained by
+  one writer coroutine. The queue is not decoration: answers are generated inside
+  `emulator.append` on the PTY reader thread while both `outboundLock` and the grid monitor
+  are held, and `PtyProcess.outputStream.write` is a raw blocking `write(2)` — writing there
+  is the both-ends-blocked deadlock shape. A single consumer keeps the replies in the order
+  the emulator produced them, which is what makes them a valid answer stream.
+- The sink is armed **only after the restore feed**. That feed replays a *dead* session's
+  bytes and a legacy raw blob can contain queries; answering one would push a reply for a
+  query nobody asked into the fresh shell's stdin.
+- `PtyRoutes` **drops** clients' device replies instead of forwarding them, which mutes web,
+  Android and iOS alike with no client change. Each client keeps its local auto-answer
+  machinery; those answers simply die at the server.
+- `TerminalInputClassifier` accepts the `n` and `t` finals (DSR-5 `ESC[0n`, XTWINOPS
+  `ESC[…t`). Missing them made an idle mirror's reports read as real typing, which promoted
+  the mirror to size governor and turned a terminal answering a question into a spurious
+  take-over and a `SIGWINCH` repaint storm.
+
+**Behaviour deltas worth knowing.** OSC 10/11 answers now carry the *server's* palette
+rather than the viewing device's theme, and `CSI 14/16 t` answer with the grid's nominal 8×16
+cell. Both follow from having one answerer: the answer describes the canonical terminal, not
+whichever screen happens to be looking at it.
+
+## Clients as pure renderers
+
+The second design invariant: **geometry rides the byte stream.** A client's grid is set only
+by a server `Size` frame; nothing local reflows the terminal.
+
+Every local-fit site used to answer its own layout change by refitting and *then* telling the
+server what it had done. Two clients doing that disagree about the width a synthesized
+redraw was authored at, which is what puts blank bands and misplaced repaints in scrollback.
+They all measure what they would like and ask instead; the reflow arrives when the server
+answers. Otto accepted the tmux round trip for the driving client too.
+
+- **Web**: `term.resize` is left to `applyServerSize` plus two paths with no server to defer
+  to — the creation-time fit of a brand-new terminal, and demo mode, where the pane is its
+  own size authority. The webfont-ready, `ResizeObserver`, tab-mount, reconnect,
+  restore-settle, `reassertGrid`, font-family, font-size and `fitVisible` sites now measure
+  via `measureNaturalGrid` and vote with explicit dims (`sendForceResize`/`sendResizeVote`
+  used to read `term.cols` *after* the fit, i.e. read back their own answer). Scroll
+  preservation moved into `applyServerSize` — it had none, and the local fits that carried it
+  are gone. The 3D world's `setPaneGrid` only resizes when FOLLOWING a `Size` frame; a user
+  grid command votes and waits, so a vote that loses no longer leaves the plane showing a
+  grid the PTY never had.
+- **Android**: the holder pin holds the server's grid whether the phone is driving or
+  mirroring, so a layout pass is a no-op against the emulator, and the `Size` handler applies
+  both axes unconditionally. `measureNaturalGrid` reproduces `TerminalView.updateSize`'s
+  arithmetic against a throwaway `TerminalRenderer` at the **user's** font size, driven from
+  the view's layout-change listener, and feeds `localGrid`, the connect-URL grid, the votes
+  and the take-over targets.
+- **iOS** keeps its current behaviour this arc (minimal-iOS stance), including its 200 ms
+  vote debounce.
+
+Clients still keep local scrollback this arc (the RIS resync clears it); mosh-style state
+deltas remain future work.
+
+### Votes are ack-clocked
+
+The 200 ms trailing vote debounce is gone on web and Android. It was a guess at how long a
+drag or a settling layout takes — too short and the storm gets through, too long and a
+finished resize feels laggy — and Otto asked for a deterministic flow rather than another
+magic number.
+
+The pipeline (`requestPtyGrid` on web, `SizeVoteClock` on Android): vote immediately when
+idle; **at most one vote in flight**; while one is in flight remember only the latest desired
+grid. A vote resolves when any `Size` frame arrives, or when the grid we want is the grid the
+server already has. A ~1 s timer is a **safety valve only** — a vote that loses to a THREE_D
+override or a governing client produces no broadcast at all, and without an upper bound the
+latch would stay shut — not a pacing mechanism. The server's answers set the pace.
+
+The Android take-over font-walk storm that motivated the debounce (19 row-only votes in
+250 ms as the font walked from the mirror size back to the driving size) disappears
+structurally: font changes no longer touch the emulator or the natural grid, so they
+generate no votes at all. Web keeps its `resizeGestureActive` hold-and-flush, which was
+already deterministic — the ack clock bounds how *many* votes a drag sends, not whether the
+transient sizes it passes through are ones the PTY should ever see.
+
+The web vote-pending grace armed at pane creation is gone too: "no `Size` frame has arrived
+yet" is `ptyCols == null`, a fact that cannot expire mid-startup.
+
+### Tombstones from this arc
+
+- **The 200 ms vote debounce** (web `setTimeout`, Android `SIZE_VOTE_DEBOUNCE_MS`): replaced
+  by ack-clocking, above. Do not reintroduce a timer to pace votes.
+- **The cols-only mirror pin** on Android: the pin held only the *columns*, leaving rows to
+  the view's capacity so a server screen taller than the phone could draw would bottom-anchor
+  instead of clipping. Measured wrong on device — the mirrored stream is absolutely
+  cursor-addressed for exactly the server's screen, and extra local rows shift every address
+  while the content bottom-anchors, splicing typed characters mid-transcript. Clipping is
+  handled where it belongs: the mirror font is fitted on both axes.
+- **Local fits answering local layout changes** on either client: see above. A client that
+  refits itself is a second geometry authority.
+
 ## Tried and removed — do not resume
 
 All of these are recorded because each was measured, not guessed.
@@ -168,9 +359,9 @@ All of these are recorded because each was measured, not guessed.
   driver renders the program's native output, so the theory was it never needs the
   synthesized reconstruction. On device this regressed the driver into mixed-width
   stacking, because the periodic RIS-resync was also what cleared the client's own
-  accumulated cross-width scrollback. Clients are not yet pure renderers (they still
-  accumulate local scrollback between resyncs); until that changes, everyone gets the
-  resync.
+  accumulated cross-width scrollback. Clients are pure renderers for *geometry* now, but
+  they still accumulate local scrollback between resyncs; until that changes too, everyone
+  gets the resync.
 
 ## Settled: governance is assigned, not inferred
 
@@ -206,20 +397,26 @@ never reach clients ahead of the Size frame nor be fed into an old-geometry grid
 iOS ignores the new event (it casts events by type), so it keeps its current behaviour
 until the mirror is driven further there. What iOS did get: opening a pane no longer
 force-resizes the PTY (first-layout size is an ambient vote now; the Reformat button is
-the explicit take-over), and its per-layout votes are debounced like Android's.
+the explicit take-over), and its per-layout votes are debounced — the 200 ms debounce web
+and Android have since replaced with ack-clocking.
 
 ## Remaining work
 
-1. **Resync deltas.** The synthesized resync still carries the whole history log on every
-   cols change; with history now append-only, send-once + stream-deltas is possible. Cost,
-   not correctness.
-2. **Clients as pure renderers.** Web and Android still accumulate local xterm/emulator
-   scrollback from the byte stream between resyncs and rely on the RIS-prefixed resync to
-   stay coherent across width changes. Finishing this would also make the driver
-   resync-skip viable again if it is ever wanted.
-3. **Web vote-in-flight grace window** is redundant on the governed path now that the
-   server assigns governance; it survives only for ungoverned/legacy servers.
-4. **iOS mirror parity**: scaled passive mirror + take-over badge, matching web/Android.
-5. **Upstream**: this branch produced a clean byte-level repro of #49086 (renderer
+1. **Resync deltas / mosh-style state deltas.** The synthesized resync still carries the
+   whole history log on every cols change; with history append-only, send-once +
+   stream-deltas is possible. Clients also still keep local scrollback between resyncs and
+   rely on the RIS-prefixed resync to stay coherent — with geometry now server-driven, that
+   is the remaining half of "pure renderer". Cost, not correctness.
+2. **Reflow top-anchoring on widen.** Widening can leave the prompt mid-screen rather than
+   anchored, because the reflow re-inserts skipped blank runs and then scrolls. Cosmetic,
+   pre-existing, and orthogonal to the holes closed above — but it is what makes a widened
+   screen look unlike what the same content would look like if written at that width.
+3. **`justToCursor` right-of-cursor truncation.** The reflow copies the cursor row only up to
+   the cursor, so anything to its right is dropped — RPROMPT loss on a narrowing.
+4. **iOS mirror parity**: scaled passive mirror, take-over badge, and the ack-clocked vote
+   pipeline, matching web/Android. iOS still runs its 200 ms debounce.
+5. **`AgentSession`'s 64 KB raw ring** (`AgentSession.kt`) is a separate subsystem that was
+   never migrated to the canonical grid; it still replays raw bytes.
+6. **Upstream**: this branch produced a clean byte-level repro of #49086 (renderer
    isolated, htop control). Worth attaching to an open report (e.g. #81135) to help get it
    fixed — that fix, not anything in lunamux, is what retires the artifact.
