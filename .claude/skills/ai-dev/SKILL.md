@@ -21,6 +21,8 @@ command below comes from it. Never hardcode any of them into your reasoning.
 `$ARGUMENTS` may contain:
 
 - `--max <n>` — override `maxConcurrent` for this cycle.
+- `--force` — run even though another cycle holds the lock. See §1; only ever
+  meaningful when typed by a human, so a loop tick must never pass it.
 - One or more issue keys (`LNL-190 LNL-191`) — restrict the cycle to those tickets
   *if they are in the ready column*. A key that is not in that column is skipped
   with a note; this skill never pulls work that has not been marked ready.
@@ -50,6 +52,32 @@ snapshot, do not claim, do not touch the board at all. The loop will try again
 next tick, which is the correct behaviour: there is nothing to catch up on,
 because the running cycle already claimed everything that was ready.
 
+**Unless `--force` was passed**, in which case run anyway — but *unlocked*, and
+say so:
+
+```
+Forcing — a cycle started <when> is still running. This one runs unlocked, on
+ports <base>–<base+n>, and will not touch that cycle's lock.
+```
+
+Running unlocked means three things, and all three matter:
+
+- **Do not take the lock and do not overwrite it.** It belongs to the other
+  cycle, which will delete it when it finishes. A forced cycle that stamped its
+  own timestamp over it would extend the other cycle's apparent life, and one
+  that deleted it at §10 would unlock a cycle still running.
+- **Offset the ports by 20** (`config.basePort + 20 + i` rather than
+  `config.basePort + i`), because colliding with the live cycle's ports is the
+  thing that would actually break — both run scripts refuse a held port. Two
+  *forced* cycles at once would collide again; don't do that.
+- **Expect the ready column to be nearly empty.** The running cycle claimed
+  everything that was ready when it started, so unless tickets have landed since,
+  a forced cycle finds nothing and idles. That is usually the honest answer to
+  "why is nothing happening" — the work is already in flight.
+
+`--force` exists for a human who knows the other cycle is wedged or irrelevant.
+It is never the right thing for a loop tick to pass.
+
 If it exists and is **older than 6 hours**, treat it as stale — a cycle that died
 before §10 could clean up — and say so in your final report, because a cycle that
 died mid-flight probably left tickets sitting in `config.statuses.claimed` with
@@ -59,10 +87,15 @@ Otherwise write it, with the current timestamp and one line naming this cycle.
 Six hours is chosen to be far longer than any real cycle; a human who knows better
 can always delete the file.
 
-**You now own the lock, and you must remove it before you exit — on every path.**
-Idle cycle, conflicting arguments, an error partway through: all of them remove it
-on the way out. A lock left behind by a cycle that simply finished is worse than
-no lock at all, because it silently disables the automation for six hours.
+**If you took the lock you own it, and you must remove it before you exit — on
+every path.** Idle cycle, conflicting arguments, an error partway through: all of
+them remove it on the way out. A lock left behind by a cycle that simply finished
+is worse than no lock at all, because it silently disables the automation for six
+hours.
+
+**If you did not take it, never touch it.** A forced cycle releases nothing. Carry
+"do I own the lock?" through the whole cycle and check it at §10 — releasing a lock
+you do not own is the one way this design fails open.
 
 ## 2. Snapshot the ready column
 
@@ -91,7 +124,7 @@ hardcode priority names; read the order from the board. Break ties by ascending
 issue id, so older tickets go first. That order is the claim order and the
 dispatch order, and it does not change for the rest of the cycle.
 
-If the column is empty: release the lock, print
+If the column is empty: release the lock if you own it, print
 `Idle cycle — nothing in "<ready column>".`, send no e-mail, and stop.
 
 ## 3. Claim every ticket, immediately
@@ -167,7 +200,8 @@ Gradle builds contend on the shared caches and RAM — it is not a correctness
 constraint, so `--max 1` is always safe.
 
 **Assign each ticket a port** before you write its brief: `config.basePort + i`,
-where `i` is the ticket's zero-based position in the dispatch order. Ports are
+where `i` is the ticket's zero-based position in the dispatch order — or
+`config.basePort + 20 + i` if §1 said you are running unlocked. Ports are
 assigned per ticket rather than per slot, so a ticket that outlives its neighbours
 can never collide with the one that replaced it. It is substituted for `{port}` in
 `config.runInstructions`.
@@ -379,10 +413,13 @@ a claimed ticket is not news, a resolved one is.
 
 ## 10. Release the lock, report, and do not clean up
 
-**Delete `<config.worktreeParent>/.ai-dev/cycle.lock` first**, before printing
-anything. It is the one piece of cleanup that is not optional: leave it behind and
-the next six hours of ticks all skip, and the automation looks like it simply
-stopped working.
+**If you own the lock, delete `<config.worktreeParent>/.ai-dev/cycle.lock`
+first**, before printing anything. It is the one piece of cleanup that is not
+optional: leave it behind and the next six hours of ticks all skip, and the
+automation looks like it simply stopped working.
+
+If §1 said you are running unlocked — `--force` over a live cycle — leave the file
+exactly where it is. It is not yours, and the cycle that owns it is still running.
 
 Print one line per ticket, in dispatch order:
 
@@ -410,8 +447,8 @@ precisely the tickets where the toolkit side mattered most.
 
 ## Guard rails
 
-- Never run without the lock, and never exit still holding it — on any path,
-  including an early one.
+- Never run without the lock unless `--force` said so, never exit still holding one
+  you took, and never delete one you did not take.
 - Never work a ticket that was not in the ready column at snapshot time.
 - Never move a ticket to `config.statuses.review` without a PR URL.
 - Never move a blocked ticket out of `config.statuses.claimed`.
