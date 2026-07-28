@@ -26,7 +26,45 @@ command below comes from it. Never hardcode any of them into your reasoning.
   with a note; this skill never pulls work that has not been marked ready.
 - Anything else is ignored.
 
-## 1. Snapshot the ready column
+## 1. Take the cycle lock
+
+**Before the first board call.** A tick can fire while the previous cycle is still
+working, and two overlapping cycles break things the frozen snapshot cannot
+protect: both hand out ports from `config.basePort` upward and collide on every
+one of them, both run up to `maxConcurrent` subagents so the cap silently doubles,
+and a tick landing in the narrow window between §2's snapshot and the end of its
+claim loop sees the same tickets twice — which does not fail, because §4 appends
+`-2` to a taken worktree name, it just quietly works one ticket twice and opens
+two pull requests for it.
+
+The lock is `<config.worktreeParent>/.ai-dev/cycle.lock`. One per repo, so a
+Lunicle sweep and a Lunula sweep are free to run at the same time.
+
+```
+mkdir -p <config.worktreeParent>/.ai-dev
+```
+
+If the file exists and is **younger than 6 hours**, a cycle is already running.
+Print `Skipped — a cycle started <when> is still running.` and stop. Do not
+snapshot, do not claim, do not touch the board at all. The loop will try again
+next tick, which is the correct behaviour: there is nothing to catch up on,
+because the running cycle already claimed everything that was ready.
+
+If it exists and is **older than 6 hours**, treat it as stale — a cycle that died
+before §10 could clean up — and say so in your final report, because a cycle that
+died mid-flight probably left tickets sitting in `config.statuses.claimed` with
+nobody working them.
+
+Otherwise write it, with the current timestamp and one line naming this cycle.
+Six hours is chosen to be far longer than any real cycle; a human who knows better
+can always delete the file.
+
+**You now own the lock, and you must remove it before you exit — on every path.**
+Idle cycle, conflicting arguments, an error partway through: all of them remove it
+on the way out. A lock left behind by a cycle that simply finished is worse than
+no lock at all, because it silently disables the automation for six hours.
+
+## 2. Snapshot the ready column
 
 `list_projects` → find the project named `config.project` → `get_board` with that
 id and `status: "<config.statuses.ready>"`.
@@ -53,10 +91,10 @@ hardcode priority names; read the order from the board. Break ties by ascending
 issue id, so older tickets go first. That order is the claim order and the
 dispatch order, and it does not change for the rest of the cycle.
 
-If the column is empty: print `Idle cycle — nothing in "<ready column>".`, send no
-e-mail, and stop.
+If the column is empty: release the lock, print
+`Idle cycle — nothing in "<ready column>".`, send no e-mail, and stop.
 
-## 2. Claim every ticket, immediately
+## 3. Claim every ticket, immediately
 
 Before fetching detail, before creating a single worktree, walk the ordered
 snapshot and for each ticket:
@@ -77,7 +115,7 @@ what I'm stuck on if I can't finish it.
 Claiming first is the point of the design: it is what stops the next cycle — or a
 human glancing at the board — from picking up work that is already in flight.
 
-## 3. Build a self-contained brief per ticket
+## 4. Build a self-contained brief per ticket
 
 Subagents **must not touch the Lunicle MCP**, and may not even have it: the server
 is registered per project directory in `~/.claude.json`, and a sibling worktree path
@@ -87,9 +125,9 @@ subagent needs must be written down for it now.
 
 For each ticket: `get_issue(issue_id)` and write a brief to
 `<config.worktreeParent>/.ai-dev/<KEY>.md` — outside every repo, so it can never
-pollute a diff. Use the template in §7, and give each ticket the port §5 assigns it.
+pollute a diff. Use the template in §8, and give each ticket the port §6 assigns it.
 
-## 4. Create the worktrees
+## 5. Create the worktrees
 
 Slug: 3–5 kebab-case words from the title, feature-descriptive (not `fix`, not
 `update`). Branch and directory share the name `<key-lowercase>-<slug>`. If either
@@ -114,16 +152,16 @@ Every sibling worktree would otherwise resolve the one shared toolkit checkout, 
 concurrent tickets would corrupt each other's edits. See `repos.md` for why, and for
 the relative-path trap in `-P<config.toolkit.gradleProperty>`.
 
-## 5. Dispatch, capped
+## 6. Dispatch, capped
 
 Spawn one subagent per ticket via the Agent tool:
 
 - `subagent_type`: `"general-purpose"`
 - `run_in_background`: `true`
 - `description`: `"<KEY>"`
-- `prompt`: the brief from §7, in full
+- `prompt`: the brief from §8, in full
 
-Launch in the §1 priority order, holding at most `maxConcurrent` in flight (3 by
+Launch in the §2 priority order, holding at most `maxConcurrent` in flight (3 by
 default). Start the next as each one returns. The cap exists because concurrent
 Gradle builds contend on the shared caches and RAM — it is not a correctness
 constraint, so `--max 1` is always safe.
@@ -146,7 +184,7 @@ SUMMARY: <2–5 sentences>
 If a subagent dies or returns something unparseable, treat it as `blocked` with the
 reason "the subagent did not report back".
 
-## 6. Close the loop on each ticket
+## 7. Close the loop on each ticket
 
 As each result arrives, close that ticket out **completely, then and there** —
 comment, column, e-mail, all three. Do not wait for the whole batch, and do not
@@ -164,7 +202,7 @@ before starting the next one's, so a result can never be half-reported.
    (the detail lives in the PR), the PR link, and the toolkit PR link when there is
    one. Say plainly that nobody has reviewed it yet.
 2. `move_issue(issue_id, status: "<config.statuses.review>", agent_name: "Claude Code")`
-3. `send_email(…)` — see §8.
+3. `send_email(…)` — see §9.
 
 ```
 **Claude Code** (an AI coding agent) finished this via the `/ai-dev` automation and
@@ -179,7 +217,7 @@ Companion toolkit change: <toolkit PR url> — both need to merge together.
 has reviewed this yet.
 ```
 
-**`blocked`** → comment, e-mail (§8), and **leave the ticket in
+**`blocked`** → comment, e-mail (§9), and **leave the ticket in
 `config.statuses.claimed`**. Do not move it, do not open a PR. A blocked ticket is
 the *more* urgent e-mail of the two: it is the one waiting on a human.
 
@@ -197,7 +235,7 @@ unclear" is not enough.>
 ticket stays in <claimed column> until this is resolved.
 ```
 
-## 7. The subagent brief
+## 8. The subagent brief
 
 Write this to `<config.worktreeParent>/.ai-dev/<KEY>.md` and pass it as the
 subagent's entire prompt. Substitute every `<…>`. It must stand alone: the subagent
@@ -317,9 +355,9 @@ TOOLKIT_PR: <url, or - if none>
 SUMMARY: <2–5 sentences. If blocked, state exactly what decision is needed.>
 ```
 
-## 8. E-mail, one per ticket, as it lands
+## 9. E-mail, one per ticket, as it lands
 
-Send the e-mail as the third call of §6, immediately after the comment and the
+Send the e-mail as the third call of §7, immediately after the comment and the
 column move — **not** batched at the end of the cycle. One ticket, one message.
 
 `send_email` has no recipient parameter: it reaches the account whose token this
@@ -339,7 +377,12 @@ phone before getting up.
 Send nothing on an idle cycle, and send nothing when the cycle merely starts —
 a claimed ticket is not news, a resolved one is.
 
-## 9. Report, and do not clean up
+## 10. Release the lock, report, and do not clean up
+
+**Delete `<config.worktreeParent>/.ai-dev/cycle.lock` first**, before printing
+anything. It is the one piece of cleanup that is not optional: leave it behind and
+the next six hours of ticks all skip, and the automation looks like it simply
+stopped working.
 
 Print one line per ticket, in dispatch order:
 
@@ -367,6 +410,8 @@ precisely the tickets where the toolkit side mattered most.
 
 ## Guard rails
 
+- Never run without the lock, and never exit still holding it — on any path,
+  including an early one.
 - Never work a ticket that was not in the ready column at snapshot time.
 - Never move a ticket to `config.statuses.review` without a PR URL.
 - Never move a blocked ticket out of `config.statuses.claimed`.
