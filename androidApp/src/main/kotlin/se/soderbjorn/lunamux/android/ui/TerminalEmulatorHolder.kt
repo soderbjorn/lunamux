@@ -31,20 +31,24 @@ import java.util.concurrent.atomic.AtomicReference
  * [ptySocket] (write → server) and whose emulator is owned externally
  * (set after construction via [setEmulator]).
  *
- * Resize calls coming from the view are routed through [emulatorDispatcher]
- * with a lock on the emulator instance to serialise with append + onDraw. The
- * view's `updateSize` resizes the local emulator here but does **not** vote the
- * new dims to the server: the single (deduped) size-vote chokepoint is the
- * view's grid-size-changed listener in [TerminalScreen], so voting here too
- * double-sent every natural resize.
+ * Resize calls coming from the view are serialised against append + onDraw by a lock on the
+ * emulator instance. The view's `updateSize` never votes the new dims to the server: the
+ * single size-request chokepoint is the layout listener in [TerminalScreen], which measures
+ * the grid this phone would fit at the *user's* font and asks for it.
  *
- * **Passive mirror pin.** In the server-authoritative model the phone renders
- * the server's grid (a live mirror), not its own pixel-derived one. When
- * [passiveGridPin] holds a `(cols, rows)`, `updateSize` resizes the emulator to
- * *that* — the server grid, both axes — instead of the view's computed grid, so
- * the synthesized redraw the server sends (authored at those dims) reconstructs
- * cell-for-cell regardless of the phone's font/viewport. Null → drive the
- * view's own grid (the phone is the governor).
+ * **Server grid pin.** In the server-authoritative model the phone renders the server's
+ * grid — always, not only while mirroring. Once [serverGridPin] holds a `(cols, rows)`,
+ * `updateSize` resizes the emulator to *that* — both axes — instead of the view's computed
+ * grid, so the synthesized redraw the server sends (authored at those dims) reconstructs
+ * cell-for-cell regardless of the phone's font or viewport, and a layout pass becomes a
+ * no-op against the emulator.
+ *
+ * The pin used to be set only while *passive*, which left the driving client sizing its own
+ * emulator from its own pixels — one client with a private geometry authority, which is the
+ * disagreement the tmux model removes. Otto's call: fully server-driven geometry, including
+ * the driving client, tmux feel accepted. The pin is null only before the first `Size` frame
+ * of a connection, where the view's own dims are the only information available (the fresh
+ * 80x24 boot case).
  *
  * Tombstone: the pin used to hold only the *columns*, with rows left to the
  * view's capacity so a server screen taller than the phone could draw would
@@ -71,7 +75,7 @@ internal fun createExternalTerminalSession(
     emulatorDispatcher: CoroutineDispatcher,
     terminalViewRef: MutableState<TerminalView?>,
     ptySocket: PtySocket,
-    passiveGridPin: AtomicReference<Pair<Int, Int>?>,
+    serverGridPin: AtomicReference<Pair<Int, Int>?>,
     handleInput: suspend (ByteArray) -> Unit,
 ): TerminalSession {
     return object : TerminalSession(
@@ -90,13 +94,17 @@ internal fun createExternalTerminalSession(
 
         override fun updateSize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
             val e = externalEmulator ?: return
-            // While passively mirroring, pin BOTH axes to the server's grid: cols
-            // decide wrapping, and rows decide where every absolutely-addressed
-            // sequence lands — the mirrored stream is authored for exactly the
-            // server's screen. (Rows used to follow the view so a too-tall screen
-            // would bottom-anchor; that shifted every address and spliced echoed
-            // input mid-transcript — see the pin tombstone in the factory kdoc.)
-            val pin = passiveGridPin.get()
+            // Once the server has spoken, pin BOTH axes to its grid — whether this phone is
+            // driving or mirroring. Cols decide wrapping, and rows decide where every
+            // absolutely-addressed sequence lands; the stream is authored for exactly the
+            // server's screen either way. A layout pass therefore cannot reflow the emulator
+            // out from under a redraw, which is the whole point of a pure renderer: what the
+            // view measures becomes a size *request* (see TerminalScreen's layout listener),
+            // never a local resize.
+            //
+            // The view's own dims are used only before the first Size frame, when they are
+            // the only information there is.
+            val pin = serverGridPin.get()
             val effectiveCols = pin?.first ?: columns
             val effectiveRows = pin?.second ?: rows
             // Resize on the CALLING (main) thread rather than hopping to the emulator
@@ -111,8 +119,9 @@ internal fun createExternalTerminalSession(
                 runCatching { e.resize(effectiveCols, effectiveRows, cellWidthPixels, cellHeightPixels) }
             }
             terminalViewRef.value?.invalidate()
-            // Deliberately no ptySocket.resize() here — see the kdoc: the grid
-            // listener in TerminalScreen is the sole, deduped voting path.
+            // Deliberately no ptySocket.resize() here — see the kdoc: the layout listener in
+            // TerminalScreen is the sole voting path, and it votes a grid it MEASURED at the
+            // user's font rather than whatever dims happen to arrive here.
         }
 
         override fun initializeEmulator(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {

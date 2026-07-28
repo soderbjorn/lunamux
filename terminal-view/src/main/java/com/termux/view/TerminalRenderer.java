@@ -275,4 +275,19 @@ public final class TerminalRenderer {
     public int getFontLineSpacing() {
         return mFontLineSpacing;
     }
+
+    /**
+     * LUNAMUX ADDITION. The vertical inset {@link TerminalView#updateSize()} subtracts from the
+     * view height before dividing by the line spacing.
+     *
+     * Exposed so a caller can reproduce that row calculation for a font size other than the one
+     * currently applied to the view — the phone needs the grid it would fit at the *user's* font
+     * while the view is rendering a shrunken mirror font. Without this the formula would have to
+     * be restated (and drift) outside this class.
+     *
+     * @return {@link #mFontLineSpacing} + the font ascent.
+     */
+    public int getFontLineSpacingAndAscent() {
+        return mFontLineSpacingAndAscent;
+    }
 }

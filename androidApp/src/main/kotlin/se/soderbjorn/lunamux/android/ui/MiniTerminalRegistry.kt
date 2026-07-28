@@ -103,10 +103,9 @@ class MiniTerminalRegistry(
     private fun createEntry(sessionId: String): Entry {
         val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
         val socket = client.openPtySocket(sessionId)
-        // No view backs a registry emulator; the ref stays null. The session
-        // never votes a size on its own (only the view's grid listener does,
-        // and there is no view here), and a thumbnail never takes input, so its
-        // take-over gate is a no-op.
+        // No view backs a registry emulator; the ref stays null. The session never votes a
+        // size on its own (only the layout listener in TerminalScreen does, and there is no
+        // view here), and a thumbnail never takes input, so its take-over gate is a no-op.
         val viewRef = mutableStateOf<TerminalView?>(null)
         val session = createExternalTerminalSession(
             scope = scope,
@@ -116,7 +115,7 @@ class MiniTerminalRegistry(
             // No view drives updateSize here, so the pin is never read; the
             // thumbnail sizes its emulator directly in the Size collector below.
             // A thumbnail never takes input, so the input handler is a no-op.
-            passiveGridPin = java.util.concurrent.atomic.AtomicReference(null),
+            serverGridPin = java.util.concurrent.atomic.AtomicReference(null),
             handleInput = {},
         )
         val emulator = createSyncedEmulator(session)
