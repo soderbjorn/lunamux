@@ -113,31 +113,33 @@ class HistoryLog(private val maxLines: Int = DEFAULT_MAX_LINES) {
     }
 
     /**
-     * Close the logical line currently being assembled, committing it if it holds anything.
+     * The logical line currently being assembled, or null when nothing is half-assembled.
      *
-     * Called by [SessionGrid.resize] right after the emulator's re-layout, under the same
-     * hold of the grid monitor. A re-layout is a boundary in a way ordinary scrolling is
-     * not: the rows it pushes off the top are the tail of the OLD width's wrapping, and the
-     * screen it leaves behind has been rewrapped at the new width. When the last row it
-     * evicted was `wrapped == true`, the runs collected from it are stranded in [open] —
-     * absent from [lines] and therefore from every paint — until some unrelated later
-     * eviction happens to fuse onto them, at which point two unrelated fragments appear as
-     * one line.
+     * **Read-only: this does not commit it.** The runs collected so far belong to a line
+     * whose continuation is still on the live screen, so the line has not ended and must not
+     * be recorded as though it had.
      *
-     * The semantic this chooses: the archived head becomes its own logical line, i.e. a hard
-     * break at the point the old width happened to wrap. That is the honest representation —
-     * the continuation of that line was not archived, it was rewrapped and is still on the
-     * live screen, so the archived part genuinely ends there. Fusing it to whatever scrolls
-     * off next would invent a line the session never wrote.
+     * Why it is exposed at all. Rows evicted under an unbroken soft wrap accumulate here
+     * until an unwrapped row arrives, and while they do they are absent from [lines] — so
+     * they used to be absent from every paint too, and content that had scrolled off the top
+     * of a long wrapped line simply vanished until the line's tail happened to follow it off.
+     * A reflow makes that routine: it can evict a whole screenful of one line's rows at once.
+     * [GridSerializer] therefore emits this ahead of the live screen **without a terminating
+     * newline**, so the screen flow continues the same logical line and the receiving
+     * terminal rewraps the whole of it at its own width.
      *
-     * Idempotent: a no-op when nothing is half-assembled, so a resize that evicts nothing
-     * (or ends on an unwrapped row) commits nothing.
+     * The rejected alternative was to commit it as its own logical line at reflow boundaries.
+     * That is lossless in content but not in structure: it freezes the point the *old* width
+     * happened to wrap into a permanent hard break, which on a restored session reads as a
+     * word split down the middle (`…deliberately not C` / `ompose Multiplatform…`).
+     *
+     * @return the half-assembled line, or null when the log is between lines.
+     * @see GridSerializer.serialize
      */
-    fun closeOpenLine() {
-        if (open.isEmpty()) return
+    fun pendingLine(): LogicalLine? {
+        if (open.isEmpty()) return null
         val line = LogicalLine(mergeAdjacent(open))
-        open.clear()
-        if (!line.isEmpty) commit(line)
+        return if (line.isEmpty) null else line
     }
 
     /**

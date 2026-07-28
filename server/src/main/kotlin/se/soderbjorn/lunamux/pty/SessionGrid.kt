@@ -214,13 +214,6 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
                 // Resize races are benign; the next feed settles the layout.
                 Swallowed.note("resize", t)
             }
-            // A re-layout is a logical-line boundary in a way ordinary scrolling is not: what
-            // it evicted was wrapped at the OLD width, and the continuation of that line was
-            // rewrapped and is still on the live screen. Closing the line here keeps a
-            // wrapped last eviction from sitting invisible in the log — absent from every
-            // paint — until an unrelated later eviction fuses onto it. Inside the same monitor
-            // hold as the resize, so no reader can observe the gap.
-            history.closeOpenLine()
         }
     }
 
@@ -243,6 +236,19 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
     fun historyLines(): List<LogicalLine> = synchronized(emulator) { history.lines() }
 
     /**
+     * The half-assembled history line whose continuation is still on the live screen, or null.
+     *
+     * Rows evicted under an unbroken soft wrap — routinely a whole screenful of them at once
+     * when a reflow re-lays out a long line — accumulate outside [historyLines] until the
+     * line's unwrapped tail arrives. Every paint has to carry them anyway, or content that
+     * scrolled off the top of a wrapped line is simply missing until its tail follows it off.
+     *
+     * @return the pending line, or null when the log is between lines.
+     * @see HistoryLog.pendingLine
+     */
+    fun pendingHistoryLine(): LogicalLine? = synchronized(emulator) { history.pendingLine() }
+
+    /**
      * The full normal-buffer transcript (scrollback + visible screen) as plain
      * text, one logical line per row. Backed by the canonical grid so it stays
      * correct across resizes; used by the MCP `read_scrollback` tool.
@@ -252,6 +258,9 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
     fun transcriptText(): String = synchronized(emulator) {
         val sb = StringBuilder()
         for (line in history.lines()) sb.append(line.text).append('\n')
+        // The pending line's continuation is the top of the screen text appended next, so it
+        // runs on with no separator — the same reason the serializer emits it unterminated.
+        history.pendingLine()?.let { sb.append(it.text) }
         sb.append(emulator.mainBuffer.transcriptText)
         sb.toString()
     }
@@ -267,7 +276,7 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
      * @see GridSerializer.serialize
      */
     fun synthesizeRedraw(): ByteArray = synchronized(emulator) {
-        GridSerializer.serialize(emulator, history.lines())
+        GridSerializer.serialize(emulator, history.lines(), history.pendingLine())
     }
 
     /**
@@ -293,7 +302,7 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
      */
     fun attachSnapshot(): AttachSnapshot = synchronized(emulator) {
         AttachSnapshot(
-            GridSerializer.serialize(emulator, history.lines()),
+            GridSerializer.serialize(emulator, history.lines(), history.pendingLine()),
             emulator.mColumns,
             emulator.mRows,
         )
@@ -308,7 +317,7 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
      * @see GridSerializer.serializeForPersist
      */
     fun synthesizeForPersist(): ByteArray = synchronized(emulator) {
-        GridSerializer.serializeForPersist(emulator, history.lines())
+        GridSerializer.serializeForPersist(emulator, history.lines(), history.pendingLine())
     }
 
     private companion object {

@@ -108,55 +108,60 @@ class HistoryLogTest {
         assertEquals(listOf("after"), log.texts(), "the half-assembled line must not resurface")
     }
 
-    // ── reflow boundaries ─────────────────────────────────────────────────────
+    // ── the pending (half-assembled) line ─────────────────────────────────────
 
     @Test
-    fun `closeOpenLine commits a line left open by a wrapped last eviction`() {
-        // The reflow hole: a re-layout whose last eviction still carries the wrap flag left
-        // its runs stranded in the open line — absent from lines(), so absent from every
-        // paint — with nothing to finish them.
+    fun `runs collected under an unbroken soft wrap are readable before the line ends`() {
+        // The hole this closes: rows evicted under a soft wrap sit outside lines() until the
+        // line's unwrapped tail arrives, so content that had scrolled off the top of a long
+        // wrapped line was in no paint at all. A reflow makes that routine — it can evict a
+        // whole screenful of one line's rows at once.
         val log = HistoryLog()
         log.appendRow(row("archived head"), wrapped = true)
-        assertEquals(0, log.size, "still open before the boundary")
 
-        log.closeOpenLine()
-
-        assertEquals(listOf("archived head"), log.texts())
+        assertEquals(0, log.size, "nothing is committed — the line has not ended")
+        assertEquals("archived head", log.pendingLine()?.text)
     }
 
     @Test
-    fun `closeOpenLine breaks the line rather than fusing the next eviction onto it`() {
-        // The semantic: the archived head is its own logical line. Its continuation was not
-        // archived — it was rewrapped at the new width and is still on the live screen — so
-        // whatever scrolls off next is unrelated content and must not join it.
+    fun `the pending line is not committed, so the tail still fuses onto it`() {
+        // The whole point of NOT committing it: the continuation is still on the live screen,
+        // so when it finally scrolls off it must join this head as ONE logical line. Committing
+        // the head instead froze the point the old width happened to wrap into a permanent hard
+        // break, which reads as a word split down the middle on a restored session.
         val log = HistoryLog()
-        log.appendRow(row("old width tail"), wrapped = true)
-        log.closeOpenLine()
-        log.appendRow(row("later output"), wrapped = false)
+        log.appendRow(row("deliberately not C"), wrapped = true)
+        log.pendingLine()   // reading it must change nothing
+        log.pendingLine()
+        log.appendRow(row("ompose Multiplatform"), wrapped = false)
 
-        assertEquals(listOf("old width tail", "later output"), log.texts())
+        assertEquals(listOf("deliberately not Compose Multiplatform"), log.texts())
+        assertEquals(null, log.pendingLine(), "committed, so nothing is pending any more")
     }
 
     @Test
-    fun `closeOpenLine is a no-op when nothing is half-assembled`() {
-        // Every resize calls it, and most evict nothing or end on an unwrapped row; none of
-        // those may plant a stray blank line in the scrollback.
+    fun `there is no pending line between logical lines`() {
         val log = HistoryLog()
+        assertEquals(null, log.pendingLine(), "a fresh log has nothing half-assembled")
         log.appendRow(row("done"), wrapped = false)
-
-        log.closeOpenLine()
-        log.closeOpenLine()
-
-        assertEquals(listOf("done"), log.texts())
+        assertEquals(null, log.pendingLine(), "nor has one that just committed")
     }
 
     @Test
-    fun `closeOpenLine keeps the styles of the head it commits`() {
+    fun `the pending line keeps its styles and merges its runs`() {
         val log = HistoryLog()
         log.appendRow(listOf(StyledRun("bo", bold), StyledRun("ld", bold)), wrapped = true)
-        log.closeOpenLine()
 
-        assertEquals(listOf(LogicalLine(listOf(StyledRun("bold", bold)))), log.lines())
+        assertEquals(LogicalLine(listOf(StyledRun("bold", bold))), log.pendingLine())
+    }
+
+    @Test
+    fun `clear drops the pending line too`() {
+        val log = HistoryLog()
+        log.appendRow(row("half"), wrapped = true)
+        log.clear()
+
+        assertEquals(null, log.pendingLine())
     }
 
     @Test

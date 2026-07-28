@@ -59,20 +59,29 @@ object GridSerializer {
      * cols change forces a broadcast resync.
      *
      * @param e the source emulator (caller holds the grid monitor).
+     * @param history the committed logical lines, oldest first.
+     * @param pending the half-assembled line whose continuation is still on the live screen,
+     *   or null. Emitted unterminated so the screen flow continues it — see
+     *   [HistoryLog.pendingLine].
      * @return UTF-8 bytes: RIS + ED3, styled row flow, then the state epilogue.
      */
-    fun serialize(e: TerminalEmulator, history: List<LogicalLine> = emptyList()): ByteArray {
+    fun serialize(
+        e: TerminalEmulator,
+        history: List<LogicalLine> = emptyList(),
+        pending: LogicalLine? = null,
+    ): ByteArray {
         val sb = StringBuilder(4096)
         sb.append(ESC).append("c")   // RIS — reset modes/screen/cursor
         sb.append(CSI).append("3J")  // ED3 — clear scrollback
         // History first, unwrapped: the receiver re-wraps it at its own width. Then the
         // live screen, which the emulator has already laid out at this grid.
         emitHistory(sb, history)
+        emitPending(sb, pending)
         // History and the live screen are ONE continuous line stream. The screen flow must
-        // not home first when history precedes it: homing would paint the screen over the
-        // tail of the history just emitted, so those lines would never scroll off into the
+        // not home first when anything precedes it: homing would paint the screen over the
+        // tail of what was just emitted, so those lines would never scroll off into the
         // receiver's own log and both halves would be short.
-        val homeFirst = history.isEmpty()
+        val homeFirst = history.isEmpty() && pending == null
         if (!e.isAlternateBufferActive) {
             emitBufferFlow(sb, e.mainBuffer, e.mColumns, e.mRows, includeTranscript = true, homeFirst = homeFirst)
         } else {
@@ -95,14 +104,30 @@ object GridSerializer {
      * cannot re-enable modes it left set (issue #91). Fed into a fresh grid at the
      * recorded width on restore.
      *
+     * The [pending] partial is emitted here **unless it belongs to the live line** being
+     * dropped. Both halves of that matter: a long output line commonly has its head evicted
+     * while its tail still sits on screen un-evicted — the program has finished writing it, but
+     * the log has not seen its end — and omitting the pending there silently loses the first
+     * screenful of the paragraph. Conversely, when the live line itself runs back past the top
+     * of the screen, its head is what the pending holds, so emitting it would store the
+     * beginning of a line whose remainder is deliberately discarded.
+     *
      * @param e the source emulator (caller holds the grid monitor).
+     * @param history the committed logical lines, oldest first.
+     * @param pending the half-assembled line, or null; see [HistoryLog.pendingLine].
      * @return UTF-8 bytes safe to store and later replay into a fresh grid.
      */
-    fun serializeForPersist(e: TerminalEmulator, history: List<LogicalLine> = emptyList()): ByteArray {
+    fun serializeForPersist(
+        e: TerminalEmulator,
+        history: List<LogicalLine> = emptyList(),
+        pending: LogicalLine? = null,
+    ): ByteArray {
         val sb = StringBuilder(4096)
         sb.append(ESC).append("c")
         sb.append(CSI).append("3J")
         emitHistory(sb, history)
+        val keptPending = pending?.takeUnless { livesInTheLiveLine(e) }
+        emitPending(sb, keptPending)
         emitBufferFlow(
             sb, e.mainBuffer, e.mColumns, e.mRows,
             includeTranscript = true,
@@ -110,6 +135,14 @@ object GridSerializer {
             // must not leave the cursor stranded below the content it painted, and
             // the live prompt line must not be committed to history.
             persistCursorRow = e.cursorRow,
+            // The same rule [serialize] follows, and for the same reason: homing after
+            // history has been emitted rewinds over it, and the row flow paints without
+            // erasing, so every column the screen row does not reach leaves the history
+            // text underneath showing through. That is what mangled restored sessions —
+            // a screen authored narrow, replayed under history wrapped wider, produced
+            // rows like "screen text" + padding + "leftover history tail". The screen
+            // flow has to CONTINUE the history stream, not repaint over its start.
+            homeFirst = history.isEmpty() && keptPending == null,
         )
         if (e.isAlternateBufferActive) {
             sb.append("\r\n")
@@ -174,6 +207,50 @@ object GridSerializer {
         }
     }
 
+    /**
+     * Whether the half-assembled history line is part of the *live* logical line — the
+     * unterminated one holding the cursor, which [serializeForPersist] drops.
+     *
+     * True only when the live line runs back past the top of the active area: the pending
+     * partial is by construction the continuation-from-above of that top row, so a live line
+     * reaching it is the same logical line. When the cursor is not on the last content row
+     * there is no live line at all, and when the live line starts lower down the pending
+     * belongs to some earlier line whose tail merely has not been evicted yet.
+     *
+     * @param e the source emulator.
+     * @return true when the pending line must be dropped along with the live line.
+     */
+    private fun livesInTheLiveLine(e: TerminalEmulator): Boolean {
+        val buffer = e.mainBuffer
+        val transcript = buffer.activeTranscriptRows
+        val lastContent = lastNonBlankRow(buffer, e.mColumns, e.mRows, transcript)
+        if (lastContent != e.cursorRow) return false
+        var start = lastContent
+        while (start > -transcript && buffer.getLineWrap(start - 1)) start--
+        return start == -transcript
+    }
+
+    /**
+     * Emit the half-assembled history line — **with no CRLF**.
+     *
+     * That is the whole point of emitting it separately: this line has not ended. Its
+     * continuation is the first row of the live screen, so the row flow that follows must
+     * carry straight on from here, letting the receiver rewrap the whole logical line at its
+     * own width. Terminating it instead would freeze the wrap point the *old* width happened
+     * to land on into a permanent hard break, splitting a word in half.
+     *
+     * @param sb the redraw being built.
+     * @param pending the pending line, or null (a no-op).
+     * @see HistoryLog.pendingLine
+     */
+    private fun emitPending(sb: StringBuilder, pending: LogicalLine?) {
+        if (pending == null) return
+        for (run in pending.runs) {
+            emitSgrForStyle(sb, run.style)
+            sb.append(run.text)
+        }
+    }
+
     // ── Row flow ──────────────────────────────────────────────────────────────
 
     /**
@@ -207,7 +284,15 @@ object GridSerializer {
             // prompt regardless, so persisting this row guarantees a duplicate.
             // Persist committed lines only; the restored session then reads as
             // history followed by exactly one fresh prompt.
-            if (lastRow == persistCursorRow) lastRow--
+            //
+            // The WHOLE logical line, not just its last row: a live line that has
+            // soft-wrapped continues from rows above, and dropping only the bottom one
+            // persisted a fragment that restored as a sentence cut off mid-word. Walk back
+            // over the wrap flags to the row the line actually starts on.
+            if (lastRow == persistCursorRow) {
+                while (lastRow > -transcript && buffer.getLineWrap(lastRow - 1)) lastRow--
+                lastRow--
+            }
             // Skip leading blank rows too, for the same reason the trailing ones are
             // skipped: with no cursor epilogue they are emitted as bare CRLFs, so a
             // grid whose top rows happen to be empty restored as blank lines pushed

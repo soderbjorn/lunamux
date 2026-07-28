@@ -207,21 +207,48 @@ padding and burn a screen row, which breaks the resize round trip.
 `assertInvariants` now checks `mLines.length == mTotalRows`. Every existing invariant passed
 while the ring was incoherent.
 
-**2. A reflow ending on a wrapped eviction left that row out of every paint.** `HistoryLog`
-assembles a logical line from consecutive soft-wrapped evictions and commits it when an
-unwrapped row arrives. A re-layout whose *last* eviction still carried the wrap flag
-therefore stranded that row's runs in the open line: absent from `lines()`, so absent from
-history and from every paint, until some unrelated later eviction happened to fuse onto them
-— at which point two unrelated fragments read as one line.
+**2. The half-assembled history line was in no paint at all.** `HistoryLog` assembles a
+logical line from consecutive soft-wrapped evictions and commits it only when an unwrapped row
+arrives. Until then those runs are outside `lines()` — so they were outside every paint too,
+and the first screenful of a long paragraph simply went missing until the paragraph's last row
+happened to scroll off as well. A reflow makes that routine: it can evict a whole screenful of
+one line's rows at once.
 
-`closeOpenLine()` commits the half-assembled head, called by `SessionGrid.resize` inside the
-same monitor hold as the resize. A resize is a genuine logical-line boundary: what it
-evicted was wrapped at the OLD width, and the continuation of that line was rewrapped and is
-still on the live screen. The archived head therefore becomes its own logical line — a hard
-break at the point the old width happened to wrap. Fusing it onto whatever scrolls off next
-would invent a line the session never wrote.
+`pendingLine()` exposes it **without committing it**, and `GridSerializer` emits it ahead of
+the live screen *with no terminating newline*, so the row flow continues the same logical line
+and the receiver rewraps all of it at its own width.
 
-**How they are pinned.** `RelativeRepaintPingPongTest` asserts the **composite** — committed
+The first attempt was to commit it at reflow boundaries instead (`closeOpenLine`). That is
+lossless in content but not in structure, and it shipped briefly: committing freezes the column
+the *old* width happened to wrap at into a permanent hard break, which on a restored session
+reads as a word split down the middle — `deliberately not C` / `ompose Multiplatform`. Do not
+resume it.
+
+The persist form has one extra wrinkle, because it deliberately drops the **live** line (the
+unterminated one holding the cursor — the shell reprints its own prompt on restore anyway):
+
+- It must drop that line *whole*. Dropping only the cursor's row, as it did, persisted the rest
+  of a soft-wrapped live line as a fragment that restored as a sentence cut off mid-word. The
+  row flow now walks back over the wrap flags to the row the line starts on.
+- It must still emit the pending partial in the ordinary case. A long output line commonly has
+  its head evicted while its tail sits on screen *un-evicted* — the program has finished
+  writing it, but the log has not seen its end — and omitting the pending there loses the first
+  screenful of the paragraph outright. It is dropped only when the live line runs back past the
+  top of the screen, i.e. when the pending *is* that line's head.
+
+**3. `serializeForPersist` homed the cursor after emitting history.** `serialize` guards
+against this (`homeFirst = history.isEmpty()`, with a comment on why); the persist form never
+got the guard. The row flow paints without erasing, so homing back over the history just
+emitted left the history text showing through wherever a screen row did not reach: restored
+rows read as `screen text` + padding + `leftover history tail`, which is the "prose with
+fragments of other lines spliced into it" report. The padding width is a giveaway — it is the
+width the *screen* half was authored at.
+
+**How they are pinned.** `PersistRestoreRoundTripTest` compares the session's *logical lines*
+across a persist → restore round trip at the same, a wider and a narrower grid — rows are a
+function of the width you look at, which is the whole point — and each of the three defects
+above fails a distinct test when reintroduced. `RelativeRepaintPingPongTest` asserts the
+**composite** — committed
 history plus the live screen, read as one document — across a laptop↔phone ping-pong, and
 drives it with the repaint shape a plain shell actually uses: zsh's ZLE answers `SIGWINCH`
 *relatively* (`\r`, `ESC[<n>A`, `ESC[J`, reprint), not with the absolute `ESC[H` full-frame
