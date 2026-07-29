@@ -3,9 +3,9 @@
  *
  * This file contains [StateDetector] and the [SessionState] data class.
  * The detector scans rendered terminal text (provided by [ScreenEmulator])
- * for distinctive UI patterns of Claude Code, OpenAI Codex CLI, and
- * Gemini CLI to determine whether an AI assistant is actively working,
- * waiting for user confirmation, or idle.
+ * for distinctive UI patterns of Claude Code, OpenAI Codex CLI, Gemini CLI
+ * and Antigravity CLI to determine whether an AI assistant is actively
+ * working, waiting for user confirmation, or idle.
  *
  * Called by:
  *  - [TerminalSession.detectState] on each session-state polling cycle
@@ -22,7 +22,8 @@ package se.soderbjorn.lunamux
 
 /**
  * Detects the state of AI coding assistants (Claude Code, OpenAI Codex CLI,
- * Gemini CLI) by scanning recent terminal output for known status indicators.
+ * Gemini CLI, Antigravity CLI) by scanning recent terminal output for known
+ * status indicators.
  *
  * Each CLI renders distinctive text in the terminal while it is actively
  * working or waiting for user confirmation. This detector checks the tail of
@@ -137,12 +138,109 @@ package se.soderbjorn.lunamux
  * ```
  *   Waiting for user confirmation...
  * ```
+ *
+ * ### Antigravity CLI
+ *
+ * Google's `agy` CLI (which drives Gemini and Claude models). It pins an
+ * input box to the bottom of the pane — a full-width rule of box-drawing
+ * horizontals above and below a `>` prompt row — with a two-slot footer
+ * underneath:
+ * ```
+ *   ⣷  Generating...
+ *   ──────────────────────────────────────────────────────────
+ *   >
+ *   ──────────────────────────────────────────────────────────
+ *   esc to cancel                            Gemini 3.6 Flash · high
+ * ```
+ * Working: the braille spinner row (`⣷  Generating...`, `⣟  Editing
+ * code...`, …) and/or the footer's left slot reading `esc to cancel` —
+ * which is Antigravity's *cancel the in-flight turn* affordance, not a
+ * confirmation prompt.
+ *
+ * Idle: the same box with `? for shortcuts` in the footer's left slot and
+ * no spinner row.
+ *
+ * Waiting (permission overlay — user must grant an action):
+ * ```
+ *   Requesting permission for:
+ *     Read /Users/me/project/.env
+ *
+ *   Allow access to this file?
+ *   > Yes, allow access
+ *     No, deny access
+ * ```
+ * Because the box identifies the pane as Antigravity's, its state is
+ * resolved from Antigravity's own vocabulary and the other CLIs' markers
+ * are never consulted — see [detectState] for why that matters (issue
+ * LMX-136: `esc to cancel` used to be read as Claude's tool-running
+ * marker, so every Antigravity turn painted the "needs you" badge).
  */
 object StateDetector {
 
-    /** Markers that appear when Claude Code returns to idle (input prompt). */
-    private val CLAUDE_IDLE_MARKERS = listOf(
+    /**
+     * Markers that mean a CLI has returned to its idle input prompt. Matched
+     * against the lowercased screen text by [idleMarkerAfter], which is how the
+     * position-aware guards in [detectState] tell a live working footer from a
+     * stale one the prompt has already overtaken.
+     */
+    private val IDLE_MARKERS = listOf(
         "\u276f",   // ❯ — the input prompt character
+        "? for shortcuts",   // Antigravity CLI's idle footer hint
+    )
+
+    /**
+     * Whether an idle marker appears after position [idx] in the screen text —
+     * i.e. whether the CLI has moved on from the working footer found at [idx].
+     *
+     * Called by every position-aware branch of [detectState].
+     *
+     * @param lower the lowercased screen text (every marker is lowercase, and
+     *   the one non-alphabetic marker is case-invariant).
+     * @param idx index of the working marker being validated.
+     * @return true when the pane has since returned to an input prompt.
+     * @see IDLE_MARKERS
+     */
+    private fun idleMarkerAfter(lower: String, idx: Int): Boolean =
+        IDLE_MARKERS.any { marker -> lower.lastIndexOf(marker) > idx }
+
+    // Antigravity pins its input box to the bottom of the pane: two full-width
+    // rules of box-drawing horizontals with the ">" prompt row between them. A
+    // line consisting of nothing but "─" is the anchor. Codex and Gemini CLI draw
+    // their boxes with corner and side glyphs (╭ ─ ╮ │ ╰ ╯), so their rules never
+    // occupy a line alone, and Claude's inline separators ("─ my-branch ─") carry
+    // a label — but Claude Code's folder-trust screen DOES print a lone
+    // full-width rule, which is why [isAntigravity] wants a pair of them with the
+    // prompt row underneath rather than any single rule. The width threshold is
+    // deliberately low so a narrow pane, whose rule is only as wide as the pane
+    // itself, is still recognised.
+    private val ANTIGRAVITY_RULE = Regex("─{8,}\\s*")
+
+    // Antigravity's working-spinner row: a braille spinner frame followed by a
+    // status label — "⣷  Generating...", "⠿  Editing code...", "⡿  Reading
+    // file...". The wording varies per tool, so anchor on the spinner glyph plus
+    // a label word rather than on any one verb. A spinner is by definition an
+    // operation in flight, i.e. the opposite of waiting for the user.
+    private val ANTIGRAVITY_SPINNER = Regex("(?m)^\\s*[⠀-⣿]\\s+\\p{L}")
+
+    // Antigravity's permission-overlay prompts. Unlike its "esc to cancel"
+    // footer, these genuinely block on the user, so they are the pane's only
+    // waiting signal.
+    private val ANTIGRAVITY_PERMISSION_PROMPTS = listOf(
+        "requesting permission for:",
+        "allow access to this file?",
+        "allow creation of this file?",
+        "allow sandbox bypass for command execution?",
+        "do you want to proceed?",
+    )
+
+    // A cursor-selectable row from one of those overlays' option lists. Required
+    // to co-occur with a prompt, so an Antigravity transcript that merely
+    // *prints* one of the prompt phrases (agents quote their own UI constantly)
+    // is not mistaken for a live overlay — the same structural gating the
+    // Claude, Codex and Gemini overlay checks already apply.
+    private val ANTIGRAVITY_OPTION_ROW = Regex(
+        "(?m)^[\\s>❯]*(?:yes, allow|no, deny|yes, accept this change)\\b",
+        RegexOption.IGNORE_CASE,
     )
 
     // Claude Code renders approval menus inside a rounded box, so each row
@@ -264,6 +362,25 @@ object StateDetector {
             return SessionState(cli = "claude", state = "working")
         }
 
+        // ── Antigravity CLI ─────────────────────────────────────────
+        // Resolved from Antigravity's own vocabulary, and — crucially — resolved
+        // EXCLUSIVELY: once its input box identifies the pane, none of the
+        // branches below run. Two reasons.
+        //
+        // First, its working footer is the bare phrase "esc to cancel", which the
+        // Claude branch below reads as "a tool is running" and reports as
+        // *waiting* — so before this branch existed, every Antigravity turn
+        // painted the ⚠ "needs you" badge for its whole duration (LMX-136).
+        // Antigravity's cancel affordance is an interrupt, not a question.
+        //
+        // Second, the pane below the box is an agent transcript, and the other
+        // CLIs' markers are ordinary English ("Apply this change?", "Allow
+        // once", "Would you like to run the following command?"). An agent
+        // discussing approval UIs would otherwise trip them.
+        if (isAntigravity(text)) {
+            return detectAntigravityState(text, lower)
+        }
+
         // ── Claude Code ─────────────────────────────────────────────
         // Claude uses "esc to interrupt" while generating and "esc to cancel"
         // while a tool is running. These are the most reliable indicators
@@ -285,10 +402,7 @@ object StateDetector {
 
         if (activeIdx >= 0) {
             // Check if an idle marker appears after the last active indicator.
-            val idleAfter = CLAUDE_IDLE_MARKERS.any { marker ->
-                text.lastIndexOf(marker) > activeIdx
-            }
-            if (!idleAfter) {
+            if (!idleMarkerAfter(lower, activeIdx)) {
                 if (cancelIdx > interruptIdx) {
                     // Gemini CLI uses "esc to cancel," (with trailing comma and
                     // elapsed time). If the comma-form is present, this is Gemini
@@ -314,11 +428,7 @@ object StateDetector {
         // count.
         val timerMatch = CLAUDE_WORKING_TIMER.findAll(text).lastOrNull()
         if (timerMatch != null) {
-            val timerIdx = timerMatch.range.first
-            val idleAfterTimer = CLAUDE_IDLE_MARKERS.any { marker ->
-                text.lastIndexOf(marker) > timerIdx
-            }
-            if (!idleAfterTimer) {
+            if (!idleMarkerAfter(lower, timerMatch.range.first)) {
                 return SessionState(cli = "claude", state = "working")
             }
         }
@@ -328,11 +438,7 @@ object StateDetector {
         // + paren-timer combination is unique to Claude's spinner.
         val timerNarrowMatch = CLAUDE_WORKING_TIMER_NARROW.findAll(text).lastOrNull()
         if (timerNarrowMatch != null) {
-            val timerIdx = timerNarrowMatch.range.first
-            val idleAfterTimer = CLAUDE_IDLE_MARKERS.any { marker ->
-                text.lastIndexOf(marker) > timerIdx
-            }
-            if (!idleAfterTimer) {
+            if (!idleMarkerAfter(lower, timerNarrowMatch.range.first)) {
                 return SessionState(cli = "claude", state = "working")
             }
         }
@@ -413,12 +519,84 @@ object StateDetector {
 
         return null
     }
+
+    /**
+     * Whether the rendered screen shows Antigravity CLI's input box — two
+     * full-width rules of box-drawing horizontals wrapping a `>` prompt row,
+     * pinned to the bottom of the pane.
+     *
+     * Called by [detectState] to decide whether the pane belongs to Antigravity,
+     * in which case [detectAntigravityState] resolves the state on its own and
+     * the other CLIs' markers are skipped entirely.
+     *
+     * Two conditions, both required: at least two whole-line rules (a single one
+     * can plausibly come from ordinary command output), and one of them
+     * immediately followed by the `>` prompt row — the box's top edge. That pair
+     * is the shape no other agent CLI in this detector draws.
+     *
+     * @param text the rendered screen text, one row per line.
+     * @return true when Antigravity's input box is on screen.
+     * @see ANTIGRAVITY_RULE
+     */
+    private fun isAntigravity(text: String): Boolean {
+        val lines = text.lines()
+        var rules = 0
+        var boxTop = false
+        for ((i, line) in lines.withIndex()) {
+            if (!ANTIGRAVITY_RULE.matches(line)) continue
+            rules++
+            // The prompt row carries whatever the user has typed, so match only
+            // its leading ">".
+            if (lines.getOrNull(i + 1)?.startsWith(">") == true) boxTop = true
+        }
+        return rules >= 2 && boxTop
+    }
+
+    /**
+     * Classify an Antigravity CLI pane from its own status vocabulary.
+     *
+     * Called by [detectState] once [isAntigravity] has claimed the pane.
+     *
+     * Waiting is tested first: a permission overlay replaces the status row
+     * while it is up, and "the user is blocked" outranks "something is running"
+     * on the rare frame that shows both. It is gated structurally — a prompt
+     * phrase AND an option row from the same overlay — because Antigravity's own
+     * transcript is full of prose that quotes such phrases.
+     *
+     * @param text the rendered screen text, one row per line.
+     * @param lower the same text lowercased.
+     * @return `"waiting"` on a live permission overlay, `"working"` while a turn
+     *   is in flight, or `null` when the pane is parked at its input prompt.
+     * @see ANTIGRAVITY_PERMISSION_PROMPTS
+     * @see ANTIGRAVITY_SPINNER
+     */
+    private fun detectAntigravityState(text: String, lower: String): SessionState? {
+        val permissionPrompt = ANTIGRAVITY_PERMISSION_PROMPTS.any { it in lower }
+        if (permissionPrompt && ANTIGRAVITY_OPTION_ROW.containsMatchIn(text)) {
+            return SessionState(cli = "antigravity", state = "waiting")
+        }
+        // A live spinner row, or the footer's cancel/interrupt affordance, means
+        // the turn is still running. Both are position-checked against the idle
+        // footer ("? for shortcuts") so a half-repainted frame — the footer
+        // already flipped back to idle while the row above still reads
+        // "esc to cancel" — is reported as idle rather than as work in flight.
+        val busyIdx = maxOf(
+            lower.lastIndexOf("esc to cancel"),
+            lower.lastIndexOf("esc to interrupt"),
+            ANTIGRAVITY_SPINNER.findAll(text).lastOrNull()?.range?.first ?: -1,
+        )
+        if (busyIdx >= 0 && !idleMarkerAfter(lower, busyIdx)) {
+            return SessionState(cli = "antigravity", state = "working")
+        }
+        return null
+    }
 }
 
 /**
  * The detected state of an AI coding assistant in a terminal session.
  *
- * @property cli   Which CLI was detected: `"claude"`, `"codex"`, or `"gemini"`.
+ * @property cli   Which CLI was detected: `"claude"`, `"codex"`, `"gemini"`, or
+ *                 `"antigravity"`.
  * @property state What the CLI is doing: `"working"` (actively generating or
  *                 executing) or `"waiting"` (blocked on user confirmation).
  */

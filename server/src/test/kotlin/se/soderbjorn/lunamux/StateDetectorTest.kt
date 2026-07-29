@@ -5,12 +5,15 @@
  * AI coding assistant states (working, waiting, idle) from rendered terminal
  * text. Tests cover Claude Code approval prompts (plan-mode, tool-approval,
  * boxed menus), the "esc to interrupt" / "esc to cancel" markers, idle-prompt
- * detection, Gemini CLI's "esc to cancel," variant, and the structural gating
+ * detection, Gemini CLI's "esc to cancel," variant, the structural gating
  * of Gemini's confirmation overlay (so prose quoting "Apply this change?" is
- * not misreported as waiting).
+ * not misreported as waiting), and Antigravity CLI's working / idle / permission
+ * states (LMX-136).
  *
  * @see StateDetector
  * @see SessionState
+ * @see AntigravityScreenStateTest for the same Antigravity cases driven from
+ *   real captured PTY bytes through [ScreenEmulator].
  */
 package se.soderbjorn.lunamux
 
@@ -391,6 +394,166 @@ class StateDetectorTest {
             ❯
         """.trimIndent()
         assertNull(StateDetector.detectState(text))
+    }
+
+    // ── Antigravity CLI (LMX-136) ───────────────────────────────────
+    //
+    // Antigravity's input box is a rule / ">" prompt / rule sandwich with a
+    // two-slot footer under it. The footer's left slot reads "? for shortcuts"
+    // when idle and "esc to cancel" while a turn is in flight — and that bare
+    // "esc to cancel" is what the Claude branch used to read as "a tool is
+    // running", i.e. waiting, painting the ⚠ "needs you" badge over every
+    // Antigravity turn. The fixtures below are transcriptions of the rendered
+    // frames; AntigravityScreenStateTest drives the same states from the real
+    // captured PTY bytes.
+
+    /** The rule/prompt/rule input box plus footer, as Antigravity renders it. */
+    private fun antigravityBox(footerLeft: String) = """
+        ────────────────────────────────────────────────────────────
+        >
+        ────────────────────────────────────────────────────────────
+        $footerLeft                              Gemini 3.6 Flash · high
+    """.trimIndent()
+
+    @Test
+    fun `antigravity idle at its prompt is idle`() {
+        // The reported bug (LMX-136): a finished Antigravity turn resting at its
+        // ordinary empty ">" prompt must carry no badge at all.
+        val text = """
+            Yes, the Lunicle MCP is fully functional!
+
+            ### Verified Details:
+
+            - Server Status: The Lunicle MCP server endpoint is online and responding.
+            - Test Suite: All repository Gradle tests (./gradlew test) pass cleanly.
+
+        """.trimIndent() + "\n" + antigravityBox("? for shortcuts")
+
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `antigravity generating is working not waiting`() {
+        // The false positive itself: the footer's "esc to cancel" is Antigravity's
+        // interrupt affordance, not a question. It means working.
+        val text = """
+            > does the lunicle mcp work now?
+
+            ⣷  Generating...
+        """.trimIndent() + "\n" + antigravityBox("esc to cancel")
+
+        assertEquals(
+            SessionState(cli = "antigravity", state = "working"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `antigravity spinner with a tool label is working`() {
+        // The spinner label varies per tool ("Editing code...", "Reading
+        // file..."), so the detector anchors on the spinner glyph plus a label
+        // word rather than on any one verb.
+        val text = """
+            ⡿  Editing code...
+        """.trimIndent() + "\n" + antigravityBox("esc to cancel")
+
+        assertEquals(
+            SessionState(cli = "antigravity", state = "working"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `antigravity permission overlay is waiting`() {
+        // The genuine "needs you" state: a live permission overlay, prompt plus
+        // option list. This is what the badge is for.
+        val text = """
+            Requesting permission for:
+              Read /Users/me/project/.env
+
+            Allow access to this file?
+            > Yes, allow access
+              No, deny access
+        """.trimIndent() + "\n" + antigravityBox("esc to cancel")
+
+        assertEquals(
+            SessionState(cli = "antigravity", state = "waiting"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `antigravity change approval is waiting`() {
+        val text = """
+            Do you want to proceed?
+            > Yes, accept this change
+              No, keep editing
+        """.trimIndent() + "\n" + antigravityBox("esc to cancel")
+
+        assertEquals(
+            SessionState(cli = "antigravity", state = "waiting"),
+            StateDetector.detectState(text),
+        )
+    }
+
+    @Test
+    fun `antigravity prose quoting a permission prompt is not waiting`() {
+        // Structural gating, as for the other CLIs: the prompt phrase alone,
+        // printed by the agent describing its own UI, is not a live overlay.
+        val text = """
+            When a tool touches a dotfile the CLI asks "Allow access to this
+            file?" and you pick an option with the arrow keys.
+        """.trimIndent() + "\n" + antigravityBox("? for shortcuts")
+
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `antigravity transcript quoting the gemini overlay is not waiting`() {
+        // Antigravity owns the pane, so the OTHER CLIs' markers are never
+        // consulted: a transcript that walks through Gemini CLI's approval UI
+        // cannot trip Gemini's overlay branch.
+        val text = """
+            Gemini CLI prints
+
+                Apply this change?
+                ❯ Allow once
+                  Allow for this session
+                  No, suggest changes (esc)
+
+            and blocks until you answer.
+        """.trimIndent() + "\n" + antigravityBox("? for shortcuts")
+
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `antigravity stale cancel footer above the idle footer is idle`() {
+        // Half-repainted frame: the footer has already flipped back to the idle
+        // hint while a line above still reads "esc to cancel". Position-aware
+        // guard — the idle hint wins.
+        val text = """
+            esc to cancel
+            done.
+        """.trimIndent() + "\n" + antigravityBox("? for shortcuts")
+
+        assertNull(StateDetector.detectState(text))
+    }
+
+    @Test
+    fun `a lone horizontal rule does not claim the pane for antigravity`() {
+        // Ordinary command output can print a rule; only the rule/prompt/rule
+        // box identifies Antigravity. This text must still reach the Claude
+        // branch and be reported as waiting.
+        val text = """
+            ────────────────────────────────────────────────────────────
+            Running tool...              esc to cancel
+        """.trimIndent()
+
+        assertEquals(
+            SessionState(cli = "claude", state = "waiting"),
+            StateDetector.detectState(text),
+        )
     }
 
     @Test
