@@ -77,3 +77,22 @@ kotlin {
         }
     }
 }
+
+// `./gradlew build` runs the development and production webpack bundles both,
+// and the Kotlin/JS plugin points all four of those tasks at the ONE shared
+// `build/js/packages/Lunamux-web` directory. Gradle cannot infer an order from
+// that — it only sees two tasks touching one location — so it aborts the build
+// with an implicit-dependency validation error. Left unordered they also race
+// for real: whichever webpack loses re-populates `kotlin/` underneath the other
+// and it dies on a missing module (`NoSuchFileException: …/kotlin/ktor-ktor-io.js`).
+//
+// `mustRunAfter` rather than `dependsOn`, in both directions: neither bundle
+// consumes the other's sync output, so a true dependency would overstate the
+// relationship and drag the other executable into builds that asked for only
+// one. This just says "not at the same time, and in this order".
+tasks.named("jsBrowserProductionWebpack") {
+    mustRunAfter("jsDevelopmentExecutableCompileSync")
+}
+tasks.named("jsBrowserDevelopmentWebpack") {
+    mustRunAfter("jsProductionExecutableCompileSync")
+}
