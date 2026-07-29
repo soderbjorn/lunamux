@@ -116,7 +116,17 @@ class DemoServerTest {
         server.resetToFixtures()
 
         assertEquals(DemoFixtures.initialConfig(), repo.config.value)
-        assertEquals(DemoFixtures.initialStates, repo.states.value)
+        // Every seeded state is back. Not whole-map equality: a session with a
+        // live feed (demo-s3, the tracker) re-marks itself "working" as soon as
+        // the restart above resumes its script, so the settled map is the seed
+        // plus those live entries — at boot just as much as after a reset.
+        // What matters here is that the seed was restored and that the
+        // visitor's runtime session left no state behind.
+        val settledStates = repo.states.value
+        for ((sessionId, state) in DemoFixtures.initialStates) {
+            assertEquals(state, settledStates[sessionId], "restored state for $sessionId")
+        }
+        assertTrue(newSessionId !in settledStates.keys)
         withTimeout(5_000) { rewindFrame.await() }
         // The runtime pane's session was reaped; the fixture session survived
         // as the same object (attached transports keep streaming).
@@ -191,8 +201,11 @@ class DemoServerTest {
             session.inputText("pwd\r")
             while (!collected.contains("/Users/demo/code/lastlight")) kotlinx.coroutines.delay(10)
         }
-        // The typed characters were echoed back before the response.
-        assertTrue(collected.contains("pwd\r\n"))
+        // The typed characters were echoed back before the response. Enter
+        // erases from the caret to the end of the screen before the newline
+        // (so a Claude box prompt's chrome does not linger under the submitted
+        // line), so the echo reads "pwd", that erase, then the newline.
+        assertTrue(collected.contains("pwd\u001b[0J\r\n"))
         collector.cancel()
     }
 
@@ -249,7 +262,10 @@ class DemoServerTest {
         // Focusing the already-focused pane and raising the already-top
         // pane are the most common click-time no-ops.
         server.handle(WindowCommand.SetFocusedPane(tabId = "demo-t1", paneId = "demo-p1"))
-        server.handle(WindowCommand.RaisePane(paneId = "demo-p3")) // p3 has top z in t1
+        // demo-p9 is the top pane of demo-t1 (z = 3 of 3). Note it is p9 rather
+        // than p3: p3 lives in demo-t4 and sits *below* that tab's other pane,
+        // so raising it would be a real mutation rather than the no-op we want.
+        server.handle(WindowCommand.RaisePane(paneId = "demo-p9"))
         assertTrue(repo.config.value === before) // same instance: nothing republished
     }
 
