@@ -132,6 +132,22 @@ internal fun refreshAndApplyActiveTheme() {
  * @see bootViaToolkitShell
  * @see connectWindow
  */
+/**
+ * Paints the selection language onto the document root.
+ *
+ * A thin wrapper over the toolkit's `applySelectionStyle`, which takes the
+ * element rather than finding it — the toolkit deliberately never assumes it
+ * owns `documentElement`, since a host may scope a theme to a subtree. Lunamux
+ * does own it, so the lookup is settled once here instead of at both call
+ * sites in the settings collector.
+ *
+ * @param style the selection language, or `null` for the toolkit default.
+ */
+private fun applySelectionNow(style: se.soderbjorn.lunula.core.SelectionStyle?) {
+    val root = kotlinx.browser.document.documentElement as? org.w3c.dom.HTMLElement ?: return
+    se.soderbjorn.lunula.web.applySelectionStyle(root, style)
+}
+
 private fun start() {
     injectLunulaStyles()
     ensureAuthToken()
@@ -547,6 +563,18 @@ private fun start() {
         // round-trips it through `appVm`.)
         se.soderbjorn.lunula.web.applyPaneHeaderFontFamily(effectiveFontKey(prevPaneHeaderFamily))
         se.soderbjorn.lunula.web.applyPaneHeaderFontSizePx(effectiveChromeSize(prevPaneHeaderSize))
+        // Shape/density join this loop rather than the theme-apply path, and
+        // that placement is the point: they are user appearance preferences
+        // with the same lifecycle as the fonts above — restored at startup,
+        // re-applied when another client pushes a change — and they must NOT
+        // be reset when the theme changes. `null` means "toolkit default", so
+        // both appliers are safe to call with the unset value.
+        var prevCornerRadius: Int? = appVm.stateFlow.value.cornerRadiusPx
+        var prevDensity = appVm.stateFlow.value.uiDensity
+        var prevSelection = appVm.stateFlow.value.selectionStyle
+        se.soderbjorn.lunula.web.applyCornerRadiusPx(prevCornerRadius)
+        se.soderbjorn.lunula.web.applyUiDensity(prevDensity)
+        applySelectionNow(prevSelection)
         appVm.stateFlow.collect { state ->
             if (state.paneFontSize != prevPaneSize) {
                 prevPaneSize = state.paneFontSize
@@ -582,6 +610,18 @@ private fun start() {
             if (state.paneHeaderFontSizePx != prevPaneHeaderSize) {
                 prevPaneHeaderSize = state.paneHeaderFontSizePx
                 se.soderbjorn.lunula.web.applyPaneHeaderFontSizePx(effectiveChromeSize(prevPaneHeaderSize))
+            }
+            if (state.cornerRadiusPx != prevCornerRadius) {
+                prevCornerRadius = state.cornerRadiusPx
+                se.soderbjorn.lunula.web.applyCornerRadiusPx(prevCornerRadius)
+            }
+            if (state.uiDensity != prevDensity) {
+                prevDensity = state.uiDensity
+                se.soderbjorn.lunula.web.applyUiDensity(prevDensity)
+            }
+            if (state.selectionStyle != prevSelection) {
+                prevSelection = state.selectionStyle
+                applySelectionNow(prevSelection)
             }
         }
     }

@@ -18,6 +18,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import se.soderbjorn.lunula.web.shell.PaneAddMenuItem
+import se.soderbjorn.lunula.web.shell.paneAddSeparator
 import se.soderbjorn.lunula.web.shell.PaneSnapshotEntry
 import se.soderbjorn.lunula.web.shell.TabListSnapshot
 import se.soderbjorn.lunula.web.shell.TabSnapshotEntry
@@ -240,9 +241,19 @@ fun lunamuxTabSource(
                 id = "terminal",
                 label = "New terminal",
                 iconHtml = NEW_PANE_TERMINAL_SVG,
+                // The row `onPaneAdd` above already is: clicking the "+" runs
+                // this exact command. It is kept in the menu for
+                // discoverability (see the note there), and the mark is what
+                // makes that discoverable — the row now says, in the chrome
+                // accent, that the button beside it is already pointed here.
+                isDefault = true,
             ) {
                 launchCmd(WindowCommand.AddPaneToTab(tabId = tabId, cwd = cwdForNewPaneIn(tabId)))
             })
+            // Terminal is the button's own click action, so it stands alone
+            // above the rule; everything below is a flavour you can only get
+            // by opening the menu.
+            add(paneAddSeparator("after-terminal"))
             add(PaneAddMenuItem(
                 id = "terminal-link",
                 label = "New terminal link",
@@ -262,7 +273,7 @@ fun lunamuxTabSource(
             if (isExperimentalGitViewEnabled()) {
                 add(PaneAddMenuItem(
                     id = "git",
-                    label = "New Git",
+                    label = "Git diff",
                     iconHtml = NEW_PANE_GIT_SVG,
                 ) {
                     launchCmd(WindowCommand.AddGitToTab(tabId = tabId, cwd = cwdForNewPaneIn(tabId)))

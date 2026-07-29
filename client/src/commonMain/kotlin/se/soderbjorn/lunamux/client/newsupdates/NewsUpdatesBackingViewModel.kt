@@ -201,6 +201,9 @@ class NewsUpdatesBackingViewModel(
      *   `newsItems.size`.
      * @property lastCheckEpochMillis epoch-millis time of the last completed
      *   check, or `null` if none has completed this run.
+     * @property checkInProgress true while a check is running (see [checkNow]);
+     *   drives the "Check now" button's disabled / "Checking…" state on every
+     *   platform. Reactive, so all three UIs reflect it identically.
      */
     data class State(
         val updateAvailable: Boolean = false,
@@ -209,6 +212,7 @@ class NewsUpdatesBackingViewModel(
         val newsItems: List<NewsItem> = emptyList(),
         val unreadNewsCount: Int = 0,
         val lastCheckEpochMillis: Long? = null,
+        val checkInProgress: Boolean = false,
     ) {
         /**
          * Whether the toolbar icon should show: there is either news to read or
@@ -222,6 +226,14 @@ class NewsUpdatesBackingViewModel(
          * not pulse it, so the pulsing reads specifically as "there is news".
          */
         val hasNews: Boolean get() = newsItems.isNotEmpty()
+
+        /**
+         * Whether the "News & Updates" screen should render the "Check now"
+         * button. This is the single place the [CHECK_NOW_BUTTON_ENABLED] feature
+         * flag is consulted: every platform binds to this, so the gating decision
+         * is made once here rather than duplicated in each UI.
+         */
+        val checkNowAvailable: Boolean get() = CHECK_NOW_BUTTON_ENABLED
     }
 
     /**
@@ -274,36 +286,67 @@ class NewsUpdatesBackingViewModel(
      * total failure (both fetches fail) is a silent no-op: the state and stored
      * timestamp are left untouched.
      *
-     * Exposed (not private) so a platform or test can trigger an out-of-band
-     * check; the periodic loop in [start] calls it on each tick.
+     * While it runs [State.checkInProgress] is `true` so every platform's "Check
+     * now" button reflects a "Checking…" / disabled state off the same flag; a
+     * check requested while one is already in flight is ignored rather than
+     * stacking duplicate fetches.
+     *
+     * Exposed (not private) so the periodic loop in [start] can call it on each
+     * tick and a test can await it directly. Platform UIs should instead call the
+     * synchronous [requestCheckNow], which launches this on the view-model's own
+     * scope.
      */
     @Throws(CancellationException::class, Exception::class)
     suspend fun checkNow() {
-        println(
-            "NewsUpdates: checking $manifestUrl + $newsUrl for platform=$platformId " +
-                "code=$currentVersionCode name=$currentVersionName",
-        )
-        val versions = fetchVersionManifest()
-        val news = fetchNewsManifest()
-        if (versions == null && news == null) {
-            // Silent no-op on total failure: no state change, no timestamp advance.
-            println("NewsUpdates: both checks failed — leaving state unchanged")
-            return
-        }
-        val now = Clock.System.now().toEpochMilliseconds()
-        repository.setLastCheckEpochMillis(now)
-        _stateFlow.value = _stateFlow.value.copy(lastCheckEpochMillis = now)
+        // Ignore overlapping checks (a manual tap during the periodic check, or
+        // vice versa): at most one runs at a time.
+        if (_stateFlow.value.checkInProgress) return
+        _stateFlow.value = _stateFlow.value.copy(checkInProgress = true)
+        try {
+            println(
+                "NewsUpdates: checking $manifestUrl + $newsUrl for platform=$platformId " +
+                    "code=$currentVersionCode name=$currentVersionName",
+            )
+            val versions = fetchVersionManifest()
+            val news = fetchNewsManifest()
+            if (versions == null && news == null) {
+                // Silent no-op on total failure: no state change, no timestamp advance.
+                println("NewsUpdates: both checks failed — leaving state unchanged")
+                return
+            }
+            val now = Clock.System.now().toEpochMilliseconds()
+            repository.setLastCheckEpochMillis(now)
+            _stateFlow.value = _stateFlow.value.copy(lastCheckEpochMillis = now)
 
-        // Cache the freshly-fetched manifests so restoreAll() can re-apply the
-        // un-dismissed view without a network round-trip.
-        if (versions != null) {
-            lastVersionManifest = versions
-            applyVersionManifest(versions)
+            // Cache the freshly-fetched manifests so restoreAll() can re-apply the
+            // un-dismissed view without a network round-trip.
+            if (versions != null) {
+                lastVersionManifest = versions
+                applyVersionManifest(versions)
+            }
+            if (news != null) {
+                lastNewsManifest = news
+                applyNewsManifest(news)
+            }
+        } finally {
+            _stateFlow.value = _stateFlow.value.copy(checkInProgress = false)
         }
-        if (news != null) {
-            lastNewsManifest = news
-            applyNewsManifest(news)
-        }
+    }
+
+    /**
+     * Trigger an out-of-band [checkNow] as a fire-and-forget action on the
+     * view-model's own [scope], so platforms need no coroutine plumbing of their
+     * own — the "Check now" button calls this synchronously and simply binds its
+     * enabled/label state to [State.checkInProgress].
+     *
+     * Re-entrancy and the "Checking…" state are handled inside [checkNow]; calling
+     * this while a check is already running is a no-op.
+     *
+     * Called by each platform's "News & Updates" screen when the user taps
+     * "Check now" (gated on [State.checkNowAvailable]).
+     */
+    fun requestCheckNow() {
+        scope.launch { checkNow() }
     }
 
     /**

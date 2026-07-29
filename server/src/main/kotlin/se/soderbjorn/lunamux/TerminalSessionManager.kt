@@ -52,6 +52,7 @@ import se.soderbjorn.lunamux.pty.ClientSizeArbiter
 import se.soderbjorn.lunamux.pty.GridSerializer
 import se.soderbjorn.lunamux.pty.OscScanner
 import se.soderbjorn.lunamux.pty.ProcessCwdReader
+import se.soderbjorn.lunamux.pty.RestoreMarker
 import se.soderbjorn.lunamux.pty.SessionGrid
 import se.soderbjorn.lunamux.pty.ShellInitFiles
 import java.io.File
@@ -880,33 +881,32 @@ class TerminalSession private constructor(
     companion object {
         /**
          * Escape sequences appended to restored scrollback (see `init`) to
-         * cancel terminal modes a dead full-screen app may have left enabled.
-         * In order: DECRST of X10/normal/highlight/button-event/any-event
-         * mouse tracking plus the UTF-8, SGR and urxvt mouse encodings
-         * (9, 1000-1003, 1005, 1006, 1015), focus-event reporting (1004),
-         * bracketed paste (2004), application cursor keys (DECCKM, 1) and
-         * the alternate screen buffer (1047), then DECKPNM (`ESC >`) to
-         * restore the normal keypad.
+         * cancel terminal modes a dead full-screen app may have left enabled
+         * (mouse tracking, focus reporting, bracketed paste, application
+         * cursor keys), plus DECKPNM to restore the normal keypad.
          *
-         * Alt-screen exit is 1047 and NOT 1049 on purpose. Both select the
-         * normal buffer, but 1049 additionally performs a DECRC cursor
-         * restore, and that restore is unconditional — xterm.js runs it even
-         * when the normal buffer was already active and no cursor was ever
-         * saved, in which case `savedX`/`savedY` are still their initial 0
-         * and the cursor teleports to the top-left of the viewport. Restored
-         * scrollback usually contains no matching DECSET 1049, so the common
-         * case is a teleport: the marker below then lands at the top of the
-         * screen and the fresh shell's prompt erases the rest of the replayed
-         * transcript with an ED (`ESC[J`). 1047 selects the normal buffer
-         * without touching the cursor, so the replay stays where it ended.
+         * The bytes live in [RestoreMarker] (upstream LMX-2), which is also why they
+         * no longer carry an alternate-screen exit: persisted with a *byte ring*, a
+         * marker ending in `ESC[?1047l` came back on the next restore as an
+         * alternate-buffer exit with no matching enter, and the ring's ingest path
+         * answered an orphan by dropping every byte recorded before it.
          *
-         * Used only on the killed-server restore path, never on live
-         * reconnect replays ([snapshot]), where a running TUI still owns
-         * these modes legitimately.
+         * [RestoreMarker.neutralizeLegacy] repairs that in blobs already on disk and is
+         * deliberately **not** called here, because neither half of the hazard survives
+         * on this branch. There is no ring and no `AltScreenTracker`: a restored blob is
+         * fed to the canonical grid, where a stale `ESC[?1047l` selects a normal buffer
+         * that is already active — a no-op. And a marker can no longer accumulate in a
+         * blob at all, because blobs are synthesized from the grid's *cells*
+         * ([SessionGrid.synthesizeForPersist]) rather than being a byte ring, and these
+         * bytes leave no cells behind.
+         *
+         * Used on the killed-server restore path and by [resetTerminalModes]; never on
+         * live reconnect replays, where a running TUI still owns these modes
+         * legitimately.
+         *
+         * @see RestoreMarker.MODE_RESET
          */
-        private val RESTORE_MODE_RESET =
-            "[?9;1000;1001;1002;1003;1005;1006;1015l[?1004l[?2004l[?1l[?1047l>"
-                .toByteArray(Charsets.US_ASCII)
+        private val RESTORE_MODE_RESET = RestoreMarker.MODE_RESET
 
         private val SHOW_CURSOR_SUFFIX = "[?25h".toByteArray(Charsets.US_ASCII)
 

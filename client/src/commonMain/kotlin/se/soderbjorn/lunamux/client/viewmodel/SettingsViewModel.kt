@@ -23,6 +23,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import se.soderbjorn.lunula.core.Appearance
 import se.soderbjorn.lunula.core.PersistKeys
 import se.soderbjorn.lunula.core.ThemeSnapshotV2
+import se.soderbjorn.lunula.core.SelectionStyle
+import se.soderbjorn.lunula.core.UiDensity
 import kotlin.time.TimeSource
 
 /**
@@ -133,6 +135,12 @@ internal class SettingsViewModel(
             tabbarFontSizePx = int("tabbarFontSizePx") ?: cur.tabbarFontSizePx,
             paneHeaderFontFamily = str("paneHeaderFontFamily") ?: cur.paneHeaderFontFamily,
             paneHeaderFontSizePx = int("paneHeaderFontSizePx") ?: cur.paneHeaderFontSizePx,
+            cornerRadiusPx = int("cornerRadiusPx") ?: cur.cornerRadiusPx,
+            // Parsed leniently: the value is a plain string in the settings
+            // blob, so it can arrive from a newer build or a hand-edited
+            // config naming a scale this one doesn't have.
+            uiDensity = UiDensity.fromRaw(str("uiDensity")) ?: cur.uiDensity,
+            selectionStyle = SelectionStyle.fromRaw(str("selectionStyle")) ?: cur.selectionStyle,
             sidebarWidth = int("sidebarWidth") ?: cur.sidebarWidth,
             sidebarCollapsed = bool("sidebarCollapsed") ?: cur.sidebarCollapsed,
             headerCollapsed = bool("headerCollapsed") ?: cur.headerCollapsed,

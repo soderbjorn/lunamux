@@ -14,8 +14,10 @@ import SwiftUI
 ///    side dismisses it (persisted via the shared view-model so it never
 ///    reappears).
 ///
-/// When nothing remains a "You're all caught up" placeholder is shown, and a
-/// **Restore** footer button brings every dismissed news item and update back.
+/// When nothing remains a "You're all caught up" placeholder is shown. A footer
+/// carries a **Restore** button — bringing every dismissed news item and update
+/// back — and, when the view-model advertises it via `checkNowAvailable`, a
+/// **Check now** button that triggers an immediate manifest check.
 ///
 /// State comes from the app-wide `NewsUpdatesViewModel.shared`; dismissals call
 /// `dismissNews` / `dismissUpdate` and Restore calls `restoreAll`. Mirrors the
@@ -101,7 +103,7 @@ struct NewsUpdatesView: View {
             // back, including from the empty state.
             Section {
                 Button { viewModel.restoreAll() } label: {
-                    Text("Restore news & updates")
+                    Text("Restore dismissed")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
@@ -110,6 +112,26 @@ struct NewsUpdatesView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+
+                // "Check now" — an out-of-band manifest check. Both its visibility
+                // and its "Checking…" state are the shared view-model's decision
+                // (checkNowAvailable / checkInProgress); this view only projects
+                // them and fires requestCheckNow() on tap.
+                if viewModel.checkNowAvailable {
+                    Button {
+                        viewModel.requestCheckNow()
+                    } label: {
+                        Text(viewModel.checkInProgress ? "Checking…" : "Check now")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Palette.headerAccent)
+                    .disabled(viewModel.checkInProgress)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
             }
         }
         // Plain (not inset-grouped) so the cards' width is governed solely by our

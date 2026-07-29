@@ -13,9 +13,12 @@
  *    either side dismisses it (persisted via the shared view-model so it never
  *    reappears).
  *
- * When nothing remains, a "You're all caught up" placeholder is shown. A
- * **Restore** button (in both the populated list and the empty state) brings every
- * dismissed news item and update back.
+ * When nothing remains, a "You're all caught up" placeholder is shown. A footer
+ * (in both the populated list and the empty state) carries a **Restore** button —
+ * bringing every dismissed news item and update back — and, when the view-model
+ * advertises it via
+ * [se.soderbjorn.lunamux.client.newsupdates.NewsUpdatesBackingViewModel.State.checkNowAvailable],
+ * a **Check now** button that triggers an immediate manifest check.
  *
  * All state comes from the app-wide
  * [se.soderbjorn.lunamux.android.net.NewsUpdatesController]; dismissals call
@@ -80,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.soderbjorn.lunamux.android.net.NewsUpdatesController
 import se.soderbjorn.lunamux.client.news.NewsItem
+import se.soderbjorn.lunamux.client.newsupdates.NewsUpdatesBackingViewModel
 
 /**
  * Render the "News & Updates" screen.
@@ -137,7 +141,7 @@ fun NewsUpdatesScreen(onBack: () -> Unit) {
             ) {
                 Text("You're all caught up", color = SidebarTextSecondary)
                 Spacer(Modifier.height(8.dp))
-                RestoreButton(onClick = { viewModel.restoreAll() })
+                FooterActions(viewModel = viewModel, state = state)
             }
             return@Scaffold
         }
@@ -227,7 +231,7 @@ fun NewsUpdatesScreen(onBack: () -> Unit) {
             // back even while some content is still shown.
             item(key = "restore") {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    RestoreButton(onClick = { viewModel.restoreAll() })
+                    FooterActions(viewModel = viewModel, state = state)
                 }
             }
         }
@@ -235,7 +239,36 @@ fun NewsUpdatesScreen(onBack: () -> Unit) {
 }
 
 /**
- * "Restore news & updates" text button that brings every dismissed news item and
+ * Bottom-of-screen action row: the always-present **Restore** button, plus a
+ * **Check now** button when the view-model advertises it via
+ * [NewsUpdatesBackingViewModel.State.checkNowAvailable]. Shown both in the
+ * populated list footer and the empty state, so the same actions are reachable in
+ * either state.
+ *
+ * A pure projection of [state]: the flag gating and the in-flight ("Checking…")
+ * state both live in the shared view-model, so this composable only reads them.
+ *
+ * @param viewModel the shared news/update view-model; Restore calls
+ *   [NewsUpdatesBackingViewModel.restoreAll] and Check now calls
+ *   [NewsUpdatesBackingViewModel.requestCheckNow].
+ * @param state the current screen state, supplying [NewsUpdatesBackingViewModel.State.checkNowAvailable]
+ *   and [NewsUpdatesBackingViewModel.State.checkInProgress].
+ */
+@Composable
+private fun FooterActions(viewModel: NewsUpdatesBackingViewModel, state: NewsUpdatesBackingViewModel.State) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        RestoreButton(onClick = { viewModel.restoreAll() })
+        if (state.checkNowAvailable) {
+            CheckNowButton(
+                inProgress = state.checkInProgress,
+                onClick = { viewModel.requestCheckNow() },
+            )
+        }
+    }
+}
+
+/**
+ * "Restore dismissed" text button that brings every dismissed news item and
  * update back. Shown both in the populated list and the empty state.
  *
  * @param onClick invoked when tapped; calls
@@ -244,7 +277,25 @@ fun NewsUpdatesScreen(onBack: () -> Unit) {
 @Composable
 private fun RestoreButton(onClick: () -> Unit) {
     TextButton(onClick = onClick) {
-        Text("Restore news & updates", color = SidebarAccent)
+        Text("Restore dismissed", color = SidebarAccent)
+    }
+}
+
+/**
+ * "Check now" text button that triggers an out-of-band manifest check via
+ * [NewsUpdatesBackingViewModel.requestCheckNow]. Both the visibility of this
+ * button and its in-flight state are decided by the shared view-model, so this is
+ * a dumb projection: it shows "Checking…" and disables itself while [inProgress].
+ *
+ * @param inProgress whether a check is currently running (from
+ *   [NewsUpdatesBackingViewModel.State.checkInProgress]).
+ * @param onClick invoked when tapped; calls
+ *   [NewsUpdatesBackingViewModel.requestCheckNow].
+ */
+@Composable
+private fun CheckNowButton(inProgress: Boolean, onClick: () -> Unit) {
+    TextButton(enabled = !inProgress, onClick = onClick) {
+        Text(if (inProgress) "Checking…" else "Check now", color = SidebarAccent)
     }
 }
 

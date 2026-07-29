@@ -168,6 +168,32 @@ body.appearance-light *::-webkit-scrollbar-thumb:hover {
     border: 2px solid transparent;
 }
 
+/* Terminal panes keep a *visible* track, unlike every other scroller above.
+
+   Chromium paints nothing at all for a scroller that has no overflow: no
+   thumb (there is nothing to represent) and no track either, since the track
+   above is transparent. Every other scroller in the app is `overflow: auto`
+   and collapses its gutter in that state, so the strip is simply not there.
+   `.xterm-viewport` is `overflow-y: scroll` and keeps its 11px gutter — so a
+   terminal with nothing in its scrollback showed a blank strip where the
+   scrollbar used to be, which reads as the scrollbar having disappeared
+   (issue LMX-102). It bit full-screen TUI panes hardest: they never build
+   scrollback (the alternate screen holds exactly one screen), and their wheel
+   events go to the application rather than the DOM scroller, so the pane
+   scrolls happily while its gutter stays empty.
+
+   A faint track makes the groove read as an intentional, currently-empty
+   scrollbar in that state, and gives the thumb something to sit in once
+   scrollback does build up. Wash strengths track the thumbs above, so the
+   pair stays consistent per appearance. */
+.terminal-inner .xterm-viewport {
+    scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.08);
+}
+
+body.appearance-light .terminal-inner .xterm-viewport {
+    scrollbar-color: rgba(0, 0, 0, 0.25) rgba(0, 0, 0, 0.08);
+}
+
 #app {
     display: flex;
     flex-direction: column;
@@ -1357,7 +1383,7 @@ body.appearance-light .about-link {
     max-width: 90vw;
     /* Fixed size: the dialog is always the same height regardless of how many
        items it lists, and the card list scrolls inside it. */
-    height: 70vh;
+    height: 85vh;
     max-height: 90vh;
     /* 28px is the dialog's horizontal inset; .news-list breaks out past it on
        the right (negative margin) so its scrollbar sits flush to the edge. */
@@ -1585,19 +1611,25 @@ body.appearance-light .about-link {
     text-align: center;
 }
 
-/* Pinned footer holding the Restore action, separated from the scrolling list by
-   a hairline. Stays put while .news-list scrolls. */
+/* Pinned footer holding the two actions, separated from the scrolling list by a
+   hairline. Stays put while .news-list scrolls. The buttons are pushed to opposite
+   ends (Check now at the leading edge, Restore at the trailing edge); Restore also
+   carries margin-left:auto so it stays hard right even when Check now is hidden
+   (feature flag off) and it is the footer's only child. */
 .news-dialog-footer {
     flex: 0 0 auto;
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid color-mix(in srgb, var(--text-secondary, #8E8E93) 24%, transparent);
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 /* "Restore dismissed news & updates" — a secondary outline button (same visual
    base as .news-card-link) that brings every dismissed item back. */
 .news-restore-btn {
+    /* Keep Restore hard right even as the footer's sole child (Check now hidden). */
+    margin-left: auto;
     padding: 6px 14px;
     border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 40%, transparent);
     border-radius: 6px;
@@ -1609,6 +1641,26 @@ body.appearance-light .about-link {
 }
 .news-restore-btn:hover {
     background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 22%, transparent);
+}
+/* "Check now" — a sibling of .news-restore-btn in the footer that triggers an
+   out-of-band manifest check. Shares the same secondary outline-button base;
+   greys out (via :disabled) while a check is in flight. */
+.news-check-now-btn {
+    padding: 6px 14px;
+    border: 1px solid color-mix(in srgb, var(--lunamux-orange, #F4B869) 40%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 12%, transparent);
+    color: var(--text-primary, #d4d4d4);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.news-check-now-btn:hover {
+    background: color-mix(in srgb, var(--lunamux-orange, #F4B869) 22%, transparent);
+}
+.news-check-now-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 
 /* ── Pane type modal ── */
@@ -1942,11 +1994,28 @@ body.appearance-light .link-picker-card:hover {
     padding: 0 8px;
     min-width: 0;
 }
+/* Changed lines are marked by a solid 3px gutter bar, not by a tinted row.
+   Two reasons, and the second is the one that kept biting:
+
+   1. A tint is a background the syntax palette then has to survive. Every
+      colour in the file lands on it, so the palette ends up tuned for the
+      worst case — the tinted row — rather than for the surface the other 95%
+      of lines actually sit on. A bar puts the mark beside the code instead of
+      under it, and the tint-contrast problem stops existing.
+   2. These were hardcoded rgba greens and reds with a second set under
+      `body.appearance-light`, so a diff looked like GitHub's regardless of
+      which of the 74 themes was on screen. Reading `--t-add` / `--t-danger`
+      makes the diff part of the theme, and makes the light overrides below
+      unnecessary — a light theme's own tokens are already light-appropriate.
+
+   `box-shadow: inset` rather than a border: it costs no width, so a line does
+   not shift sideways when it changes status, and it needs nothing reserved on
+   unchanged lines. */
 .git-line-add {
-    background: rgba(46, 160, 67, 0.15);
+    box-shadow: inset 3px 0 0 0 var(--t-add, #2ea043);
 }
 .git-line-del {
-    background: rgba(248, 81, 73, 0.15);
+    box-shadow: inset 3px 0 0 0 var(--t-danger, #f85149);
 }
 
 /* Split diff — single scrollable area, row-based layout */
@@ -2152,12 +2221,10 @@ mark.git-search-hit.git-search-current {
 
 
 /* Light mode overrides */
-body.appearance-light .git-line-add {
-    background: rgba(46, 164, 79, 0.12);
-}
-body.appearance-light .git-line-del {
-    background: rgba(207, 34, 46, 0.10);
-}
+/* `.git-line-add` / `.git-line-del` used to be re-stated here with paler
+   tints. They now paint a gutter bar from `--t-add` / `--t-danger`, which a
+   light theme already defines appropriately for itself, so an appearance-keyed
+   override would only be able to make it wrong. */
 body.appearance-light .git-split-mod {
     background: rgba(210, 153, 34, 0.12);
 }
@@ -2958,20 +3025,32 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
                  foreground colour), still pulsing, so working and waiting stay
                  distinguishable now that they share one colour.
 
-   The colour is the theme `--t-text` token (e.g. the phosphor green-ish
-   foreground in "Termtastic Dark"), so the indicator always meshes with the
-   active theme instead of a fixed green/red. The `.tt-status-dot-header`
-   variant is slightly larger for the roomier pane-header chrome. */
+   The colour is `currentColor` — whatever foreground the dot's container
+   carries — so the indicator always meshes with the active theme instead of a
+   fixed green/red. The `.tt-status-dot-header` variant is slightly larger for
+   the roomier pane-header chrome.
+
+   `currentColor` rather than `--t-text` directly, and the distinction is
+   load-bearing: `--t-text` is the foreground of the CONTENT zone, and these
+   dots do not live there. They ride the tab strip, the sidebar rows and the
+   pane header — chrome — and under `SelectionStyle.Fill` the selected one of
+   each becomes a solid accent field whose correct foreground is
+   `--t-accent-on` / `--t-chrome-accent-on`. A dot hardcoded to `--t-text` sat
+   on that field in the content colour and all but vanished: a mid-tone bead on
+   a mid-tone fill. Inheriting means the dot is the foreground of wherever it
+   happens to be, which is what it was always trying to express — the whole
+   design here is that the bead matches its surroundings and signals through
+   shape and motion, never hue. */
 .tt-status-dot {
     display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--t-text, #f5f5f5);
+    background: currentColor;
     /* Soft glow in the same foreground colour so the bead reads as lit on any
-       theme; color-mix keeps the halo tied to --t-text. */
-    box-shadow: 0 0 6px color-mix(in srgb, var(--t-text, #f5f5f5) 50%, transparent),
-                0 0 12px color-mix(in srgb, var(--t-text, #f5f5f5) 22%, transparent);
+       theme; color-mix keeps the halo tied to whatever currentColor resolves to. */
+    box-shadow: 0 0 6px color-mix(in srgb, currentColor 50%, transparent),
+                0 0 12px color-mix(in srgb, currentColor 22%, transparent);
     flex-shrink: 0;
 }
 .tt-status-dot-header {
@@ -3000,7 +3079,9 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     width: 11px;
     height: 11px;
     border-radius: 0;
-    background: var(--t-text, #f5f5f5);
+    /* The triangle is a mask over this background, so it inherits the same
+       foreground the round bead does — see `.tt-status-dot`. */
+    background: currentColor;
     box-shadow: none;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 1.7L14.7 13.6Q15.1 14.3 14.3 14.3L1.7 14.3Q0.9 14.3 1.3 13.6ZM7.25 5.6H8.75V9.8H7.25ZM8 11A0.9 0.9 0 1 0 8.01 11Z'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -3025,6 +3106,17 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
    logo dot (`.app-logo-dot`, a different class) is intentionally untouched and
    keeps its idle "nothing pending" bead. */
 .tt-status-dot:not(.state-working):not(.state-waiting) { display: none; }
+
+/* An idle dot is hidden by the rule above, so a dot on an UNSELECTED tab is
+   always an attention signal — "this background session is working, or wants
+   you". Inheriting that tab's label colour would paint it in
+   `--t-chrome-text-dim`, muting the one thing it exists to announce. Pinning
+   `color` here (which `background: currentColor` then picks up) keeps it at
+   full chrome strength. The SELECTED tab is deliberately excluded: there the
+   inherited colour is what makes the dot legible on a filled accent pill. */
+.dt-tab:not(.dt-selected) .tt-status-dot {
+    color: var(--t-chrome-text-bright, var(--t-chrome-text, #e6e6e6));
+}
 
 /* ── Termtastic sidebar row reorder ───────────────────────────────────────────
    The toolkit renders each `.dt-sidebar-row` (a flexbox) with DOM children in

@@ -100,6 +100,18 @@ class AppBackingViewModel(
         val paneHeaderFontFamily: String? = null,
         /** Pane title (pane header) font size in px, or `null` to fall back to sidebar. */
         val paneHeaderFontSizePx: Int? = null,
+        /**
+         * Corner radius in px for panes, tabs and sidebar pills, or `null` for
+         * the toolkit default (18).
+         *
+         * A user setting rather than a theme property: it has to survive
+         * switching theme, the same way font size does.
+         */
+        val cornerRadiusPx: Int? = null,
+        /** Chrome spacing scale, or `null` for [UiDensity.Compact]. */
+        val uiDensity: UiDensity? = null,
+        /** How selection is painted, or `null` for [SelectionStyle.Tint]. */
+        val selectionStyle: SelectionStyle? = null,
         val sidebarWidth: Int? = null,
         val sidebarCollapsed: Boolean = false,
         val headerCollapsed: Boolean = false,
@@ -215,6 +227,39 @@ class AppBackingViewModel(
     @Throws(CancellationException::class, Exception::class)
     suspend fun setPaneHeaderFontSizePx(size: Int) {
         emit(_stateFlow.value.copy(paneHeaderFontSizePx = size))
+        persistFonts()
+    }
+
+    /**
+     * Update the chrome corner radius and persist it.
+     *
+     * @param px the radius in pixels; `null` restores the toolkit default.
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setCornerRadiusPx(px: Int?) {
+        emit(_stateFlow.value.copy(cornerRadiusPx = px))
+        persistFonts()
+    }
+
+    /**
+     * Update the chrome spacing scale and persist it.
+     *
+     * @param density the scale; `null` restores [UiDensity.Compact].
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setUiDensity(density: UiDensity?) {
+        emit(_stateFlow.value.copy(uiDensity = density))
+        persistFonts()
+    }
+
+    /**
+     * Update the selection language and persist it.
+     *
+     * @param style the language; `null` restores [SelectionStyle.Tint].
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setSelectionStyle(style: SelectionStyle?) {
+        emit(_stateFlow.value.copy(selectionStyle = style))
         persistFonts()
     }
 
@@ -489,6 +534,11 @@ class AppBackingViewModel(
             s.tabbarFontSizePx?.let { put("tabbarFontSizePx", it.toString()) }
             s.paneHeaderFontFamily?.let { put("paneHeaderFontFamily", it) }
             s.paneHeaderFontSizePx?.let { put("paneHeaderFontSizePx", it.toString()) }
+            // Shape/density ride along with the fonts: same lifecycle (a user
+            // appearance preference), same persistence call, same hydration.
+            s.cornerRadiusPx?.let { put("cornerRadiusPx", it.toString()) }
+            s.uiDensity?.let { put("uiDensity", it.cssValue) }
+            s.selectionStyle?.let { put("selectionStyle", it.cssValue) }
             put("electronCustomTitleBar", s.electronCustomTitleBar.toString())
         })
     }

@@ -199,8 +199,13 @@ private func buildDiffHtml(_ result: Client.WindowEnvelope.GitDiffResult, theme:
         min-height: 20px;
         border-bottom: 1px solid var(--t-border);
       }
-      .line.add { background: var(--t-add-bg); }
-      .line.del { background: var(--t-surface-alt); }
+      /* A solid 3px gutter bar marks a changed line, rather than a tint under
+         it. The tint was a background every syntax colour then had to survive,
+         so the palette was tuned for the changed rows instead of the surface
+         the rest of the file sits on. An inset shadow costs no width, so a
+         line never shifts sideways when its status changes. */
+      .line.add { box-shadow: inset 3px 0 0 0 var(--t-add); }
+      .line.del { box-shadow: inset 3px 0 0 0 var(--t-danger); }
       .ln {
         display: inline-block;
         width: 40px;

@@ -20,7 +20,10 @@
  * When nothing remains (no update and no news) the body shows a "You're all
  * caught up" placeholder rather than closing — the modal closes only via the
  * close button, backdrop, or Escape. A pinned footer carries a **Restore** button
- * that brings every dismissed news item and update back.
+ * that brings every dismissed news item and update back and, when the view-model
+ * advertises it via
+ * [se.soderbjorn.lunamux.client.newsupdates.NewsUpdatesBackingViewModel.State.checkNowAvailable],
+ * a **Check now** button that triggers an immediate manifest check.
  *
  * Reuses the same modal overlay pattern as [showAboutDialog] (`.pane-modal-overlay`
  * + `.pane-modal`, dismiss on close button / backdrop / Escape).
@@ -33,6 +36,9 @@
 package se.soderbjorn.lunamux
 
 import kotlinx.browser.document
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
 import org.w3c.dom.events.KeyboardEvent
@@ -54,6 +60,7 @@ import se.soderbjorn.lunamux.client.newsupdates.NewsUpdatesBackingViewModel
  * @param state the latest news/update state — supplies the update section's
  *   version text + download URL and the undismissed news items (newest first).
  */
+@OptIn(DelicateCoroutinesApi::class)
 fun showNewsDialog(viewModel: NewsUpdatesBackingViewModel, state: NewsUpdatesBackingViewModel.State) {
     if (document.getElementById("news-dialog") != null) return
 
@@ -113,13 +120,49 @@ fun showNewsDialog(viewModel: NewsUpdatesBackingViewModel, state: NewsUpdatesBac
     // Show the placeholder when there is nothing to read.
     refreshEmptyState(list)
 
-    // Pinned footer with the Restore action.
+    // Pinned footer holding both actions, pushed to opposite ends (see
+    // .news-dialog-footer, space-between): "Check now" on the far left, "Restore"
+    // on the far right. Check now is appended first so it sits at the leading edge.
     val footer = document.createElement("div") as HTMLElement
     footer.className = "news-dialog-footer"
+
+    // "Check now" — an out-of-band manifest check. Whether it appears is the
+    // view-model's decision (State.checkNowAvailable, which is the single place the
+    // feature flag is read), not this UI's. This dialog is a snapshot rebuilt on
+    // demand rather than a reactive view, so — unlike the Compose/SwiftUI screens
+    // that bind to State.checkInProgress — it awaits checkNow() directly and
+    // re-opens from the fresh state to surface any newly-fetched items.
+    if (state.checkNowAvailable) {
+        val checkNowBtn = document.createElement("button") as HTMLElement
+        checkNowBtn.className = "news-check-now-btn"
+        (checkNowBtn.asDynamic()).type = "button"
+        checkNowBtn.textContent = if (state.checkInProgress) "Checking…" else "Check now"
+        (checkNowBtn.asDynamic()).disabled = state.checkInProgress
+        checkNowBtn.addEventListener("click", { _: Event ->
+            if ((checkNowBtn.asDynamic()).disabled == true) return@addEventListener
+            (checkNowBtn.asDynamic()).disabled = true
+            checkNowBtn.textContent = "Checking…"
+            GlobalScope.launch {
+                try {
+                    viewModel.checkNow()
+                } catch (_: Throwable) {
+                    // checkNow() already no-ops on a failed fetch; nothing to surface.
+                }
+                // Only re-render if this exact dialog is still open (the user may
+                // have closed it while the check was in flight).
+                if (document.getElementById("news-dialog") === overlay) {
+                    overlay.remove()
+                    showNewsDialog(viewModel, viewModel.stateFlow.value)
+                }
+            }
+        })
+        footer.appendChild(checkNowBtn)
+    }
+
     val restoreBtn = document.createElement("button") as HTMLElement
     restoreBtn.className = "news-restore-btn"
     (restoreBtn.asDynamic()).type = "button"
-    restoreBtn.textContent = "Restore dismissed news & updates"
+    restoreBtn.textContent = "Restore dismissed"
     restoreBtn.addEventListener("click", { _: Event ->
         // restoreAll() re-applies the cached manifests synchronously, so reopening
         // the dialog from the fresh state shows the restored items at once.
@@ -128,6 +171,7 @@ fun showNewsDialog(viewModel: NewsUpdatesBackingViewModel, state: NewsUpdatesBac
         showNewsDialog(viewModel, viewModel.stateFlow.value)
     })
     footer.appendChild(restoreBtn)
+
     card.appendChild(footer)
 
     overlay.appendChild(card)

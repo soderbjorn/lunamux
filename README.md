@@ -1,95 +1,57 @@
 # Lunamux
 
-Lunamux (formerly Termtastic) is a terminal replacement suitable for the modern age of agentic software development.
+Lunamux is a terminal replacement suitable for the modern age of agentic software development.
 
-See: https://lunamux.dev/
+**Please go to [www.lunamux.dev](https://www.lunamux.dev) for much more information about the features, look and behaviour!** The website also has a comprehensive manual.
 
-## Features
+## Introduction
+The project comprises a Mac terminal app hosted in an Electron shell with flexible tab and window management and an optional,
+experimental sci-fi-like 3D mode. It has a built-in server which hosts the terminal sessions (which outlive
+the UI). Terminal scrollback is persisted to a local database in case the server goes down for some reason
+(e.g. computer restart). The app has agent-awareness, for example to illustrate what sessions are working or
+waiting for an answer.
 
-### Comprehensive UI
+It's also possible to connect to a remote terminal through the web and get the same
+look and experience. It furthermore has companion mobile apps for Android and iOS on App Store and Google Play (you can find links on the [website](https://www.lunamus.dev)).
 
-* [Electron](https://www.electronjs.org/)-based app intended for use on macOS.
-* Flexible tab and pane management system to organise your windows, including support for mirroring window content in other windows.
-* Hideable overview pane to observe running windows.
-* Customisable font sizes and color schemes, and support for dark mode.
+Note that there is no cloud component - remote access requires being on the same network or VPN.
 
-### Agent Support
+This is a fast-moving, agent-first software development project. If I put too much detail here, it would quickly become obsolete. If you want specifics about the features, source code and the architecture, ask your agent!
 
-* Status detection highlights panes and tabs where agents work or wait for input — a red glow or dot means input is needed, while a blue glow or dot means an agent is working.
-* Notifications when an agent is done or waiting for input.
-* Optionally shows Claude Code usage data. Green color means lots of tokens remain, yellow means we are approching session limit and red means session limit is very near.
+## Tech stack
 
-### Multiplexing
+I will mention just a few words about tech choices.
 
-* An embedded server implements session management and multiplexing functionality (similar to [tmux](https://github.com/tmux/tmux) or [Zellij](https://zellij.dev/)), allowing sessions to survive even if the UI dies.
-* If the server dies (because your computer is restarted), the ring buffer from each terminal window is also restored so you can see what you were doing in every terminal window.
-* Optional support for accepting connections from other devices (which must be explicitly authorised).
+I use Kotlin anywhere I can, because I really like the language, and Kotlin Multiplatform makes it easy to share code across both the server,
+Mac/Electron/web, Android, and iOS. I however do **not** use Compose Multiplatform because I want each platform to have a native UI. For web (primarily), I use a dedicated UI toolkit ([Lunula](https://github.com/soderbjorn/lunula)) which I use also for other apps.
 
-### Web & Mobile Apps
-
-* Full support for running the app in a web browser (local or remote).
-* Android and iOS apps mirror most of the functionality but in limited form, allowing you to observe and type in terminal windows and operate the file and change viewers in a rudimentary way.
-
-#### Pairing a phone
-
-* On the desktop, open **Lunamux > Settings > Server & Security… > Devices > Pair a device** to show a QR code, then scan it from the Android or iOS app's Hosts screen (or with the system camera — the code is a `lunamux://pair` link). The phone connects immediately: no addresses to type and no approval dialog to click.
-* The pairing code carries the server's TLS certificate fingerprint, so a paired phone verifies the server's identity from the very first connection (stronger than the trust-on-first-use flow used by manual entries). It also carries a single-use pairing token that expires after 5 minutes — treat the on-screen code like a password.
-* Pairing requires the phone and the computer to be on the same network. A pairing implicitly enables *Allow connections from other devices*; that toggle remains the master switch and can be turned off again at any time.
-
-### Bonus Features
-
-* Built-in file viewer showing the folders and files of your project and their contents. Supports filters, sorting, syntax highlighting for popular file types, and custom display of Markdown documents.
-* Built-in Git diff viewer shows the changes to your files that have not yet been committed. Optionally shows a two-pane layout, and optionally uses graphical display inspired by [Helix P4Merge](https://www.perforce.com/products/helix-merge).
-
-## Build & Run
-
-### Electron (macOS)
-
-Inside the project root folder, run:
-
-```sh
-./gradlew clean electron:dist
-```
-
-You will find the built binary in `electron/dist/mac-arm64` and can move it to your Applications folder.
-
-You can use the hotkey <kbd>Ctrl</kbd>+<kbd>Option</kbd>+<kbd>Cmd</kbd>+<kbd>Space</kbd> to open it if it's running.
-
-The server is embedded into the Electron app and starts automatically if not already running.
-
-### Android
-
-Load the project root folder into [Android Studio](https://developer.android.com/studio) and run it on your device.
-
-### iOS
-
-Load the `iosApp` folder into [Xcode](https://developer.apple.com/xcode/) and run it on your device. You need to have the appropriate development credentials (e.g. a development team) to install on a physical device.
-
-## Architecture
-
-* Everything except third-party dependencies and iOS UI code is written in [Kotlin](https://kotlinlang.org/).
-* [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html) ensures code sharing between the server and clients, and between the clients themselves.
-* [SQLDelight](https://cashapp.github.io/sqldelight/) is used by the server for persistence and ring buffer scrollback storage.
-* WebSockets are used for communication between the server and clients.
-* Each client creates a persisted random unique token on first use, which is passed to the server which shows a dialog asking the user to approve or deny.
-* The primary UI is web-based, using Kotlin's DOM API to render content.
-* Mobile apps use native UIs ([Jetpack Compose](https://developer.android.com/jetpack/compose) and [SwiftUI](https://developer.apple.com/swiftui/)).
+I try to have common view models across all clients that expose a single state object per screen/view, with thin
+wrappers where needed on each platform. I also re-use the Kotlin networking layer across all platforms.
 
 ### Dependencies
 
 | Component | Library | Purpose |
 |-----------|---------|---------|
+| Web | [Lunula](https://github.com/soderbjorn/lunula) | UI toolkit
+| Web | [three.js](https://threejs.org/) | 3D rendering |
 | Server | [pty4j](https://github.com/JetBrains/pty4j) | Shell process management |
 | Server | [JediTerm](https://github.com/JetBrains/jediterm) | Headless terminal emulation |
 | Web | [xterm.js](https://xtermjs.org/) | Terminal rendering |
-| Web | [three.js](https://threejs.org/) | 3D tab/pane overview |
-| Android | [Termux](https://termux.dev/) | Terminal emulation (vendored code) |
+| Android | [Termux](https://termux.dev/) | Terminal emulation |
 | iOS | [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | Terminal emulation |
 
 An assortment of other more conventional dependencies are also used.
+
+## Author
+
+[Robert Söderbjörn](https://www.soderbjorn.se) is the creator and maintainer of this project. If you would like to contribute, you are more than welcome! You can reach out at lunamux@soderbjorn.se. 
+
+## Development
+
+We use the [Lunicle issue tracker](https://issues.lunicle.dev/?projectId=1) for managing development - it's one of my sister projects (it's also embedded on the Lunamux website [here](https://lunamux.dev/#/issues)). You can see all issues without signing in. Contact me if you would like edit rights to the board so that you can create, move and comment on tickets and to add pull requests on GitHub. Before embarking on huge re-work (rather than bug fixes or small features), you might want to talk to me first. I'm very open to significant changes as well, I just want us to agree on the UX and make sure it's done in a way that fits the vision and all platforms.
 
 ## License
 
 Lunamux is released under the [MIT License](LICENSE).
 
-Third-party dependencies and vendored code are used under their respective licenses (Apache 2.0, LGPL 3.0, OFL 1.1, MIT, BSD).
+Third-party dependencies are used under their respective licenses.

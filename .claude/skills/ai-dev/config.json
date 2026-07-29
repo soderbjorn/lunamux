@@ -1,0 +1,70 @@
+{
+  "_comment": [
+    "The only per-repo file in this skill. SKILL.md and repos.md are identical",
+    "across every repo that uses /ai-dev — when you copy the skill to another",
+    "project, edit this file and nothing else.",
+    "",
+    "'toolkit' is the shared UI library this repo consumes from sources via a",
+    "relative path. Set it to null in a repo that has no such dependency."
+  ],
+
+  "project": "Lunamux - next-gen terminal",
+  "maintainer": "soderbjorn",
+  "keyPrefix": "LMX",
+  "issueUrl": "https://issues.lunicle.dev/?issue={id}",
+
+  "statuses": {
+    "ready": "Ready for AI development",
+    "claimed": "In progress",
+    "review": "Ready for review"
+  },
+
+  "github": "soderbjorn/lunamux",
+  "repoRoot": "/Users/soderbjorn/repo-private/lunamux/main",
+  "worktreeParent": "/Users/soderbjorn/repo-private/lunamux",
+
+  "toolkit": {
+    "name": "lunula",
+    "github": "soderbjorn/lunula",
+    "repoRoot": "/Users/soderbjorn/repo-private/lunula/main",
+    "worktreeParent": "/Users/soderbjorn/repo-private/lunula",
+    "gradleProperty": "lunula.toolkit.path",
+    "relativeFromWorktree": "../../lunula/{slug}"
+  },
+
+  "build": "./gradlew build",
+  "basePort": 8460,
+  "runInstructions": [
+    "Lunamux is a desktop/mobile app, not a web app — how you verify depends on what",
+    "you changed, and several targets cannot be driven headlessly at all. Be honest in",
+    "the PR about which of these you actually ran.",
+    "",
+    "Server only:",
+    "    ./gradlew :server:run -Dlunamux.port={port} -Dlunamux.dbPath=/tmp/ai-dev/{key}.db",
+    ":server:run blocks until interrupted — background it (run_in_background, or `… &`)",
+    "and poll the port until it answers. In the foreground it hangs you until you time",
+    "out, with nothing verified. The same goes for the Electron scripts below.",
+    "Both flags are isolation, not decoration. The default debug port is 8444 and the",
+    "default dev database is shared, so two tickets running at once would contend on",
+    "the same port and race on the same SQLite file and its WAL. Never point a run at",
+    "the production database (termtastic.db) or the production port (8443).",
+    "",
+    "Electron desktop shell: scripts/run-electron-dev.sh starts its own server and",
+    "reuses one already listening on the dev port — which is exactly the collision the",
+    "flags above avoid, so do NOT run it while another ticket may be building. Prefer",
+    "scripts/run-electron-demo.sh, which uses an in-process fake server and touches no",
+    "shared port or database. Both open a window: they need a desktop session and",
+    "cannot run headless.",
+    "",
+    "Android and iOS cannot be verified in this automation. Do not try to boot an",
+    "emulator or simulator. State the gap in the PR's Verification section instead.",
+    "",
+    "Web target: ./gradlew :web:jsBrowserDevelopmentExecutableDistribution builds the",
+    "bundle, and scripts/build-demo-web.sh produces the demo build.",
+    "",
+    "Kill anything you started — scripts/kill-dev-server.sh. Never touch",
+    "scripts/kill-prod-server.sh."
+  ],
+
+  "maxConcurrent": 3
+}

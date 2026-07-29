@@ -154,6 +154,12 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
         get() = effectiveFontKey(appVm.stateFlow.value.paneHeaderFontFamily)
     override val paneHeaderFontSizePx: Int?
         get() = effectiveChromeSize(appVm.stateFlow.value.paneHeaderFontSizePx)
+    override val cornerRadiusPx: Int?
+        get() = appVm.stateFlow.value.cornerRadiusPx
+    override val uiDensity: UiDensity?
+        get() = appVm.stateFlow.value.uiDensity
+    override val selectionStyle: SelectionStyle?
+        get() = appVm.stateFlow.value.selectionStyle
     override val useCustomTitleBar: Boolean
         get() = appVm.stateFlow.value.electronCustomTitleBar
 
@@ -180,6 +186,15 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
     }
     override fun setPaneHeaderFontSizePx(value: Int?) {
         if (value != null) launch { appVm.setPaneHeaderFontSizePx(value) }
+    }
+    override fun setCornerRadiusPx(value: Int?) {
+        launch { appVm.setCornerRadiusPx(value) }
+    }
+    override fun setUiDensity(value: UiDensity?) {
+        launch { appVm.setUiDensity(value) }
+    }
+    override fun setSelectionStyle(value: SelectionStyle?) {
+        launch { appVm.setSelectionStyle(value) }
     }
     override fun setUseCustomTitleBar(value: Boolean) {
         launch { appVm.setElectronCustomTitleBar(value) }

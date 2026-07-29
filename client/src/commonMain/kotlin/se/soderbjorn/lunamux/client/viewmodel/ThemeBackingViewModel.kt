@@ -33,7 +33,6 @@ import se.soderbjorn.lunula.core.Appearance
 import se.soderbjorn.lunula.core.PersistKeys
 import se.soderbjorn.lunula.core.ResolvedTheme
 import se.soderbjorn.lunula.core.Theme
-import se.soderbjorn.lunula.core.ThemeGroup
 import se.soderbjorn.lunula.core.ThemeSnapshotV2
 import se.soderbjorn.lunula.core.allThemes
 import se.soderbjorn.lunula.core.orderThemesForPicker
@@ -67,10 +66,10 @@ class ThemeBackingViewModel(
 
     /**
      * Grouped catalog of pickable themes, mirroring the web theme manager's
-     * "Dark" / "Light" sections.
+     * long-gone "Dark" / "Light" sections.
      *
-     * @property dark  themes whose [Theme.group] is [ThemeGroup.Dark].
-     * @property light themes whose [Theme.group] is [ThemeGroup.Light].
+     * @property dark  dark-toned themes (see [Theme.isDarkToned]).
+     * @property light light-toned themes.
      */
     data class GroupedThemes(val dark: List<Theme>, val light: List<Theme>)
 
@@ -108,14 +107,19 @@ class ThemeBackingViewModel(
      * Retained for compatibility; the mobile pickers now render a single list
      * via [themesOrdered] (issue #107). Built-ins are always present.
      *
+     * Themes no longer declare which slot they were designed for, so the split
+     * is taken from the palette ([Theme.isDarkToned]) instead of from the
+     * removed `group` field. For every built-in that is the same answer the
+     * declaration gave.
+     *
      * @return the grouped catalog; built-ins are always present, even when the
      *   user has no custom themes.
      */
     fun themesGrouped(): GroupedThemes {
         val all = allThemes(_snapshot.value.customThemes)
         return GroupedThemes(
-            dark = all.filter { it.group == ThemeGroup.Dark },
-            light = all.filter { it.group == ThemeGroup.Light },
+            dark = all.filter { it.isDarkToned },
+            light = all.filter { !it.isDarkToned },
         )
     }
 
