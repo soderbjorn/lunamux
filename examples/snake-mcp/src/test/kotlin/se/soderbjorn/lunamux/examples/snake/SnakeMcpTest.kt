@@ -48,6 +48,11 @@ class SnakeMcpTest {
             delete(); mkdirs(); deleteOnExit()
         }
         val repo = SettingsRepository(File(dir, "test.db"))
+        // MCP is a global kill switch that ships OFF: `mcpAuthorize` answers 403
+        // "MCP is disabled in Lunamux settings" to every token until a user turns
+        // it on. This is a fresh database per test, so flip it here or nothing
+        // below gets past the front door.
+        repo.setMcpEnabled(true)
         DeviceAuth.addTrustedToken(
             repo, "snake-test-token", DeviceAuth.MCP_LABEL, DeviceAuth.MCP_SCOPE_READ_WRITE,
         )
