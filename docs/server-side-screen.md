@@ -339,6 +339,42 @@ archived frame copies, because the widening reveals what the narrowing archived 
 program's own repaint overwrites it. Switching devices back and forth no longer piles up
 copies — a side effect of correct anchoring, not a dedup heuristic.
 
+## A wrap flag is load-bearing here, so an erase has to clear it
+
+A row's wrap flag is a claim about its **last cell**: "the text ran off this row's right edge and
+continues on the row below". The vendored emulator never cleared it when an erase blanked that
+cell — every erase funnels through `TerminalBuffer.blockSet`, which wrote spaces and left the flag
+alone — and nothing else clears it either, so a stale flag survived until the row object was
+recycled. Real terminals do clear it (xterm resets `LINEWRAPPED` when an erase reaches the end of
+a line).
+
+Upstream that is close to harmless, because there the flag only guides reflow and selection. Here
+it is load-bearing: `getLineWrap` decides whether `GridSerializer` emits a row as *all columns, no
+CRLF* — a soft wrap for the receiver to reconstruct — and whether `HistoryLog` fuses it with the
+next row into one logical line. So a stale flag let a **program's own repaint** pad its rows out to
+full width and splice them into the row below, permanently, in history.
+
+The trigger is ordinary: any full-screen app that erases its rows and repaints something shorter.
+Claude Code answering a `SIGWINCH` does exactly that (`ESC[?25l` `ESC[H`, then rows×(`ESC[2K`
+`ESC[1B`), then `ESC[H` and a fresh frame), so every pane resize could do it — on device, opening
+the settings pane pushes the terminal aside, which resizes the PTY.
+
+Read out of a live `pane_scrollback` blob, at 143 columns: logical lines of 406, 712 and 1446
+characters, each holding one short sentence followed by runs of invented padding with the next
+row's text spliced on. The blob was otherwise clean — one RIS, one ED3, SGR runs, no cursor
+addressing anywhere — which is what ruled out the replay path and pointed at the flags.
+
+`blockSet` now clears the flag on every row it touches when the fill reaches the last column, which
+covers EL, ED, ECH, IL, DL, DECSEL and the column insert/delete fills in one place. Worth being
+precise about the provenance: **the emulator bug is pre-existing and shared with `main`** (that
+tree's `terminal-emulator/TerminalBuffer.blockSet` is identical), and so is the *duplication* a
+repaint produces (upstream #49086). What is this branch's own is the **consequence**: `main`
+persists a raw byte ring, which cannot invent padding because it stores exactly what the program
+sent, whereas this branch synthesizes from cells and lets the flag decide structure. Since
+`terminal-emulator` now holds only JNI and re-exposes `:terminal-core`, one emulator serves the
+server and the Android client, so the fix also keeps their wrap flags identical — the parity this
+arc depends on.
+
 ## A pane must not declare a grid it has not measured
 
 Invariant 2 says geometry rides the byte stream. The web client broke it from the other end,

@@ -723,6 +723,28 @@ public final class TerminalBuffer {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 setChar(sx + x, sy + y, val, style);
+        // LUNAMUX FIX. A row's wrap flag is a claim about its LAST cell: "the text ran off
+        // this row's right edge and continues on the row below". Overwriting that cell — every
+        // erase lands here, EL/ED/ECH/IL/DL/DECSEL and the column insert/delete fills — makes
+        // the claim false, so the flag has to go with it. Real terminals do this (xterm clears
+        // LINEWRAPPED when an erase reaches the end of a line); this emulator never did, and
+        // nothing else clears the flag either, so it survived until the row object was
+        // recycled.
+        //
+        // Harmless while a wrap flag only guides reflow and selection — which is all it did
+        // upstream. It is load-bearing here: [TerminalBuffer.getLineWrap] decides whether the
+        // serializer emits a row as `all cols, no CRLF` (a soft wrap the receiver reconstructs)
+        // and whether the external history fuses it with the next row into one logical line. A
+        // stale flag therefore had a *program's own repaint* pad rows out to full width and
+        // splice them together permanently: any full-screen app that erases its rows and
+        // repaints something shorter (Claude Code answering a SIGWINCH) left every shortened
+        // row claiming a continuation it no longer had.
+        if (sx + w >= mColumns) {
+            for (int y = 0; y < h; y++) {
+                TerminalRow row = mLines[externalToInternalRow(sy + y)];
+                if (row != null) row.mLineWrap = false;
+            }
+        }
     }
 
     public TerminalRow allocateFullLineIfNecessary(int row) {

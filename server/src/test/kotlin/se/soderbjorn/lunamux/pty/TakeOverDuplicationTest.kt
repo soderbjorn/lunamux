@@ -233,6 +233,46 @@ class TakeOverDuplicationTest {
         assertEquals(1, grid.transcriptText().countOf(MARKER_BOTTOM), "one copy after widening")
     }
 
+    @Test
+    fun `a repaint over wrapped rows is not padded out and spliced into one line`() {
+        // The third of criterion 2's verbs: lunamux must not *rewrite* output. A row's wrap flag
+        // claims "my last cell overflows into the row below", and this emulator never cleared it
+        // when an erase blanked that cell — harmless upstream, where the flag only guides reflow,
+        // but load-bearing here: it decides whether the serializer emits a row as `all cols, no
+        // CRLF` and whether history fuses it with the next row.
+        //
+        // So a program erasing its rows and repainting something shorter — every full-screen app
+        // answering a SIGWINCH — had its own repaint padded out to full width and spliced into
+        // the line below, permanently, in history. On device: opening the settings pane pushes
+        // the terminal aside, which resizes the PTY, and Claude Code repaints.
+        val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
+        // Wrapping prose first, so the rows the repaint erases really do carry wrap flags.
+        repeat(WIDE_ROWS) { grid.feedText("paragraph ${'$'}it " + "text ".repeat(40) + "\r\n") }
+
+        grid.resize(NARROW_COLS, NARROW_ROWS)
+        grid.feedText(repaint(NARROW_ROWS))
+
+        val lines = grid.transcriptText().lines()
+        for (line in lines) {
+            assertEquals(
+                1.coerceAtMost(line.countOf("viewport row")), line.countOf("viewport row"),
+                "two repainted rows fused into one logical line: '${'$'}line'",
+            )
+            assertTrue(
+                !Regex("""viewport row \d\d {4,}\S""").containsMatchIn(line),
+                "a repainted row was padded out and something spliced after it: '${'$'}line'",
+            )
+        }
+        // And the repaint's own content is all there, exactly once.
+        val text = grid.transcriptText()
+        for (row in 0 until NARROW_ROWS - 2) {
+            assertEquals(
+                1, text.countOf("viewport row %02d".format(row)),
+                "viewport row ${'$'}row must appear exactly once",
+            )
+        }
+    }
+
     // ── safety: no resize may lose committed output ───────────────────────────
 
     @Test
