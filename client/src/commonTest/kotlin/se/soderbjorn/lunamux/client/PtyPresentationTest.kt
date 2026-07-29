@@ -49,55 +49,6 @@ class PtyPresentationTest {
     }
 
     @Test
-    fun fitScaleClampsBetweenFloorAndOne() {
-        // Server grid narrower than ours → letterbox at 1.
-        assertEquals(1f, PtyPresentation.fitScale(naturalCols = 120, serverCols = 80))
-        // Twice as wide → half scale.
-        assertEquals(0.5f, PtyPresentation.fitScale(naturalCols = 40, serverCols = 80))
-        // Far wider → clamped at the floor.
-        assertEquals(PtyPresentation.MIN_SCALE, PtyPresentation.fitScale(naturalCols = 10, serverCols = 400))
-    }
-
-    @Test
-    fun passiveFontSizeScalesAndFloors() {
-        assertEquals(8f, PtyPresentation.passiveFontSize(16f, naturalCols = 100, serverCols = 200, floorPx = 6f))
-        // Below the floor → clamped.
-        assertEquals(6f, PtyPresentation.passiveFontSize(16f, naturalCols = 20, serverCols = 400, floorPx = 6f))
-        // Narrower server grid → no upscale beyond user size is fine (ratio > 1).
-        assertTrue(PtyPresentation.passiveFontSize(16f, naturalCols = 200, serverCols = 100, floorPx = 6f) >= 16f)
-    }
-
-    @Test
-    fun passiveFontSizeFitsBothAxes() {
-        // Width is the binding axis: same result as the cols-only overload.
-        assertEquals(
-            8f,
-            PtyPresentation.passiveFontSize(
-                16f, naturalCols = 100, serverCols = 200, floorPx = 6f,
-                naturalRows = 50, serverRows = 60,
-            ),
-        )
-        // Height is the binding axis: a server screen twice as tall halves the font
-        // even though the widths match — with rows pinned, anything less renders the
-        // bottom rows (the prompt) outside the view with no way to scroll to them.
-        assertEquals(
-            8f,
-            PtyPresentation.passiveFontSize(
-                16f, naturalCols = 100, serverCols = 100, floorPx = 6f,
-                naturalRows = 25, serverRows = 50,
-            ),
-        )
-        // Rows omitted (0) → width-only behaviour is preserved.
-        assertEquals(
-            16f,
-            PtyPresentation.passiveFontSize(
-                16f, naturalCols = 100, serverCols = 100, floorPx = 6f,
-                naturalRows = 0, serverRows = 50,
-            ),
-        )
-    }
-
-    @Test
     fun classifierTreatsMouseAndFocusReportsAsAmbient() {
         assertTrue(PtyPresentation.isAmbientReport("$esc[<64;10;5M".toByteArray()))   // SGR wheel
         assertTrue(PtyPresentation.isAmbientReport("$esc[<0;3;4m".toByteArray()))      // SGR release

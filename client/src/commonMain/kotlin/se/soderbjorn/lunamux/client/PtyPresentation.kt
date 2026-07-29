@@ -14,8 +14,13 @@
  *    (mouse/focus) rather than letting them steal the grid.
  *
  * All of it is pure and unit-tested (PtyPresentationTest) so every platform
- * (Android/web/iOS) shares one definition of "passive", one scale formula, and
- * one classifier for "is this real input or an ambient report".
+ * (Android/web/iOS) shares one definition of "passive" and one classifier for
+ * "is this real input or an ambient report".
+ *
+ * The mirror's *geometry* — how large to draw the server's grid and where the
+ * window onto it sits — lives in [MirrorFit]. It used to live here as a
+ * both-axes scale, which is what letterboxed the phone; see that file for why
+ * the fit is now the rows alone.
  */
 package se.soderbjorn.lunamux.client
 
@@ -50,9 +55,6 @@ internal fun ptyConnectQuery(posture: String, grid: Pair<Int, Int>?): String {
  */
 object PtyPresentation {
 
-    /** Minimum mirror scale; below this glyphs are unreadable, so we clip instead. */
-    const val MIN_SCALE: Float = 0.45f
-
     private const val ESC: Byte = 0x1b
     private const val BEL: Byte = 0x07
 
@@ -82,62 +84,6 @@ object PtyPresentation {
     fun isPassive(naturalCols: Int, serverCols: Int, driving: Boolean? = null): Boolean {
         if (driving != null) return !driving
         return serverCols > 0 && naturalCols > 0 && serverCols != naturalCols
-    }
-
-    /**
-     * The scale to render the server grid at so its [serverCols] columns fit in
-     * the width this client would natively use for [naturalCols] columns.
-     * Clamped to [MIN_SCALE]..1: a server grid narrower than ours letterboxes at
-     * scale 1; a much wider one bottoms out at [MIN_SCALE] and the renderer clips.
-     *
-     * @param naturalCols this client's own-font/viewport width.
-     * @param serverCols the server grid width to fit.
-     * @return the scale factor in [MIN_SCALE, 1].
-     */
-    fun fitScale(naturalCols: Int, serverCols: Int): Float {
-        if (serverCols <= 0 || naturalCols <= 0) return 1f
-        val raw = naturalCols.toFloat() / serverCols.toFloat()
-        return raw.coerceIn(MIN_SCALE, 1f)
-    }
-
-    /**
-     * Passive mirror font size: the user's font scaled so the server grid fits
-     * the space this client's own grid occupied at [userFontSize], floored at
-     * [floorPx] (below the floor the renderer clips the right/bottom edges
-     * rather than shrinking further).
-     *
-     * Fits **both axes** when rows are supplied: a mirror renders the server
-     * grid pinned cell-for-cell (cols *and* rows — the stream is absolutely
-     * cursor-addressed for exactly that screen), so a server screen taller than
-     * this client's natural one must shrink the font vertically too, or its
-     * bottom rows — the prompt, the newest output — render outside the view
-     * with no way to scroll to them. Rows default to 0 (ignored) for callers
-     * that only fit width.
-     *
-     * @param userFontSize the user's chosen (driving) font size in px/pt.
-     * @param naturalCols this client's own-font/viewport width.
-     * @param serverCols the server grid width being mirrored.
-     * @param floorPx smallest legible font size.
-     * @param naturalRows this client's own-font/viewport height, or 0 to fit
-     *   width only.
-     * @param serverRows the server grid height being mirrored, or 0 to fit
-     *   width only.
-     * @return the mirror font size, ≥ [floorPx].
-     */
-    fun passiveFontSize(
-        userFontSize: Float,
-        naturalCols: Int,
-        serverCols: Int,
-        floorPx: Float,
-        naturalRows: Int = 0,
-        serverRows: Int = 0,
-    ): Float {
-        if (serverCols <= 0 || naturalCols <= 0) return userFontSize
-        var ratio = naturalCols.toFloat() / serverCols.toFloat()
-        if (serverRows > 0 && naturalRows > 0) {
-            ratio = minOf(ratio, naturalRows.toFloat() / serverRows.toFloat())
-        }
-        return maxOf(userFontSize * ratio, floorPx)
     }
 
     /**

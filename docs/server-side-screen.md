@@ -339,6 +339,88 @@ archived frame copies, because the widening reveals what the narrowing archived 
 program's own repaint overwrites it. Switching devices back and forth no longer piles up
 copies — a side effect of correct anchoring, not a dedup heuristic.
 
+## The phone fills the height and pans the width
+
+One grid cannot fill both screens, and no amount of scaling changes that. A portrait phone at
+a laptop's column count has room for roughly **three and a half times** the rows the session
+has: at 143 columns on a ~1080x1900 px pane the cells are ~7.5 px wide, hence ~16 px tall,
+hence ~118 rows fit against the grid's 40. Fitting **both** axes therefore lets the columns
+ratio bind — ~0.42 on that geometry — so the mirror rendered at ~0.4x the user's own font in
+the top third of the screen. It was both letterboxed *and* illegible, and the letterbox was
+not fillable: `TerminalRenderer.render` draws exactly `topRow … topRow + mRows` rows, never
+more, so the slack below the content is blank rather than scrollback. A bigger font is the
+only lever.
+
+So the fit is the **rows alone** (`MirrorFit`, in `:client`): the largest font at which all of
+the server's rows are drawn inside the box. On the measured geometry that is ~37 px against a
+30 px driving font — the mirror is *larger* than the phone's own terminal — and the columns
+that no longer fit are panned over rather than shrunk away. Vertical placement centres a grid
+shorter than the view, so zooming out keeps the content in the middle of the screen instead of
+parked against the top edge; it bottom-anchors an over-tall one, because that is the edge
+holding the prompt.
+
+The cost is stated rather than denied: about a third of each line is visible in portrait, so
+the mirror is for **monitoring at a glance**. Landscape is the one that reads in full — there
+the rows bind, everything fits, and no panning is needed at all. What this buys is that the
+mirror stays line-for-line identical to the driving client, which is the property a reflowed
+reading view would have destroyed (`~/Documents/lunamux-phone-reading-view-plan.md` keeps that
+design shelved as the fallback: it reads long prose better and pays for it in fidelity, and it
+can be added later as a toggle without redoing any of this).
+
+**This is the window, never the grid.** The emulator pin stays on both axes, and the tombstone
+below it explains why: a mirror renders a stream absolutely cursor-addressed for exactly the
+server's screen, so a client whose rows differ lands every address in the wrong place — which
+was measured on device as typed characters splicing into the middle of the transcript. Both
+offsets are pure view state (`mPanX`, `mContentOffsetY`, applied as one `canvas.translate`
+around the existing render call), so they cost no resize, no vote and no `SIGWINCH`. No
+function in the fit may feed a client's measurement back into the grid.
+
+Four things worth knowing about the implementation:
+
+- **The fit is solved by search, not by inverting the row formula.** Cell metrics come out of
+  the renderer as integers with a `ceil`, so the closed form lands one pixel too large often
+  enough to matter — on the geometry above it answers 37 px, `ceil` makes a 37 px row 48 px
+  tall, and 40 rows then need 1931 px of an 1900 px box, putting the last row (the prompt)
+  below the fold. 36 px is the honest answer and `MirrorFitTest` pins exactly that
+  discrepancy. `rowsThatFit` reuses the relation `measureNaturalGrid` uses, so the two cannot
+  disagree about what fits.
+- **Zoom is bounded by geometry, not by constants.** The floor is the font at which the whole
+  width fits — the overview, which is the map that makes a panned mirror navigable, and which
+  the old fixed `0.5` could not reach. The ceiling is fill-height, capped **deliberately**:
+  above it the prompt goes below the fold, and recovering it would need a second panning axis
+  whose gesture collides with scrollback. A user who wants bigger text takes over. This also
+  retires a real defect — the old 48 px ceiling could hide the prompt with no way to reach it.
+- **Panning had to go in the vendored view.** A Compose `horizontalScroll` around the
+  `AndroidView` cannot work: `TerminalView` consumes touch events for its own scrollback drag
+  and is not a `NestedScrollingChild`, so the parent never sees the gesture. It falls out of
+  what the recognizer already delivers — the horizontal component of a drag was being
+  discarded, `onFling` already carries `velocityX` — with a pixel-space `OverScroller` kept
+  separate from the row-space one the scrollback fling uses. Both axes from one gesture is what
+  makes a diagonal drag feel like dragging a canvas. Pixels, not columns: cell-snapped panning
+  is visibly janky.
+- **The four pixel/cell helpers undo both offsets.** `getCursorX`, `getCursorY`, `getPointX`,
+  `getPointY` (plus `getColumnAndRow`) are the only conversions in the view, and repo-wide
+  their only callers are the text-selection controller and its handle views. Missing them would
+  not have failed loudly — it would have silently selected the wrong columns while the handles
+  floated away from the text.
+
+### A tap on the mirror is not a take-over
+
+Reversed deliberately, not fixed as an oversight. `onSingleTapUp` used to call `ensureDriving`,
+on the reading that a tap is a deliberate "use this pane" gesture. That was defensible while
+the mirror was an inert picture; it is wrong once the mirror is something you drag around,
+because a pan that ends with barely any movement arrives as a tap — and each accidental one
+costs a real `SIGWINCH`, a full repaint of the running program, one frame leaked into its
+scrollback (upstream #49086) and a reflow under whoever is using the laptop.
+
+While passive a tap now does nothing at all, keyboard included. Take-over stays explicit
+through affordances that already existed: the badge (which already reads "Tap to take over"),
+the header Reformat button, and real typed input. Driving behaviour is unchanged.
+
+Recorded so it is not re-investigated: the mouse press+release the vendored view sends on any
+touch-up under mouse tracking was **not** the culprit. Those bursts are classified ambient and
+dropped while passive; the take-over came from `onSingleTapUp`.
+
 ## A wrap flag is load-bearing here, so an erase has to clear it
 
 A row's wrap flag is a claim about its **last cell**: "the text ran off this row's right edge and

@@ -59,9 +59,11 @@ import java.util.concurrent.atomic.AtomicReference
  * the *content* bottom-anchors but the *addresses* do not shift with it — every
  * echo and partial repaint landed that many rows too high, splicing typed
  * characters into the middle of the mirrored transcript. The clipping problem
- * the free rows solved is handled where it belongs instead: the mirror font is
- * fitted on both axes ([PtyPresentation.passiveFontSize]), so the pinned screen
- * fits the view whenever the font is above the legibility floor.
+ * the free rows solved is handled where it belongs instead: the *window* onto
+ * the pinned grid is what adapts. The font is fitted to the server's rows so
+ * they fill the view's height ([se.soderbjorn.lunamux.client.MirrorFit]), the
+ * columns that overflow are panned over, and the pin stays untouched on both
+ * axes. Nothing about how this phone draws the grid may change its dims.
  *
  * Input the view produces (keystrokes, mouse/focus reports) goes to
  * [handleInput], which decides per burst: while passively mirroring, ambient
