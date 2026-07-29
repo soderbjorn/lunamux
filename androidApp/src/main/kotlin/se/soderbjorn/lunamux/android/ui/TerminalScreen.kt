@@ -897,13 +897,26 @@ fun TerminalScreen(
                                 return scale
                             }
                             override fun onSingleTapUp(e: android.view.MotionEvent?) {
+                                // A tap on the mirror does NOTHING. It used to take over, on
+                                // the reading that a tap is a deliberate "use this pane"
+                                // gesture — defensible while the mirror was inert, wrong now
+                                // that it is something you drag around: a pan that ends with
+                                // barely any movement arrives here as a tap, and each one would
+                                // cost a real SIGWINCH, a full repaint of the running program,
+                                // one frame leaked into its scrollback (upstream #49086) and a
+                                // reflow under whoever is using the laptop. Take-over stays
+                                // explicit — the badge, the Reformat button, or actually typing.
+                                val passiveNow = PtyPresentation.isPassive(
+                                    naturalCols = localGrid?.cols ?: 0,
+                                    serverCols = serverGrid?.first ?: 0,
+                                    driving = driving,
+                                )
+                                if (passiveNow) return
                                 view.requestFocus()
                                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                                 imm?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
-                                // Tap-to-focus is a deliberate "use this pane"
-                                // gesture (a tap, not a scroll — scrolls do not
-                                // route here), so it takes over: fit the PTY to
-                                // this phone. No-ops if already driving.
+                                // While driving, tap-to-focus keeps its keyboard and re-fits
+                                // the PTY if this phone's grid has drifted from the server's.
                                 scope.launch { ensureDriving() }
                             }
                             override fun shouldBackButtonBeMappedToEscape(): Boolean = false
