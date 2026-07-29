@@ -40,10 +40,9 @@ import se.soderbjorn.lunula.web.hotkey.HotkeyBindings
 import se.soderbjorn.lunula.web.layout.PaneAction
 import se.soderbjorn.lunula.web.layout.PaneActions
 import se.soderbjorn.lunula.web.layout.PaneMenuItem
-import se.soderbjorn.lunula.web.layout.PaneMenuSpec
-import se.soderbjorn.lunula.web.layout.openPaneMenu
 import se.soderbjorn.lunula.web.shell.AppShellHandle
 import se.soderbjorn.lunula.web.shell.AppShellSpec
+import se.soderbjorn.lunula.web.shell.PaneOverflowSpec
 import se.soderbjorn.lunula.web.shell.ThemeBootstrap
 import se.soderbjorn.lunula.web.shell.TopbarAction
 import se.soderbjorn.lunula.web.shell.buildTopbarIconButton
@@ -139,17 +138,14 @@ private const val PA_ICON_REFORMAT =
 private const val PA_ICON_WORKTREE =
     """<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v2c0 2.2 1.8 4 4 4h4"/><line x1="6" y1="8" x2="6" y2="16"/><line x1="21" y1="9" x2="21" y2="15"/><line x1="18" y1="12" x2="24" y2="12"/></svg>"""
 
-/** Arrow-into-frame glyph for the "Move to tab" pane-menu row (issue #89). */
-private const val PA_ICON_MOVE_TO_TAB =
-    """<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 19 20h-4"/><line x1="3" y1="12" x2="13" y2="12"/><polyline points="9 8 13 12 9 16"/></svg>"""
-
 /** Circular arrow — "Reset terminal" pane-menu row (issue #91). */
 private const val PA_ICON_RESET_TERMINAL =
     """<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 9 8 9"/></svg>"""
 
-/** Three vertical dots — overflow / "more" menu trigger on the pane header. */
-private const val PA_ICON_MORE =
-    """<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>"""
+// The `⋮` trigger glyph and the "Move to tab" arrow used to live here too.
+// Both moved into the toolkit with the menu itself (LNA-5): the button is
+// now `PaneActions.ICON_MENU` on a toolkit-rendered action, and the row is
+// `PaneOverflowMenuIcons.MOVE_TO_TAB`.
 
 /** Stacked rows — git "inline" (unified) diff mode. */
 private const val PA_ICON_DIFF_INLINE =
@@ -182,22 +178,6 @@ internal var appShellHandle: AppShellHandle? = null
 /* state (the latter lags the dynamic snapshot by one tick).            */
 /* -------------------------------------------------------------------- */
 
-/** Returns the tabs array of the world that owns [paneId] in the dynamic
- *  [cfg], or `null` if none (or the config has no worlds). */
-private fun worldTabsOwningPane(cfg: dynamic, paneId: String): Array<dynamic>? {
-    val worlds = cfg.worlds as? Array<dynamic> ?: return null
-    for (world in worlds) {
-        val tabs = world.tabs as? Array<dynamic> ?: continue
-        for (tab in tabs) {
-            val panes = (tab.panes as? Array<dynamic>) ?: continue
-            for (p in panes) {
-                if ((p.leaf?.id as? String) == paneId) return tabs
-            }
-        }
-    }
-    return null
-}
-
 /** Looks up a leaf descriptor in the current server config by pane id.
  *  Searches every world's tabs (worlds hold the source-of-truth panes for
  *  ≥1.9 clients) and falls back to the legacy top-level `tabs` mirror.
@@ -227,61 +207,6 @@ internal fun findLeafDynamic(paneId: String): dynamic {
         }
     }
     return scan(cfg.tabs as? Array<dynamic>)
-}
-
-/**
- * Builds the "Move to tab" submenu rows for [paneId]'s pane kebab menu
- * (issue #89): one [PaneMenuItem] per tab in the current server config,
- * excluding the tab the pane already lives in. Choosing a row dispatches
- * [WindowCommand.MovePaneToTab]; the server relocates the pane and
- * re-applies both tabs' layout presets (e.g. Auto re-tiles both sides),
- * then broadcasts the updated [WindowConfig] to every client.
- *
- * Hidden tabs (both strip-hidden and sidebar-hidden) are deliberately
- * INCLUDED as targets — they keep all their panes and PTY sessions alive
- * and remain valid destinations; strip-hidden ones get a "(hidden)"
- * suffix so the user isn't surprised when the pane seems to vanish.
- *
- * Called at menu-open time (inside the kebab's `handlerWithAnchor`) so
- * the tab list is always the freshest snapshot.
- *
- * @param paneId the pane the kebab menu belongs to.
- * @return submenu rows in tab-strip order; empty when there is no other
- *   tab to move to (the caller renders the parent row disabled then).
- */
-private fun buildMoveToTabItems(paneId: String): List<PaneMenuItem> {
-    val cfg: dynamic = currentConfig ?: return emptyList()
-    // Panes only move between tabs of the SAME world, so scope the target
-    // list to the world that owns this pane (fall back to the legacy flat
-    // tabs when the config carries no worlds).
-    val tabsArr = worldTabsOwningPane(cfg, paneId)
-        ?: (cfg.tabs as? Array<dynamic>)
-        ?: return emptyList()
-    // Resolve the pane's own tab first so it can be excluded from targets.
-    var ownTabId: String? = null
-    outer@ for (tab in tabsArr) {
-        val panes = (tab.panes as? Array<dynamic>) ?: continue
-        for (p in panes) {
-            if ((p.leaf?.id as? String) == paneId) {
-                ownTabId = tab.id as? String
-                break@outer
-            }
-        }
-    }
-    val items = mutableListOf<PaneMenuItem>()
-    for (tab in tabsArr) {
-        val tabId = tab.id as? String ?: continue
-        if (tabId == ownTabId) continue
-        val title = (tab.title as? String) ?: tabId
-        val hidden = (tab.isHidden as? Boolean) ?: false
-        items += PaneMenuItem(
-            label = if (hidden) "$title (hidden)" else title,
-            handler = {
-                launchCmd(WindowCommand.MovePaneToTab(paneId = paneId, targetTabId = tabId))
-            },
-        )
-    }
-    return items
 }
 
 /**
@@ -537,25 +462,28 @@ internal fun switchToNextWorld() {
 
 /* -------------------------------------------------------------------- */
 /* Per-pane action buttons in the chrome header. Carries content-kind   */
-/* specific actions (reformat for terminal panes, copy-path for file-   */
-/* browser panes, diff-mode for git panes) and a trailing "more"        */
-/* overflow icon whose menu hosts the pane-level meta-actions: rename,   */
-/* create worktree. Maximize and close are toolkit-owned, not here.     */
+/* specific actions only (reformat for terminal panes, copy-path for    */
+/* file-browser panes, diff-mode for git panes). The trailing `⋮` and   */
+/* its menu are the toolkit's since LNA-5 — see                          */
+/* [lunamuxPaneOverflowMenu]. Maximize and close are toolkit-owned too. */
 /* -------------------------------------------------------------------- */
 
 /**
  * Builds the per-pane action button list for the toolkit's pane header.
  *
- * Order: content-kind actions (reformat / copy-path), then the trailing
- * `⋮` overflow menu (rename pane / create worktree).
- * Maximize/restore and close are toolkit-owned and not included here.
+ * Content-kind actions only (reformat / copy-path / diff-mode / open
+ * externally, plus the linked-terminal close override). The trailing `⋮`
+ * overflow button, and both of the window-model rows that used to be built
+ * here by hand, now come from the toolkit — Lunamux describes only what
+ * goes *in* the menu, through [lunamuxPaneOverflowMenu]. Maximize/restore
+ * and close are toolkit-owned and not included here either.
  *
  * @param paneId stable pane identifier — used for [findLeafDynamic] lookup.
  * @return ordered list of [PaneAction]s; an empty list when the pane id
  *   is not in the live config.
  *
  * @see se.soderbjorn.lunula.web.shell.AppShellSpec.paneActions
- * @see AppShellHandle.beginPaneRename
+ * @see lunamuxPaneOverflowMenu
  */
 fun lunamuxPaneActions(paneId: String): List<PaneAction> {
     val leaf = findLeafDynamic(paneId) ?: return emptyList()
@@ -657,46 +585,55 @@ fun lunamuxPaneActions(paneId: String): List<PaneAction> {
         }
     }
 
-    // Trailing `⋮` overflow menu: holds pane-level meta-actions
-    // (rename, create worktree). Mirrors the tab-bar's overflow menu in
-    // visual weight so the affordance is recognisable across the chrome.
-    actions += PaneAction(
-        iconHtml = PA_ICON_MORE,
-        tooltip = "More",
-        // `handler` is unused when `handlerWithAnchor` is set; the
-        // toolkit's `buildActionButton` prefers the anchor variant when
-        // available so the popover sits exactly under the kebab button.
-        handler = {},
-        handlerWithAnchor = { btn ->
-            // Built at open time so the tab list reflects the live config.
-            val moveTargets = buildMoveToTabItems(paneId)
-            openPaneMenu(
-                anchor = btn,
-                spec = PaneMenuSpec(items = listOf(
-                    PaneMenuItem(
-                        label = "Rename window",
-                        handler = { appShellHandle?.beginPaneRename(paneId) },
-                    ),
-                    // "Move to tab ▸" flyout listing every other tab
-                    // (issue #89). Disabled when this is the only tab.
-                    PaneMenuItem(
-                        label = "Move to tab",
-                        iconHtml = PA_ICON_MOVE_TO_TAB,
-                        submenu = moveTargets,
-                        isEnabled = moveTargets.isNotEmpty(),
-                    ),
-                    PaneMenuItem(
-                        label = "Create worktree",
-                        iconHtml = PA_ICON_WORKTREE,
-                        handler = { launchCmd(WindowCommand.GetWorktreeDefaults(paneId = paneId)) },
-                    ),
-                ) + buildResetTerminalItems(paneId, contentKind)),
-            )
-        },
-        extraClass = "tt-pane-action-more",
-    )
+    // The trailing `⋮` used to be appended here as a hand-rolled
+    // PaneAction. The toolkit renders it now — see
+    // [lunamuxPaneOverflowMenu] for what Lunamux still puts in it.
 
     return actions
+}
+
+/**
+ * Describes the pane `⋮` overflow menu for the toolkit.
+ *
+ * Every Lunamux pane gets the button. **Rename window** and
+ * **Move to tab ▸** are the toolkit's own — it arms its inline pane rename
+ * for the first (which Lunamux commits through
+ * [se.soderbjorn.lunula.web.shell.AppShellSpec.paneRename] →
+ * [WindowCommand.Rename]) and builds the destination list for the second
+ * from the live tab snapshot, raising [TabSource.onPaneMove] → Lunamux's
+ * [WindowCommand.MovePaneToTab]. Neither is described here; only the two
+ * rows that are genuinely Lunamux's:
+ *
+ *  - **Create worktree**, on every pane.
+ *  - **Reset terminal**, on terminal panes only — a file browser or git
+ *    pane has no PTY session to reset (see [buildResetTerminalItems]).
+ *
+ * They sit below the built-ins, which is the order the hand-rolled menu
+ * had.
+ *
+ * Invoked by the toolkit on every pane-header render (to decide whether
+ * the pane gets a button) and again each time the menu opens (to build the
+ * rows), so the terminal-only row reflects the pane's live content kind
+ * rather than whatever it was at the last rerender.
+ *
+ * @param paneId the pane the menu belongs to.
+ * @return the spec for a pane in the live config; `null` for a pane id the
+ *   config does not know, which the toolkit reads as "no kebab".
+ * @see se.soderbjorn.lunula.web.shell.AppShellSpec.paneOverflowMenu
+ * @see lunamuxPaneActions
+ */
+fun lunamuxPaneOverflowMenu(paneId: String): PaneOverflowSpec? {
+    val leaf = findLeafDynamic(paneId) ?: return null
+    val contentKind = (leaf.content?.kind as? String) ?: "terminal"
+    return PaneOverflowSpec(
+        extraItems = listOf(
+            PaneMenuItem(
+                label = "Create worktree",
+                iconHtml = PA_ICON_WORKTREE,
+                handler = { launchCmd(WindowCommand.GetWorktreeDefaults(paneId = paneId)) },
+            ),
+        ) + buildResetTerminalItems(paneId, contentKind),
+    )
 }
 
 /* -------------------------------------------------------------------- */
@@ -1377,6 +1314,10 @@ fun bootViaToolkitShell(root: HTMLElement) {
             },
             paneIcon = { _, paneId -> lunamuxPaneIcon(findLeafDynamic(paneId)) },
             paneActions = { _, paneId -> lunamuxPaneActions(paneId) },
+            // The `⋮` and its two window-model rows are the toolkit's;
+            // Lunamux contributes Create worktree and (on terminals) Reset
+            // terminal. See [lunamuxPaneOverflowMenu].
+            paneOverflowMenu = { _, paneId -> lunamuxPaneOverflowMenu(paneId) },
             // Pane rename commits via WindowCommand.Rename. An empty
             // `newLabel` is meaningful here: PaneManager.renamePane clears
             // `customName` server-side and reverts the title to the
