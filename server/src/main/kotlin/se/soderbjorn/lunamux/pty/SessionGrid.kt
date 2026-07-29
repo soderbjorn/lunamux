@@ -218,6 +218,16 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
      * freeze the old wrap column into the line the way committing a partial line does (see
      * [HistoryLog.pendingLine]).
      *
+     * Precisely *the rows this resize opened*, measured as the band's growth — not the band. A
+     * program leaves bands of its own (zsh's `ESC[J` prompt repaint) and so does the restore
+     * path, which deliberately drops the live prompt line and leaves a row blank. Requiring the
+     * band to have been empty was the first attempt and it was **sticky**: one such row disabled
+     * the reveal, then every later resize inherited a non-empty band and refused in turn, so the
+     * band only ever grew. That is the "empty rows appear when the window resizes, and the input
+     * is in the middle again" report, on a session that had plenty of scrollback to fill it with.
+     * Growth is the honest measure: whatever gap the program left below its content is preserved,
+     * and only what the resize added is filled.
+     *
      * @param cols new column count; values below the emulator's 2-column floor are ignored.
      * @param rows new row count; values below the 2-row floor are ignored.
      * @see HistoryLog.popLast
@@ -225,8 +235,8 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
     fun resize(cols: Int, rows: Int) {
         if (cols < MIN_DIM || rows < MIN_DIM) return
         synchronized(emulator) {
-            // Measured before the resize, because it decides whether the band afterwards is
-            // the resize's doing — see revealHistoryIntoTheBand.
+            // Measured before the resize, so the reveal can fill what the resize itself opened
+            // and nothing else — see revealHistoryIntoTheBand.
             val bandBefore = emulator.backfillCapacityAboveScreen(emulator.mRows)
             try {
                 emulator.resize(cols, rows, NOMINAL_CELL_WIDTH_PX, NOMINAL_CELL_HEIGHT_PX)
@@ -235,20 +245,22 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
                 Swallowed.note("resize", t)
                 return
             }
-            if (bandBefore == 0) revealHistoryIntoTheBand()
+            revealHistoryIntoTheBand(
+                emulator.backfillCapacityAboveScreen(emulator.mRows) - bandBefore,
+            )
         }
     }
 
     /**
-     * Fill the blank rows the resize left below the content with the newest history, pushing
-     * the content — and the cursor with it — down by as many rows as are filled.
+     * Fill the blank rows the resize just opened with the newest history, pushing the content —
+     * and the cursor with it — down by as many rows as are filled.
      *
-     * Caller holds the grid monitor, and calls this only when the content was pressed against
-     * the bottom of the screen *before* the resize, so any band there now is the resize's
-     * doing. That condition is what keeps a cleared screen clear: after an ED2 the screen is
-     * blank below the prompt, and a window drag must not answer that by hauling the erased
-     * output back into view above it. (The `clear` command also erases scrollback via ED3, so
-     * there is usually nothing to haul back — but `ESC[2J` alone is a real thing programs do.)
+     * Caller holds the grid monitor.
+     *
+     * @param rowsOpened how much the trailing blank band grew across the resize; ≤ 0 is a no-op,
+     *   and it is clamped to the rows actually free, so a band the *program* left is never
+     *   filled. tmux answers a grow the same way (`screen_resize_y` pulls `needed` lines out of
+     *   its history), including over a screen the program has erased.
      *
      * The order of what goes back is forced: the screen's top row is often the *continuation*
      * of a line whose earlier rows have already been evicted (any wrapped line straddling the
@@ -257,8 +269,8 @@ class SessionGrid(cols: Int, rows: Int, initialAnswerSink: ((ByteArray) -> Unit)
      * continuation. So the head is re-laid-out together with its tail, which is what makes its
      * rows come out full-width and soft-wrapped, and the join exact.
      */
-    private fun revealHistoryIntoTheBand() {
-        val band = emulator.backfillCapacityAboveScreen(emulator.mRows)
+    private fun revealHistoryIntoTheBand(rowsOpened: Int) {
+        val band = emulator.backfillCapacityAboveScreen(rowsOpened)
         if (band <= 0) return
         val pending = history.pendingLine()
         if (pending == null && history.size == 0) return

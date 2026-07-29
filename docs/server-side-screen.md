@@ -311,10 +311,20 @@ Four constraints shape it, each with a test that fails without it:
   also covers the case a pure prepend cannot express: after a widening the two may fit in no
   more rows than the tail alone already occupies, so the head does not go *above* that row — it
   rejoins it (`backfillAboveScreen`'s `replacingTopRows`).
-- **Only a band the resize itself opened.** Gated on the content having been pressed against
-  the bottom *before* the resize. After an `ESC[2J` the screen is legitimately blank below the
-  prompt, and a window drag must not answer that by hauling the erased output back into view.
-  Removing this gate breaks two tests, including relative-repaint ordering.
+- **Only the rows this resize opened**, measured as the band's *growth* across it. Programs
+  leave bands of their own — zsh repaints its prompt with `ESC[J`, which erases to the end of
+  the screen — so filling the whole band hauls history into a program's working area and breaks
+  relative-repaint ordering. What comes out unchanged is the gap the program left below its
+  content.
+
+  The first attempt required the band to have been *empty*, and that was **sticky**: the restore
+  path deliberately drops the live prompt line and leaves one row blank, that single row
+  disabled the reveal, and every later resize then inherited a non-empty band and refused in
+  turn — so the band only ever grew. Measured on device from a screen recording: full-screening
+  the app on a restored session with ~250 lines of scrollback filled *nothing*, and the row
+  pitch put 2–3 blank rows under the prompt before the resize even started. Growth is the
+  honest measure; tmux answers a grow the same way (`screen_resize_y` pulls `needed` lines out
+  of its history), including over a screen the program has erased.
 - **Never into an alt frame or a scroll region.** An alt frame is an absolutely-addressed
   picture with no scrollback behind it, and a program that has set a scroll region is
   addressing rows by number.

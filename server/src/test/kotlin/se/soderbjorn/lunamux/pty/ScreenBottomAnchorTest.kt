@@ -39,6 +39,10 @@ class ScreenBottomAnchorTest {
     /** Rows between the cursor and the bottom of the screen — the quantity a resize must not change. */
     private fun SessionGrid.slackBelowCursor(): Int = read { e -> e.mRows - 1 - e.cursorRow }
 
+    /** Blank rows between the last content row and the bottom of the screen. */
+    private fun SessionGrid.bandBelowContent(): Int =
+        read { it.backfillCapacityAboveScreen(it.mRows) }
+
     /**
      * The session's content as logical lines, blank ones dropped: history + the pending line +
      * the screen with soft wraps rejoined. Width-independent by construction, which is what
@@ -104,19 +108,54 @@ class ScreenBottomAnchorTest {
     }
 
     @Test
-    fun `a cursor parked above the content keeps its distance from the bottom, not the bottom`() {
-        // The invariant is about the *distance*, not about pinning the prompt to the last row.
-        // After a `clear` (ED2, cursor home) the screen is legitimately empty below the cursor,
-        // and a grow must not shove history in behind a cleared screen.
+    fun `a band the program left is preserved, not filled`() {
+        // Only the rows *this resize* opened are filled. A program leaves bands of its own — zsh
+        // repaints its prompt with ESC[J, which erases to the end of the screen — and those are
+        // its business. So the gap below the content is what comes out unchanged, which is both
+        // what leaves an erased screen erased and what stops the reveal from needing a heuristic
+        // about who blanked what.
         val grid = scrolled(cols = 80, rows = 20, committed = 30)
-        grid.feedText("[2J[H")       // erase the screen, home the cursor
-        assertEquals(19, grid.slackBelowCursor(), "precondition: the whole screen is below")
-        val historyBefore = grid.historyLines().size
+        grid.feedText("[2A[J")       // up two rows, erase from there to the end of screen
+        assertEquals(2, grid.bandBelowContent(), "precondition: the program left a 2-row band")
 
         grid.resize(80, 30)
 
-        assertEquals(historyBefore, grid.historyLines().size, "the erased output stays erased")
-        assertEquals(29, grid.slackBelowCursor(), "and the prompt stays where the program put it")
+        assertEquals(2, grid.bandBelowContent(), "the program's own band comes out unchanged")
+        assertEquals(2, grid.slackBelowCursor(), "so the cursor keeps its distance too")
+    }
+
+    @Test
+    fun `a band already open does not stop the next resize from filling its own rows`() {
+        // The regression this exists for. Requiring the band to have been *empty* was sticky: the
+        // restore path deliberately drops the live prompt line and leaves a row blank, that one
+        // row disabled the reveal, and every later resize then inherited a non-empty band and
+        // refused in turn — so the band only ever grew. On device: "the empty rows appear when
+        // the window resizes, and the input is in the middle again", on a session that had plenty
+        // of scrollback to fill them with.
+        val grid = scrolled(cols = 115, rows = 38, committed = 60)
+        grid.feedText("[2A[J")
+        val before = grid.logicalLines()
+        assertEquals(2, grid.bandBelowContent(), "precondition: a band is already open")
+
+        grid.resize(144, 43)                               // the app going full-screen
+
+        assertEquals(2, grid.bandBelowContent(), "the resize's own rows are filled regardless")
+        assertEquals(before, grid.logicalLines())
+    }
+
+    @Test
+    fun `every resize in a run fills its own rows, so no band accumulates`() {
+        // The other half of stickiness: one refusal used to poison every resize after it.
+        val grid = scrolled(cols = 80, rows = 20, committed = 120)
+        grid.feedText("[1A[J")                     // a 1-row band, as the restore leaves
+        val before = grid.logicalLines()
+
+        for (rows in listOf(24, 28, 34, 40, 43)) {
+            grid.resize(80, rows)
+            assertEquals(1, grid.bandBelowContent(), "band must not accumulate at $rows rows")
+        }
+
+        assertEquals(before, grid.logicalLines())
     }
 
     /**
