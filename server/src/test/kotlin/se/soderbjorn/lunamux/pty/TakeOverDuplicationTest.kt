@@ -103,10 +103,14 @@ class TakeOverDuplicationTest {
     }
 
     @Test
-    fun `repeated take-over archives exactly one copy per narrowing`() {
-        // Immutable history has no reabsorption, so each narrowing's archive stays. The
-        // count pins the faithful value from both directions: more would mean lunamux is
-        // adding duplication of its own; fewer would mean a heuristic is eating scroll-off.
+    fun `a device switch round trip nets no archived copies at all`() {
+        // Each narrowing archives the frame's top; each widening back reveals those same rows
+        // onto the screen again — which is not a lunamux heuristic but what a terminal does
+        // with its scrollback when the window grows, and what every client here does for
+        // itself (see ScreenOnlyBufferTest.testBackfilledGrowShowsExactlyWhatATranscriptFulBufferShows).
+        // The program then repaints the screen it owns, over the rows just revealed. So a full
+        // round trip nets zero: switching back and forth does not pile up copies. The
+        // *narrowing-only* count is pinned above; this pins that nothing accumulates.
         val grid = SessionGrid(WIDE_COLS, WIDE_ROWS)
         grid.feedText(repaint(WIDE_ROWS))
 
@@ -119,11 +123,36 @@ class TakeOverDuplicationTest {
 
         val text = grid.transcriptText()
         assertEquals(
-            9,
+            1,
             text.countOf(MARKER_TOP),
-            "8 narrowings archive 8 copies; the 9th is the live screen's",
+            "16 resizes, one copy: the live screen's — nothing accumulated",
         )
         assertEquals(1, text.countOf(MARKER_BOTTOM), "the tail never scrolls off at these sizes")
+    }
+
+    @Test
+    fun `a widening under a repainting program reaches no further back than the rows it reveals`() {
+        // The cost of revealing scrollback on a grow, stated as a bound rather than denied: the
+        // revealed rows are on the screen again, so a program that repaints the screen paints
+        // over them, and they are gone — in Terminal.app, in tmux and here alike. What must
+        // never happen is a reach *past* them, or a hole punched in the middle of history.
+        val grid = SessionGrid(NARROW_COLS, NARROW_ROWS)
+        grid.feedText((0 until 120).joinToString("") { "history line %03d\r\n".format(it) })
+        grid.feedText(repaint(NARROW_ROWS))
+
+        grid.resize(WIDE_COLS, WIDE_ROWS)
+        grid.feedText(repaint(WIDE_ROWS))
+
+        val text = grid.transcriptText()
+        val survivors = (0 until 120).filter { text.contains("history line %03d".format(it)) }
+        assertEquals(
+            List(survivors.size) { it }, survivors,
+            "survivors must be an unbroken run from the oldest line — no holes",
+        )
+        assertTrue(
+            survivors.size >= 120 - WIDE_ROWS - NARROW_ROWS,
+            "the reach is bounded by one screenful of reveal, kept ${survivors.size} of 120",
+        )
     }
 
     /**

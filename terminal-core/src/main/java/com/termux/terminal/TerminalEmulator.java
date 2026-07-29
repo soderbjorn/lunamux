@@ -610,6 +610,54 @@ public final class TerminalEmulator {
         return mMainBuffer;
     }
 
+    /**
+     * LUNAMUX ADDITION. How many rows {@link #backfillAboveScreen} would accept right now.
+     * <p>
+     * Refuses while the alternate buffer is active (an alt frame is an absolutely-addressed
+     * picture with no scrollback behind it) and while any margin narrows the screen, since a
+     * program that has set a scroll region is addressing rows by number and moving its content
+     * would misplace every subsequent write.
+     *
+     * @param maxRows the most the caller wants placed.
+     * @return rows that can be placed, 0 when none can.
+     * @see TerminalBuffer#backfillCapacity(int)
+     */
+    public int backfillCapacityAboveScreen(int maxRows) {
+        if (isAlternateBufferActive()) return 0;
+        if (mTopMargin != 0 || mBottomMargin != mRows) return 0;
+        if (mLeftMargin != 0 || mRightMargin != mColumns) return 0;
+        return mMainBuffer.backfillCapacity(maxRows);
+    }
+
+    /**
+     * LUNAMUX ADDITION. Put rows back above the screen and follow the cursor down with them.
+     * <p>
+     * Called by the owner of an external history (the Lunamux server's canonical grid) after a
+     * resize has left blank rows below the content, to reveal history there instead — what a
+     * terminal whose history is its transcript does for itself. The cursor keeps the row it is
+     * standing on, so its distance from the bottom of the screen is restored, and the pending
+     * auto-wrap state is deliberately left alone: the cursor has not moved relative to its own
+     * content.
+     *
+     * @param rows the rows to place, top first, laid out at this terminal's width.
+     * @param replacingTopRows how many of the screen's top rows {@code rows} restates rather
+     *                         than sits above — see the buffer method. Refused if the cursor is
+     *                         standing in that band, since the cursor cannot be carried by rows
+     *                         that are being rewritten under it.
+     * @return whether the rows were placed.
+     * @see #backfillCapacityAboveScreen(int)
+     * @see TerminalBuffer#backfillAboveScreen(TerminalRow[], int)
+     */
+    public boolean backfillAboveScreen(TerminalRow[] rows, int replacingTopRows) {
+        if (isAlternateBufferActive()) return false;
+        if (mTopMargin != 0 || mBottomMargin != mRows) return false;
+        if (mLeftMargin != 0 || mRightMargin != mColumns) return false;
+        if (mCursorRow < replacingTopRows) return false;
+        if (!mMainBuffer.backfillAboveScreen(rows, replacingTopRows)) return false;
+        mCursorRow = Math.min(mRows - 1, mCursorRow + rows.length - replacingTopRows);
+        return true;
+    }
+
     /** The alternate screen buffer (display-sized; no scrollback). */
     public TerminalBuffer getAltBuffer() {
         return mAltBuffer;

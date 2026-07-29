@@ -150,6 +150,46 @@ class HistoryLog(private val maxLines: Int = DEFAULT_MAX_LINES) {
      */
     fun lines(): List<LogicalLine> = committed.toList()
 
+    /**
+     * Give the newest [n] committed lines back, removing them from the log.
+     *
+     * The one operation that removes committed lines, and it is not an edit: it *un-scrolls*
+     * them. A screen that grows has to reveal rows above it, and the rows it reveals are the
+     * ones that most recently scrolled off — so they return to the live screen, where they are
+     * once again reflowable, exactly as a terminal whose history is its own transcript behaves.
+     * Called by [SessionGrid] after a resize leaves blank rows below the content.
+     *
+     * This is why append-only is a claim about *reflow*, not about the deque: a committed line
+     * is never rewritten or re-wrapped in place, but the boundary between history and screen
+     * moves both ways. Lines handed back are re-committed verbatim when they scroll off again.
+     *
+     * @param n how many to give back; clamped to [size], and ≤ 0 returns nothing.
+     * @return the removed lines, oldest first, so the caller can lay them out in order.
+     * @see SessionGrid.resize
+     */
+    fun popLast(n: Int): List<LogicalLine> {
+        val take = n.coerceIn(0, committed.size)
+        if (take == 0) return emptyList()
+        val out = ArrayList<LogicalLine>(take)
+        repeat(take) { out.add(committed.removeLast()) }
+        out.reverse()
+        return out
+    }
+
+    /**
+     * Forget the half-assembled line, without committing it.
+     *
+     * The counterpart of [popLast] for the line that is only half in the log: when a resize
+     * reveals rows above the screen, the first thing to go back is the evicted head of the line
+     * straddling the top, and once those runs are on the screen again the log must not still be
+     * holding them. They accumulate here again when they scroll off.
+     *
+     * @see SessionGrid.resize
+     */
+    fun dropPending() {
+        open.clear()
+    }
+
     /** Drop all history and any half-assembled line. */
     fun clear() {
         committed.clear()

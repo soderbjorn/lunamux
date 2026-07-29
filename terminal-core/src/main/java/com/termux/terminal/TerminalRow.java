@@ -286,4 +286,19 @@ public final class TerminalRow {
         return mStyle[column];
     }
 
+    /**
+     * LUNAMUX ADDITION. Whether this row soft-wraps into the next one, i.e. the logical line
+     * continues rather than ending here.
+     * <p>
+     * Readable from outside the package because rows now travel outside a buffer: the owner of
+     * an external history lays lines out in a scratch buffer and hands the rows to
+     * {@link TerminalBuffer#backfillAboveScreen(TerminalRow[])}, and has to be able to check
+     * that the row it puts against the screen really does wrap into it.
+     *
+     * @return true when the row is a soft-wrapped continuation into the next.
+     */
+    public boolean isLineWrapped() {
+        return mLineWrap;
+    }
+
 }

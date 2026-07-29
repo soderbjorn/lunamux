@@ -45,8 +45,10 @@ each was arrived at by finding what broke without it.
    class because of an upstream Claude Code bug (next section). The restated criterion is
    pinned as executable tests in `TakeOverDuplicationTest`: faithfulness (exactly one
    archived copy per narrowing — fewer means a dedup heuristic crept back in, more means
-   lunamux added duplication of its own) and safety (committed history survives every
-   resize, repaint or not).
+   lunamux added duplication of its own) and safety (committed history survives a resize
+   with no repaint; with a repaint, a widening reaches no further back than the rows it
+   revealed onto the screen, and never holes history in the middle — see "The screen stays
+   pressed against the bottom").
 3. **A live (not replayed) session stays well-formatted on both laptop and phone.** *Met.*
 
 ## The root tension
@@ -259,6 +261,74 @@ five scenarios fail with exactly the reported symptoms, including rotated conten
 (`L011, L028, L029, L030, L012, L021…`) and the cursor landing on an output row instead of
 the prompt being edited.
 
+## The screen stays pressed against the bottom
+
+**A resize must not open a band of blank rows below the content.** That is what makes a
+terminal feel like a terminal: drag the window taller and the prompt stays at the bottom while
+older output is revealed above it.
+
+The canonical grid did the opposite, and this was the third defect in the on-device restore
+report — the content came back correct but sat in the top two thirds of the window with the
+prompt stranded halfway up it, filling in a line at a time as commands were run. The cause is
+structural rather than incidental: a terminal that keeps history in its own transcript answers
+a rows-grow by moving the screen *up* into that transcript (`TerminalBuffer.resize`: "Only move
+screen up if there is transcript to show"), and the canonical grid deliberately has no
+transcript — `NO_EMULATOR_TRANSCRIPT`, history lives outside it — so the grow found nothing to
+reveal and padded below the content instead. Restore hits it every time, because the blob is
+replayed at the geometry it was stored at and the client that attaches then votes its own,
+usually taller, screen.
+
+It was also a **divergence**, not only a cosmetic one: every client renders with a
+transcript-ful buffer (Termux on Android, xterm.js on web) and so bottom-anchors on a grow for
+itself. Same session, same size, two different screens — and absolute cursor addressing then
+lands on different content on the server than on the client.
+`ScreenOnlyBufferTest.testBackfilledGrowShowsExactlyWhatATranscriptFulBufferShows` pins the
+parity directly: fill a screen-only and a transcript-ful buffer identically, grow both, hand
+the screen-only one its evicted rows back, and the two screens and cursors must match.
+
+So `TerminalBuffer.backfillAboveScreen` lets the owner of an external history hand rows back.
+It is the exact inverse of `RowEvictionListener`, and it is a pure ring rotation: the blank
+rows at the bottom become the top ones, everything else shifts down, nothing but those blanks
+is discarded. `SessionGrid.resize` measures the band, takes whole logical lines from the tail
+of `HistoryLog` newest-first, and lays each out by feeding it to a **throwaway emulator of the
+same width** — so wrap points, wide glyphs and combining marks come from the same code path
+that laid the line out when it was written, not a second implementation of wrapping that could
+disagree with it.
+
+Four constraints shape it, each with a test that fails without it:
+
+- **Whole lines only.** Un-scrolling half a line would freeze the column the old width
+  happened to wrap at into the line itself — the same defect as committing a half-assembled
+  line. A line too long for the room stays in history and the band it could not fill stays
+  visible. Honest, and self-correcting on the next resize.
+- **The straddling line comes back first, rejoined.** The screen's top row is very often the
+  *tail* of a line whose head is already evicted (any wrapped line crossing the top), and that
+  head is the pending line, not a committed one — so it has to go back before anything older,
+  or an older line is spliced between a line and its own continuation. It cannot be laid out
+  alone either: it ends mid-line, and a soft-wrapped row must be *full*, so a partial row
+  marked as wrapped fuses head to tail with a band of padding between them. Laid out together
+  with its tail as the one logical line it is, the wrap lands where the width puts it. That
+  also covers the case a pure prepend cannot express: after a widening the two may fit in no
+  more rows than the tail alone already occupies, so the head does not go *above* that row — it
+  rejoins it (`backfillAboveScreen`'s `replacingTopRows`).
+- **Only a band the resize itself opened.** Gated on the content having been pressed against
+  the bottom *before* the resize. After an `ESC[2J` the screen is legitimately blank below the
+  prompt, and a window drag must not answer that by hauling the erased output back into view.
+  Removing this gate breaks two tests, including relative-repaint ordering.
+- **Never into an alt frame or a scroll region.** An alt frame is an absolutely-addressed
+  picture with no scrollback behind it, and a program that has set a scroll region is
+  addressing rows by number.
+
+The cost, stated rather than denied: revealed rows are on the live screen again, so a program
+that repaints the screen paints over them and they are gone. Terminal.app, tmux and every
+client here lose the same rows the same way — `screen_resize_y` in tmux pulls from history on
+grow for exactly this reason. The bound is what matters and is pinned: a widening reaches no
+further back than the rows it revealed, and never punches a hole in the middle of history. One
+consequence is visible in `TakeOverDuplicationTest`: a laptop↔phone round trip now nets *zero*
+archived frame copies, because the widening reveals what the narrowing archived and the
+program's own repaint overwrites it. Switching devices back and forth no longer piles up
+copies — a side effect of correct anchoring, not a dedup heuristic.
+
 ## One answerer for the terminal
 
 Every attached interactive client's emulator answered the running program's device queries —
@@ -439,16 +509,12 @@ and Android have since replaced with ack-clocking.
    stream-deltas is possible. Clients also still keep local scrollback between resyncs and
    rely on the RIS-prefixed resync to stay coherent — with geometry now server-driven, that
    is the remaining half of "pure renderer". Cost, not correctness.
-2. **Reflow top-anchoring on widen.** Widening can leave the prompt mid-screen rather than
-   anchored, because the reflow re-inserts skipped blank runs and then scrolls. Cosmetic,
-   pre-existing, and orthogonal to the holes closed above — but it is what makes a widened
-   screen look unlike what the same content would look like if written at that width.
-3. **`justToCursor` right-of-cursor truncation.** The reflow copies the cursor row only up to
+2. **`justToCursor` right-of-cursor truncation.** The reflow copies the cursor row only up to
    the cursor, so anything to its right is dropped — RPROMPT loss on a narrowing.
-4. **iOS mirror parity**: scaled passive mirror, take-over badge, and the ack-clocked vote
+3. **iOS mirror parity**: scaled passive mirror, take-over badge, and the ack-clocked vote
    pipeline, matching web/Android. iOS still runs its 200 ms debounce.
-5. **`AgentSession`'s 64 KB raw ring** (`AgentSession.kt`) is a separate subsystem that was
+4. **`AgentSession`'s 64 KB raw ring** (`AgentSession.kt`) is a separate subsystem that was
    never migrated to the canonical grid; it still replays raw bytes.
-6. **Upstream**: this branch produced a clean byte-level repro of #49086 (renderer
+5. **Upstream**: this branch produced a clean byte-level repro of #49086 (renderer
    isolated, htop control). Worth attaching to an open report (e.g. #81135) to help get it
    fixed — that fix, not anything in lunamux, is what retires the artifact.

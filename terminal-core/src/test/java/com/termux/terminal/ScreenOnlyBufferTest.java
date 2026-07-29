@@ -253,6 +253,129 @@ public class ScreenOnlyBufferTest extends TestCase {
         assertEquals(0, e.getScreen().getActiveTranscriptRows());
     }
 
+    // ── backfill: putting rows back above the screen ──────────────────────────
+
+    /** Lay {@code text} out as rows at {@code cols} wide, the way the owner of an external
+     * history does before handing them back. */
+    private TerminalRow[] rowsFor(int cols, String... text) {
+        TerminalEmulator scratch = screenOnly(cols, Math.max(2, text.length));
+        for (int i = 0; i < text.length; i++) {
+            if (i > 0) feed(scratch, "\r\n");
+            feed(scratch, text[i]);
+        }
+        TerminalRow[] rows = new TerminalRow[text.length];
+        for (int i = 0; i < text.length; i++) rows[i] = scratch.getScreen().getRow(i);
+        return rows;
+    }
+
+    private String rowText(TerminalEmulator e, int row) {
+        return e.getScreen().getSelectedText(0, row, e.mColumns - 1, row).trim();
+    }
+
+    public void testBackfillPlacesRowsAboveAndCarriesTheCursorDown() {
+        // The property the server's canonical grid needs: growing the screen reveals
+        // history above rather than blank rows below, so the cursor keeps its distance
+        // from the bottom of the screen. A screen-only ring has no transcript to reveal,
+        // so its owner hands the rows back through this.
+        TerminalEmulator e = screenOnly(20, 6);
+        feed(e, "content one\r\ncontent two\r\nPROMPT");
+        e.resize(20, 9, 8, 16);
+        assertEquals("the grow left the cursor stranded mid-screen", 2, e.getCursorRow());
+
+        assertTrue(e.backfillAboveScreen(rowsFor(20, "older one", "older two", "older three"), 0));
+
+
+        assertEquals("the cursor followed its own row down", 5, e.getCursorRow());
+        assertEquals("older one", rowText(e, 0));
+        assertEquals("older three", rowText(e, 2));
+        assertEquals("content one", rowText(e, 3));
+        assertEquals("PROMPT", rowText(e, 5));
+    }
+
+    public void testBackfilledGrowShowsExactlyWhatATranscriptFulBufferShows() {
+        // Why the backfill has to exist at all. A transcript-ful buffer — which is what every
+        // client renders with, Termux here and xterm.js on the web — answers a rows-grow by
+        // moving its screen UP into its transcript (see resize()'s "Only move screen up if
+        // there is transcript to show"), so the content stays pressed against the bottom. The
+        // screen-only canonical grid has no transcript to move into and padded below instead,
+        // which is a *divergence*: same session, same size, two different screens, and absolute
+        // cursor addressing then lands on different content on the server than on the client.
+        TerminalEmulator screen = screenOnly(24, 12);
+        TerminalEmulator stock = withTranscript(24, 12, 400);
+        final List<String> evicted = new ArrayList<>();
+        screen.getScreen().setRowEvictionListener(
+            (row, wrapped) -> evicted.add(new String(row.mText, 0, row.getSpaceUsed()).trim()));
+        for (TerminalEmulator e : new TerminalEmulator[]{screen, stock}) {
+            for (int i = 0; i < 30; i++) {
+                if (i > 0) feed(e, "\r\n");
+                feed(e, "line " + i);
+            }
+            e.resize(24, 20, 8, 16);
+        }
+
+        // The owner of the external history hands back the rows the grow made room for: the
+        // newest evicted ones, oldest first.
+        int room = screen.backfillCapacityAboveScreen(20);
+        String[] back = evicted.subList(evicted.size() - room, evicted.size()).toArray(new String[0]);
+        assertTrue(screen.backfillAboveScreen(rowsFor(24, back), 0));
+
+        assertEquals(screenRows(stock).toString(), screenRows(screen).toString());
+        assertEquals("cursor row", stock.getCursorRow(), screen.getCursorRow());
+        assertEquals("cursor col", stock.getCursorCol(), screen.getCursorCol());
+    }
+
+    public void testBackfillCanRestateTheScreensTopRows() {
+        // The widening case a pure prepend cannot express: the screen's first row is the tail of
+        // a line whose head is in the external history, and at the new width the two fit in no
+        // more rows than the tail alone already occupies — so the head does not go above that
+        // row, it rejoins it.
+        TerminalEmulator e = screenOnly(20, 5);
+        feed(e, "tail of a line\r\nsecond\r\nPROMPT");
+        assertEquals(2, e.backfillCapacityAboveScreen(5));
+
+        // One row restating row 0, plus one row above it.
+        assertTrue(e.backfillAboveScreen(rowsFor(20, "above", "head + tail of it"), 1));
+
+        assertEquals("above", rowText(e, 0));
+        assertEquals("head + tail of it", rowText(e, 1));
+        assertEquals("second", rowText(e, 2));
+        assertEquals("PROMPT", rowText(e, 3));
+        assertEquals("the cursor moved down by the one net row", 3, e.getCursorRow());
+    }
+
+    public void testBackfillIsRefusedRatherThanTruncated() {
+        // All-or-nothing on purpose: the caller has to pop the lines out of its history to
+        // hand them over, so a partial placement would drop the oldest one on the floor.
+        TerminalEmulator e = screenOnly(20, 6);
+        feed(e, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix");   // no blank rows at all
+
+        assertEquals(0, e.backfillCapacityAboveScreen(3));
+        assertFalse(e.backfillAboveScreen(rowsFor(20, "a", "b", "c"), 0));
+        assertEquals("nothing moved", "one", rowText(e, 0));
+    }
+
+    public void testBackfillRefusesABufferThatHasItsOwnTranscript() {
+        // A ring with room above the screen reveals its own rows on a grow (the vendored
+        // path), and rotating it backwards here would consume them.
+        TerminalEmulator e = withTranscript(20, 4, 100);
+        for (int i = 0; i < 20; i++) feed(e, "line " + i + "\r\n");
+        e.resize(20, 8, 8, 16);
+        assertEquals(0, e.backfillCapacityAboveScreen(4));
+    }
+
+    public void testBackfillRefusesTheAlternateBufferAndScrollRegions() {
+        TerminalEmulator alt = screenOnly(20, 8);
+        feed(alt, "\u001b[?1049h");
+        assertEquals("an alt frame is absolutely addressed and has no history behind it",
+            0, alt.backfillCapacityAboveScreen(4));
+
+        TerminalEmulator region = screenOnly(20, 8);
+        feed(region, "hello");
+        feed(region, "\u001b[3;6r");
+        assertEquals("a program addressing rows by number must not have them moved",
+            0, region.backfillCapacityAboveScreen(4));
+    }
+
     /** A sink for the emulator's device replies; a headless buffer has nowhere to send them. */
     private static class NullOutput extends TerminalOutput {
         @Override public void write(byte[] data, int offset, int count) {}

@@ -188,6 +188,29 @@ object GridSerializer {
     }
 
     /**
+     * The bytes that paint one logical line and nothing else: its styled runs, with no
+     * positioning, no terminator and no wrapping decided here.
+     *
+     * Used by [SessionGrid] to lay a history line back out at the grid's current width when a
+     * resize reveals room above the screen — the layout is done by feeding these to a scratch
+     * emulator, so the wrap points, wide glyphs and combining marks come out of the same code
+     * path that laid the line out when it was written, rather than a second implementation of
+     * wrapping that could disagree with it.
+     *
+     * @param line the logical line to paint.
+     * @return the paint bytes.
+     * @see SessionGrid.resize
+     */
+    internal fun bytesForLine(line: LogicalLine): ByteArray {
+        val sb = StringBuilder(line.text.length + 16)
+        for (run in line.runs) {
+            emitSgrForStyle(sb, run.style)
+            sb.append(run.text)
+        }
+        return sb.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    /**
      * Emit committed history ahead of the live screen.
      *
      * Each logical line is emitted as its styled runs followed by CRLF, with no wrapping

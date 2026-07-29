@@ -215,6 +215,94 @@ public final class TerminalBuffer {
         mTranscriptClearedListener = listener;
     }
 
+    /**
+     * LUNAMUX ADDITION. The row at an external row index, as the row object.
+     * <p>
+     * Everything else reads this buffer as text; the one caller that needs the rows
+     * themselves is {@link #backfillAboveScreen}, lifting freshly laid-out rows out of a
+     * scratch buffer to place them in another. The row is the buffer's own — a caller that
+     * keeps it must be finished with the buffer.
+     *
+     * @param externalRow row index in the external coordinate system (see
+     *                    {@link #externalToInternalRow}).
+     * @return the row, allocated if it was not yet.
+     */
+    public TerminalRow getRow(int externalRow) {
+        return allocateFullLineIfNecessary(externalToInternalRow(externalRow));
+    }
+
+    /**
+     * LUNAMUX ADDITION. How many rows {@link #backfillAboveScreen} could accept right now.
+     * <p>
+     * Backfilling overwrites the blank rows at the bottom of the screen (see there), so the
+     * capacity is however many trailing rows are blank — capped by what the caller asks for.
+     * Callers ask first because they must not commit to un-scrolling more history than can
+     * be placed: the history it comes from gives lines up whole, so a partial placement
+     * would drop the head of a line.
+     *
+     * @param maxRows the most the caller wants; a budget, not a demand.
+     * @return rows that can be placed, 0 when none can.
+     */
+    public int backfillCapacity(int maxRows) {
+        if (maxRows <= 0 || mTotalRows != mScreenRows) return 0;
+        int blankTail = 0;
+        while (blankTail < mScreenRows && blankTail < maxRows) {
+            TerminalRow row = mLines[externalToInternalRow(mScreenRows - 1 - blankTail)];
+            if (row != null && !row.isBlank()) break;
+            blankTail++;
+        }
+        return blankTail;
+    }
+
+    /**
+     * LUNAMUX ADDITION. Place rows back above the screen, shifting the screen down — the
+     * exact inverse of the eviction {@link RowEvictionListener} reports.
+     * <p>
+     * Growing the screen has to find rows from somewhere. A terminal that keeps its history
+     * in the transcript takes them from there, which is why a real terminal keeps the prompt
+     * at the bottom of the window as you drag it taller. The Lunamux server's canonical grid
+     * has no transcript at all — its history lives outside the emulator as logical lines — so
+     * the vendored grow path had nothing to reveal and appended blank rows below instead,
+     * stranding the prompt mid-screen with an empty band under it. This is how the owner of
+     * that external history hands the rows back.
+     * <p>
+     * Only for screen-only rings ({@code mTotalRows == mScreenRows}, i.e. the server grid and
+     * the alternate buffer). A ring with a transcript already has rows above the screen to
+     * reveal and the vendored path handles it; rotating one backwards here would consume them.
+     * <p>
+     * The rows are placed by rotating the ring, so the blank rows at the bottom become the
+     * top ones and every other row shifts down by the same amount. Nothing but those blanks
+     * is discarded. The caller must have sized {@code rows} to {@link #backfillCapacity};
+     * anything larger is refused outright rather than truncated, because truncating would
+     * silently swallow the oldest supplied row.
+     *
+     * {@code replacingTopRows} exists because the screen's first row is often the tail of a
+     * line whose head is in the external history, and a *widening* can leave the two fitting
+     * in fewer rows than the tail alone occupies now — the head does not go above that row, it
+     * rejoins it. So the caller may re-lay-out the top rows of the screen and hand back the
+     * whole line: the first {@code replacingTopRows} screen rows are overwritten, and only the
+     * excess shifts the screen down.
+     *
+     * @param rows              the rows to place, top first, each already laid out at this
+     *                          buffer's width. The last one ends up at screen row
+     *                          {@code rows.length - replacingTopRows - 1}, so its
+     *                          {@link TerminalRow#mLineWrap} must be false unless the row below
+     *                          it really is its continuation.
+     * @param replacingTopRows  how many of the screen's current top rows {@code rows} restates
+     *                          rather than sits above; 0 for a pure prepend.
+     * @return whether the rows were placed.
+     */
+    public boolean backfillAboveScreen(TerminalRow[] rows, int replacingTopRows) {
+        final int shift = rows.length - replacingTopRows;
+        if (rows.length == 0 || replacingTopRows < 0 || shift < 0) return false;
+        if (mTotalRows != mScreenRows || rows.length > mScreenRows) return false;
+        if (shift > backfillCapacity(shift)) return false;
+        if (shift > 0)
+            mScreenFirstRow = ((mScreenFirstRow - shift) % mTotalRows + mTotalRows) % mTotalRows;
+        for (int i = 0; i < rows.length; i++) mLines[externalToInternalRow(i)] = rows[i];
+        return true;
+    }
+
     public int getActiveTranscriptRows() {
         return mActiveTranscriptRows;
     }

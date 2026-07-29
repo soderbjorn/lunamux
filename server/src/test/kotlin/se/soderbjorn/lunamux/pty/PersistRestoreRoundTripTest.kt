@@ -200,6 +200,38 @@ class PersistRestoreRoundTripTest {
     }
 
     @Test
+    fun `a restored session comes back with its newest output at the bottom of the screen`() {
+        // The second half of the on-device restore report: the content came back correct but
+        // sat in the top two thirds of the window with the prompt stranded halfway up it. The
+        // blob is replayed at the geometry it was stored at — the client that attaches then
+        // votes its own, usually taller, screen — and the grow found no scrollback inside the
+        // emulator to reveal, so it padded below the content instead.
+        val source = SessionGrid(100, 20)
+        repeat(12) { source.feedText(prose()) }
+        source.feedText("$ ")
+        val storedRows = source.read { it.mRows }
+
+        val restored = restore(source, 100, storedRows)
+        assertEquals(
+            0, restored.read { it.backfillCapacityAboveScreen(it.mRows) },
+            "precondition: the replay itself fills the screen it was stored at",
+        )
+
+        restored.resize(143, 40)                       // the attaching client's screen
+
+        val lastContentRow = restored.read { e ->
+            (e.mRows - 1 downTo 0).firstOrNull { r ->
+                e.mainBuffer.getSelectedText(0, r, e.mColumns - 1, r).isNotBlank()
+            }
+        }
+        assertEquals(39, lastContentRow, "the content must reach the bottom row of the screen")
+        assertEquals(
+            source.logicalLines().dropLast(1), restored.logicalLines(),
+            "with no content changed — bar the live prompt line persist drops by design",
+        )
+    }
+
+    @Test
     fun `a resize before persisting does not change what is stored`() {
         // The live path: a client attaches and votes, so the grid reflows before the shutdown
         // that persists it. The reflow evicts rows — possibly ending on a wrapped one — and that
