@@ -339,6 +339,39 @@ archived frame copies, because the widening reveals what the narrowing archived 
 program's own repaint overwrites it. Switching devices back and forth no longer piles up
 copies — a side effect of correct anchoring, not a dedup heuristic.
 
+## A pane must not declare a grid it has not measured
+
+Invariant 2 says geometry rides the byte stream. The web client broke it from the other end,
+not by refitting itself but by **asserting** a size it had never measured.
+
+`ensureTerminal` builds a pane's container detached from the document, runs its one
+creation-time fit there — where the element has no box, so the fit cannot measure anything —
+and calls `connectPane` as its last statement; the caller appends the container to its layout
+cell afterwards. The attach URL declared `term.cols/rows`, which at that moment is still
+xterm's untouched **80×24 default**. So opening a tab resized the *shared PTY* to 80×24 before
+the server synthesized anything: a real `SIGWINCH` at a width nobody asked for, a redraw
+synthesized at it, a second redraw 100 ms later when the resync debounce fired, and a third
+when the restore-settle vote finally supplied the real width. That is the "opening a tab loads
+the transcript several times, a line or two more each time" report.
+
+Measured off a screen recording of one tab switch: the first paint wrapped at column 81 and
+filled exactly 24 rows, and the three paints landed 0.22 s / 0.48 s / 0.78 s after the click —
+matching `RESYNC_DEBOUNCE_MS` and `RESTORE_SETTLE_QUIET_MS` exactly. It was also a hazard for a
+second window: the arbiter takes `min()` over votes, so a fresh pane's 80 columns would shrink
+a session another window was driving until its settle vote landed.
+
+A first connect now declares nothing, and the server synthesizes at the session's current grid
+— for a restored session, the width its scrollback was persisted at, which is what the
+restore-settle design already wanted rendered first (`PtyAttachFlowTest."no declared grid means
+no pre-attach vote"` pins the server half). A reconnect still declares, because by then
+`term.cols/rows` is the grid the server last mandated: it re-asserts a size the arbiter already
+holds instead of inventing one.
+
+What remains is at most **one** corrected repaint, when a pane's settled width genuinely
+differs from the persisted one. Removing that too would mean holding the first frame until
+after the settle — trading a visible correction for ~350 ms of blank pane on every tab switch,
+and giving up the deliberate choice not to vote a width measured before the webfont loads.
+
 ## One answerer for the terminal
 
 Every attached interactive client's emulator answered the running program's device queries —

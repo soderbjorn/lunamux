@@ -285,12 +285,33 @@ fun connectPane(entry: TerminalEntry) {
         connectDemoPane(entry)
         return
     }
-    // Declare the grid this pane currently renders so the server synthesizes the
-    // attach redraw at our width (the server-authoritative-screen model). A driver
-    // desktop's dims govern the PTY; the onopen fit vote + the server's resync
-    // correct any staleness from a not-yet-fitted first connect.
-    val url = "$proto://$backendHost/pty/${entry.sessionId}?$authQueryParam" +
-        "&cols=${entry.term.cols}&rows=${entry.term.rows}"
+    // Declare the grid this pane currently renders so the server synthesizes the attach
+    // redraw at our width (the server-authoritative-screen model) — but only when this pane
+    // HAS a grid of its own to declare.
+    //
+    // A first connect does not. [ensureTerminal] builds the container detached from the
+    // document, runs its one creation-time fit there — where the element has no box, so the
+    // fit cannot measure anything — and calls this function as its last statement; the caller
+    // appends the container to its layout cell only afterwards. So `term.cols/rows` is still
+    // xterm's untouched 80×24 default, and declaring it made the server resize the *shared
+    // PTY* to 80×24: a real SIGWINCH at a width nobody asked for, a redraw synthesized at it,
+    // another when the settle vote corrected it, and the "opening a tab loads the transcript
+    // several times, a line or two more each time" flicker. Measured off a screen recording:
+    // the first paint wrapped at column 81 and filled exactly 24 rows. It was also a hazard
+    // for a second window — the arbiter takes min() over votes, so a fresh pane's 80 columns
+    // would have shrunk a session another window was driving until its settle vote landed.
+    //
+    // With the params absent the server synthesizes at the session's current grid, which for a
+    // restored session is the width its scrollback was persisted at — exactly what the
+    // restore-settle design wants rendered first, with the single reconciling vote following
+    // from [finishRestoreSettle] once the geometry is stable. A *reconnect* does declare: by
+    // then `term.cols/rows` is the grid the server last mandated, so it re-asserts a size the
+    // arbiter already holds rather than inventing one.
+    //
+    // @see finishRestoreSettle
+    val declaredGrid =
+        if (entry.everConnected) "&cols=${entry.term.cols}&rows=${entry.term.rows}" else ""
+    val url = "$proto://$backendHost/pty/${entry.sessionId}?$authQueryParam$declaredGrid"
     connectionState[entry.sessionId] = "connecting"
     updateAggregateStatus()
 
