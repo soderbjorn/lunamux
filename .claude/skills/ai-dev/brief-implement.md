@@ -33,6 +33,14 @@ Tracker link: <config.issueUrl with {id} substituted>
 - NEVER touch <config.repoRoot> or <config.toolkit.repoRoot>. Other tickets may be
   running at the same time; those shared checkouts are not yours.
 
+Get there with a plain `cd <path>` in Bash, or with `git -C <path>`. **Do not use the
+EnterWorktree tool.** These worktrees sit beside the repo rather than under
+`.claude/worktrees/`, so entering one relocates the session's permission root, and
+that always asks the human — no permission setting pre-approves it. You are a
+background agent in an unattended cycle: nobody is awake to answer, and the prompt
+parks not just you but the whole sweep, which keeps holding its lock and skipping
+every later tick until somebody notices.
+
 # The toolkit
 
 <paste repos.md here>

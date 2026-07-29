@@ -40,6 +40,14 @@ with plain `gh pr view` / `gh pr diff`, and the surrounding code you check each
 finding against is the checkout you are standing in. Run it anywhere else and you
 review a different diff, or none.
 
+A plain `cd` in Bash is how you get there. **Do not use the EnterWorktree tool.**
+That worktree sits beside the repo rather than under `.claude/worktrees/`, so
+entering it relocates the session's permission root, and that always asks the human
+— no permission setting pre-approves it. You are a background agent in an unattended
+cycle: nobody is awake to answer, and the prompt parks not just you but the whole
+sweep, which keeps holding its lock and skipping every later tick until somebody
+notices.
+
 NEVER touch <config.repoRoot><when a toolkit exists:> or <config.toolkit.repoRoot>.
 Other tickets may be running right now; those shared checkouts are not yours.
 
