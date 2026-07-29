@@ -204,6 +204,22 @@ fun lunamuxTabSource(
     onPaneClose = { _, paneId ->
         scope.launch { socket.send(WindowCommand.Close(paneId = paneId)) }
     },
+    // Pane overflow menu → "Move to tab ▸ <tab>". The toolkit builds the
+    // destination list from the snapshot pushed above — including hidden
+    // tabs, which keep their panes and PTY sessions and stay valid
+    // targets — and raises this with the chosen tab. Lunamux does what it
+    // does for every other window gesture: send the command and let the
+    // server's refreshed WindowConfig come back through the collector.
+    // The server re-applies BOTH tabs' layout presets after the move (an
+    // Auto tab re-tiles on each side) and broadcasts to every client, so
+    // the second screen sees the same thing this one does.
+    //
+    // The source tab id is unused: a Lunamux pane id is unique across the
+    // whole window model, so the server needs only the pane and its
+    // destination.
+    onPaneMove = { _, paneId, targetTabId ->
+        launchCmd(WindowCommand.MovePaneToTab(paneId = paneId, targetTabId = targetTabId))
+    },
     // Toolkit "+ pane" — primary (click) action: add a plain terminal
     // immediately. The secondary types (terminal link / file browser /
     // git) live on the hover dropdown wired via [paneAddMenuItems]
