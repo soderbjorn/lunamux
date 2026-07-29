@@ -93,6 +93,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import se.soderbjorn.lunamux.android.net.ConnectionHolder
+import se.soderbjorn.lunamux.client.MirrorFit
 import se.soderbjorn.lunamux.client.PtyEvent
 import se.soderbjorn.lunamux.client.PtyPresentation
 import kotlin.math.roundToInt
@@ -109,26 +110,43 @@ private val HeaderAccent: Color
  */
 private const val PTY_RESUME_STALE_MS = 3_000L
 
-/**
- * Smallest legible font (px) for the passive mirror. When mirroring a grid larger
- * than the phone natively fits, the font shrinks proportionally (fitting both
- * axes — see [PtyPresentation.passiveFontSize]) down to this floor; below it the
- * right/bottom edges are clipped rather than shrinking illegibly. The explicit
- * pinch zoom can still go below the floor ([MIRROR_FONT_MIN_PX]) to reach a
- * clipped edge.
- */
-private const val PASSIVE_FONT_FLOOR_PX = 12f
-
 /** The phone's normal (driving) terminal font size in px. */
 private const val DRIVING_FONT_PX = 30
 
-/** Bounds for the mirror-only pinch zoom (a multiplier on the fitted mirror font). */
-private const val MIRROR_ZOOM_MIN = 0.5f
-private const val MIRROR_ZOOM_MAX = 6f
+/**
+ * The mirror's zoom ceiling. `1.0` is the font that fills the view's height with the server's
+ * rows, and the cap is deliberate: above it the last row — the prompt — goes below the fold,
+ * and reaching it would need a second panning axis whose gesture collides with scrollback.
+ * A user who wants bigger text takes over. The floor is not a constant; it is derived per
+ * geometry by [MirrorFit.zoomFloor] so zooming out always reaches the whole-width overview.
+ */
+private const val MIRROR_ZOOM_MAX = 1f
 
 /** Absolute bounds for the resulting mirror font size, in px. */
-private const val MIRROR_FONT_MIN_PX = 6f
-private const val MIRROR_FONT_MAX_PX = 48f
+private const val MIRROR_FONT_MIN_PX = 6
+private const val MIRROR_FONT_MAX_PX = 48
+
+/**
+ * The mirror's window onto the server's grid: what font to draw it at, where to put it, and
+ * how far the zoom may go.
+ *
+ * All of it is presentation — the emulator stays pinned to the server's grid on both axes — so
+ * every field here is free of any resize, vote or `SIGWINCH`.
+ *
+ * @property fontPx the font actually applied, i.e. the fill-height font scaled by the pinch
+ *   zoom and clamped.
+ * @property fillHeightFontPx the font at which all the server's rows fill the view's height:
+ *   the default, and the zoom ceiling.
+ * @property offsetY pixels to shift the grid down by, centring it while it is shorter than the
+ *   view — which is what keeps a zoomed-out mirror in the middle of the screen.
+ * @property zoomFloor the smallest useful zoom multiplier, where the whole width fits at once.
+ */
+private data class MirrorWindow(
+    val fontPx: Int,
+    val fillHeightFontPx: Int,
+    val offsetY: Float,
+    val zoomFloor: Float,
+)
 
 /**
  * Whether [bytes] contains a full terminal reset (RIS, `ESC c`). Termux's
@@ -311,31 +329,67 @@ fun TerminalScreen(
         driving = driving,
     )
 
-    // The font actually applied to the view: the user's size while driving; while
-    // mirroring, shrunk so the server grid fits the phone on BOTH axes, floored so
-    // it stays legible (below the floor the right/bottom edges clip). Height must
-    // fit too because the mirror emulator is pinned to the server's rows — a
-    // taller-than-fits server screen would put its bottom rows (the prompt)
-    // outside the view with no way to scroll to them. Applied in the AndroidView
-    // update block.
-    val appliedFontSize = if (passive) {
-        val lg = localGrid
+    // The view's pixel box, from the layout listener. The mirror's fit needs the real box
+    // rather than the natural grid it implies: cell metrics are integers with a ceil in them,
+    // so going back through a grid loses exactly the pixel that decides whether the last row
+    // fits. @see cellMetricsProvider
+    var viewBox by remember(sessionId) { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    // The mirror's window onto the server grid. Null while driving — then the grid IS this
+    // phone's own, so it fits by construction and the window is the whole view.
+    //
+    // Fitted to the ROWS, not to both axes: a portrait phone at a laptop's column count has
+    // room for ~3.5x the rows the session has, so fitting both let the cols ratio bind and left
+    // the text at ~0.4x the user's own font with two thirds of the screen unused. Filling the
+    // height is legible (larger than the driving font, on the measured geometry) and the columns
+    // that overflow are panned over instead of shrunk away. The cost, stated: about a third of
+    // each line is visible in portrait, so this is monitoring at a glance — landscape, where the
+    // rows bind and everything fits with no pan at all, is for reading in full.
+    val mirrorWindow: MirrorWindow? = run {
+        val box = viewBox
         val sg = serverGrid
-        if (lg != null && sg != null) {
-            val fit = PtyPresentation.passiveFontSize(
-                userFontSize.toFloat(), lg.cols, sg.first, PASSIVE_FONT_FLOOR_PX,
-                lg.rows, sg.second,
-            )
-            // Pinch scales the mirror around that fit. Zooming out below the legibility
-            // floor is allowed here because it is explicit intent (see more at once),
-            // unlike the automatic fit which stops at the floor and clips instead.
-            (fit * mirrorZoom).coerceIn(MIRROR_FONT_MIN_PX, MIRROR_FONT_MAX_PX).roundToInt()
+        if (!passive || box == null || sg == null || sg.first <= 0 || sg.second <= 0) {
+            null
         } else {
-            userFontSize
+            val metrics = cellMetricsProvider(TerminalFont.typeface(ctx))
+            val fillHeight = MirrorFit.solveFillHeightFont(
+                viewHeightPx = box.second,
+                serverRows = sg.second,
+                minPx = MIRROR_FONT_MIN_PX,
+                maxPx = MIRROR_FONT_MAX_PX,
+                metrics = metrics,
+            )
+            val overview = MirrorFit.solveFitWidthFont(
+                viewWidthPx = box.first,
+                serverCols = sg.first,
+                minPx = MIRROR_FONT_MIN_PX,
+                maxPx = MIRROR_FONT_MAX_PX,
+                metrics = metrics,
+            )
+            val floor = MirrorFit.zoomFloor(fillHeight, overview)
+            val fontPx = (fillHeight * mirrorZoom.coerceIn(floor, MIRROR_ZOOM_MAX))
+                .roundToInt()
+                .coerceIn(MIRROR_FONT_MIN_PX, fillHeight)
+            MirrorWindow(
+                fontPx = fontPx,
+                fillHeightFontPx = fillHeight,
+                // Centred at the APPLIED font, not the fill-height one: a zoomed-out grid is
+                // shorter than the view, and centring it is what Otto asked for over parking
+                // it against the top edge.
+                offsetY = MirrorFit.centreOffsetY(box.second, sg.second, metrics(fontPx)),
+                zoomFloor = floor,
+            )
         }
-    } else {
-        userFontSize
     }
+
+    // The font actually applied to the view: the user's size while driving, the mirror window's
+    // while another device does. Applied in the AndroidView update block.
+    val appliedFontSize = mirrorWindow?.fontPx ?: userFontSize
+
+    // The live zoom floor, in a plain holder so the double-tap listener registered once in the
+    // factory can read the current geometry rather than the geometry at registration time.
+    val zoomFloorRef = remember(sessionId) { floatArrayOf(1f) }
+    zoomFloorRef[0] = mirrorWindow?.zoomFloor ?: 1f
     // Last font size pushed to the view — a plain holder (not Compose state) so the
     // guarded setTextSize in the update block can't feed back into recomposition.
     val appliedFontRef = remember(sessionId) { intArrayOf(-1) }
@@ -794,7 +848,26 @@ fun TerminalScreen(
                         // renderer must never do. What matters here is only "the box changed",
                         // and the grid is then MEASURED at the user's own font.
                         view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-                            (v as? TerminalView)?.let { remeasureAndAsk(it) }
+                            (v as? TerminalView)?.let {
+                                // The raw box drives the mirror's fit; the measured grid drives
+                                // the votes and the take-over target.
+                                if (it.width > 0 && it.height > 0) {
+                                    val box = it.width to it.height
+                                    if (box != viewBox) viewBox = box
+                                }
+                                remeasureAndAsk(it)
+                            }
+                        }
+                        // Double tap toggles the mirror between filling the height and the
+                        // whole-width overview — the photo-viewer idiom, and what makes a panned
+                        // mirror navigable: the overview is the map.
+                        view.setOnMirrorDoubleTapListener {
+                            val floor = zoomFloorRef[0]
+                            if (floor < MIRROR_ZOOM_MAX) {
+                                mirrorZoom =
+                                    if (mirrorZoom > (floor + MIRROR_ZOOM_MAX) / 2f) floor
+                                    else MIRROR_ZOOM_MAX
+                            }
                         }
                         view.setTerminalViewClient(object : TerminalViewClient {
                             override fun onScale(scale: Float): Float {
@@ -813,8 +886,12 @@ fun TerminalScreen(
                                 )
                                 if (!passiveNow) return scale
                                 if (scale < 0.95f || scale > 1.05f) {
+                                    // Bounds are derived, not constant: the floor is the font at
+                                    // which the whole width fits (the overview), the ceiling the
+                                    // one that fills the height. A fixed 0.5 could not reach the
+                                    // overview, and anything above 1.0 hides the prompt.
                                     mirrorZoom = (mirrorZoom * scale)
-                                        .coerceIn(MIRROR_ZOOM_MIN, MIRROR_ZOOM_MAX)
+                                        .coerceIn(zoomFloorRef[0], MIRROR_ZOOM_MAX)
                                     return 1f
                                 }
                                 return scale
@@ -882,8 +959,31 @@ fun TerminalScreen(
                         // which measures at the USER font — so a mirror-fit font change
                         // cannot move the natural grid.
                         if (appliedFontRef[0] != appliedFontSize) {
+                            val cellBefore = view.cellWidthPx
                             appliedFontRef[0] = appliedFontSize
                             view.setTextSize(appliedFontSize)
+                            // A pinch scales around its focal point, not around the left edge:
+                            // hold whatever was under the fingers in place across the font
+                            // change. The view records the focus; only this side knows the cell
+                            // width the new font came out at.
+                            val focusX = view.consumePinchFocusX()
+                            if (!focusX.isNaN()) {
+                                view.panX = MirrorFit.focalAnchoredPan(
+                                    oldPanPx = view.panX,
+                                    focusXPx = focusX,
+                                    oldCellWidthPx = cellBefore,
+                                    newCellWidthPx = view.cellWidthPx,
+                                )
+                            }
+                        }
+                        // The window's vertical placement, and its collapse on take-over: a
+                        // driving grid fits its own view, so there is nothing to centre and
+                        // nowhere to pan.
+                        if (mirrorWindow != null) {
+                            view.setContentOffsetY(mirrorWindow.offsetY)
+                        } else {
+                            view.setContentOffsetY(0f)
+                            view.resetPan()
                         }
                         // Recomposition (e.g. our own scroll-pause state changes)
                         // must not yank a scrolled-up user back to the bottom:

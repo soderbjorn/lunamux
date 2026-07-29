@@ -27,6 +27,7 @@ package se.soderbjorn.lunamux.android.ui
 import android.graphics.Typeface
 import com.termux.view.TerminalRenderer
 import com.termux.view.TerminalView
+import se.soderbjorn.lunamux.client.CellMetrics
 import kotlin.math.max
 
 /**
@@ -62,4 +63,33 @@ internal fun measureNaturalGrid(
     val cols = max(4, (viewWidth / fontWidth).toInt())
     val rows = max(4, (viewHeight - renderer.fontLineSpacingAndAscent) / lineSpacing)
     return AndroidGridDims(cols = cols, rows = rows)
+}
+
+/**
+ * Real cell geometry for any candidate font size, as
+ * [se.soderbjorn.lunamux.client.MirrorFit] needs it.
+ *
+ * The mirror's fit is solved by asking for these rather than by inverting the row formula,
+ * because the numbers below are integers with a `ceil` in them: a closed-form answer lands one
+ * pixel too large often enough to push the last row — the prompt — below the fold. Each call
+ * builds a throwaway [TerminalRenderer], the same way [measureNaturalGrid] does, so nothing the
+ * view is currently drawing at is disturbed.
+ *
+ * @param typeface the terminal typeface, which decides the cell width.
+ * @return a provider mapping a font size in px to its cell geometry; degenerate metrics
+ *   (a font size the platform refuses) come back as zeroes, which the solver reads as "does
+ *   not fit".
+ * @see measureNaturalGrid whose arithmetic this feeds the inverse of
+ */
+internal fun cellMetricsProvider(typeface: Typeface?): (Int) -> CellMetrics = { fontSizePx ->
+    val renderer = runCatching { TerminalRenderer(fontSizePx, typeface) }.getOrNull()
+    if (renderer == null) {
+        CellMetrics(cellWidthPx = 0f, lineSpacingPx = 0, lineSpacingAndAscentPx = 0)
+    } else {
+        CellMetrics(
+            cellWidthPx = renderer.fontWidth,
+            lineSpacingPx = renderer.fontLineSpacing,
+            lineSpacingAndAscentPx = renderer.fontLineSpacingAndAscent,
+        )
+    }
 }
