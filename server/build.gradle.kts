@@ -127,12 +127,34 @@ sqldelight {
 // `termtastic.db` and the older one would silently strip fields it didn't
 // recognise on its next save, e.g. losing freshly-introduced LeafContent
 // variants like the markdown overview pane.
+// Both settings are overridable from the command line:
+//
+//     ./gradlew :server:run -Dlunamux.port=8460 -Dlunamux.dbPath=/tmp/mine.db
+//
+// The forwarding below is load-bearing and not redundant. A `-D` on the
+// gradlew command line sets the property on the *Gradle daemon* JVM, and
+// JavaExec forks a fresh JVM that does NOT inherit it — so without an
+// explicit hand-off the override reaches nothing, and the hard-coded
+// defaults would win in silence. That silence is the whole problem: an
+// override that does nothing still produces a perfectly green run against
+// the shared port and the shared database, so concurrent agents or
+// worktrees believe they are isolated while contending on one server and
+// racing on one SQLite file and its WAL.
 tasks.named<JavaExec>("run") {
     dependsOn(webDistTask)
-    systemProperty("lunamux.port", "8444")
-    val devDb = File(
+    val defaultDevDb = File(
         System.getProperty("user.home"),
         "Library/Application Support/Termtastic/lunamux-dev.db",
-    )
-    systemProperty("lunamux.dbPath", devDb.absolutePath)
+    ).absolutePath
+    // providers.systemProperty (rather than a bare System.getProperty) keeps
+    // this configuration-cache correct: Gradle records the property as an
+    // input, so changing it invalidates the cached configuration instead of
+    // silently replaying the previous run's port.
+    val portOverride = providers.systemProperty("lunamux.port").getOrElse("8444")
+    val dbPathOverride = providers.systemProperty("lunamux.dbPath").getOrElse(defaultDevDb)
+    systemProperty("lunamux.port", portOverride)
+    systemProperty("lunamux.dbPath", dbPathOverride)
+    doFirst {
+        logger.lifecycle("Lunamux dev server: port $portOverride, db $dbPathOverride")
+    }
 }
