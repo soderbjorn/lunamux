@@ -24,6 +24,10 @@
  *    settings file holding *selections* (selected theme slots,
  *    appearance, fonts, sizes, app toggles).
  *
+ * Both are constructor parameters defaulting to those OS-conventional paths, so
+ * a test can point one instance at a temp directory instead of at the machine's
+ * real (user-visible) Lunula state.
+ *
  * SQLite still holds window/scrollback/auth/feature-flag data — those
  * remain lunamux-private and unaffected by the split.
  *
@@ -85,8 +89,23 @@ import java.io.File
  *
  * Blob format is versioned via the key suffix (`window.config.v1`) so most
  * future evolution doesn't touch SQL at all.
+ *
+ * @param dbFile the SQLite database file backing window / scrollback / auth state.
+ * @param sharedThemesPath absolute path of the cross-app `themes.json` holding
+ *   theme + scheme *definitions*. Defaults to the OS-conventional shared
+ *   location; overridable so tests can run against a temp directory instead of
+ *   the machine's real (user-visible) Lunula state.
+ * @param appSettingsPath absolute path of Lunamux's per-app settings file
+ *   holding *selections* (theme slots, appearance, fonts, app toggles). Same
+ *   default-plus-override story as [sharedThemesPath].
  */
-class SettingsRepository(dbFile: File) {
+class SettingsRepository(
+    dbFile: File,
+    private val sharedThemesPath: String =
+        defaultSharedThemesPath() ?: File(dbFile.parentFile, SHARED_THEMES_FALLBACK).absolutePath,
+    private val appSettingsPath: String =
+        defaultAppUiSettingsPath(APP_NAME) ?: File(dbFile.parentFile, "$APP_NAME.json").absolutePath,
+) {
 
     private val log = LoggerFactory.getLogger(SettingsRepository::class.java)
     private val driver: JdbcSqliteDriver
@@ -451,32 +470,33 @@ class SettingsRepository(dbFile: File) {
     }
 
     /**
-     * Lunamux's [appName] for the per-app UI-settings file. Used as the
-     * filename stem (e.g. `termtastic.json`) under the shared Lunula
-     * directory.
+     * Monitor guarding every read-modify-write of [_uiSettings].
+     *
+     * The UI-settings blob is mutated by *merging* a handful of incoming keys
+     * into the current snapshot — read `_uiSettings.value`, combine, write it
+     * back — and that sequence is not atomic on its own. `POST
+     * /api/ui-settings` is served from Ktor's multi-threaded dispatcher, so two
+     * requests can (and in practice regularly do) sit inside [mergeUiSettings]
+     * at once: both read the same `existing`, each adds its own key, and
+     * whichever writes last silently discards the other's change. The window is
+     * wide because two file writes happen between the read and the write.
+     *
+     * That lost update is the bug behind LMX-137. One appearance toggle in the
+     * web client fans out into three simultaneous POSTs (theme selection,
+     * custom themes, appearance shape) and a click in a pane immediately adds a
+     * fourth (`darkness.layoutState`, from the z-order bump). When the POST
+     * carrying the new `appearance` is the one that loses, the server keeps the
+     * *previous* dark/light choice while the client still shows the new one —
+     * until any later broadcast replays the server's blob back over it and the
+     * appearance visibly reverts.
+     *
+     * Held across the disk writes deliberately: the two files and the in-memory
+     * snapshot have to move together, or a concurrent reader/watcher can see a
+     * half-applied merge. Every mutator ([mergeUiSettings],
+     * [mirrorDefaultWorldThemePair], [publishExternalUiSettings]) and every
+     * read that is part of a read-modify-write takes it.
      */
-    private val appName: String = "termtastic"
-
-    /**
-     * Path to the shared Lunula theme/scheme **definitions** file
-     * (`themes.json`), owned by `lunula-store`. This file is shared
-     * across every Lunula app on this machine: custom themes/schemes
-     * authored in one app are visible in the others. Falls back to a
-     * sub-path of the Lunamux data dir if the OS-conventional path
-     * can't be resolved (rare — `user.home` would have to be missing).
-     */
-    private val sharedThemesPath: String =
-        defaultSharedThemesPath() ?: java.io.File(dbFile.parentFile, "themes.json").absolutePath
-
-    /**
-     * Path to Lunamux's per-app UI-settings file (`termtastic.json`).
-     * Holds the user's selections + UI preferences (selected theme slots,
-     * appearance, fonts, sizes, app-specific toggles) — *not* shared with
-     * other Lunula apps.
-     */
-    private val appSettingsPath: String =
-        defaultAppUiSettingsPath(appName)
-            ?: java.io.File(dbFile.parentFile, "$appName.json").absolutePath
+    private val uiSettingsLock = Any()
 
     private val _uiSettings = MutableStateFlow(loadUiSettings())
     val uiSettings: StateFlow<JsonObject> = _uiSettings.asStateFlow()
@@ -671,18 +691,28 @@ class SettingsRepository(dbFile: File) {
      * @param pair the default world's new dark+light pair.
      */
     fun mirrorDefaultWorldThemePair(pair: WorldThemeSelection) {
-        val current = (_uiSettings.value[PersistKeys.THEME_V2_SELECTION] as? JsonPrimitive)
-            ?.takeIf { it.isString }?.content
-        val existing = ThemeSnapshotV2.fromStrings(selectionJson = current, customThemesJson = null)
-        val updated = existing.copy(
-            darkThemeName = pair.darkThemeName,
-            lightThemeName = pair.lightThemeName,
-        )
-        mergeUiSettings(
-            buildJsonObject {
-                put(PersistKeys.THEME_V2_SELECTION, JsonPrimitive(updated.selectionJson()))
-            },
-        )
+        // Read + merge under one lock: the appearance this preserves is read out
+        // of the stored blob, so a concurrent appearance write landing between
+        // the read and the merge would be overwritten by the value read before
+        // it (see [uiSettingsLock]). The lock is reentrant, so the nested
+        // [mergeUiSettings] re-takes it harmlessly.
+        synchronized(uiSettingsLock) {
+            val current = (_uiSettings.value[PersistKeys.THEME_V2_SELECTION] as? JsonPrimitive)
+                ?.takeIf { it.isString }?.content
+            val existing = ThemeSnapshotV2.fromStrings(
+                selectionJson = current,
+                customThemesJson = null,
+            )
+            val updated = existing.copy(
+                darkThemeName = pair.darkThemeName,
+                lightThemeName = pair.lightThemeName,
+            )
+            mergeUiSettings(
+                buildJsonObject {
+                    put(PersistKeys.THEME_V2_SELECTION, JsonPrimitive(updated.selectionJson()))
+                },
+            )
+        }
     }
 
     /**
@@ -702,9 +732,16 @@ class SettingsRepository(dbFile: File) {
      * [se.soderbjorn.lunamux.installSharedThemesWatcher] when an
      * external Lunula app rewrites either of the two backing files.
      *
+     * Takes [uiSettingsLock] even though it only assigns: the watcher runs on
+     * its own thread, and the snapshot it hands over was built from a read of
+     * `_uiSettings` plus a disk read. Publishing it while a [mergeUiSettings]
+     * is mid-flight would drop that merge's keys, which is the same lost update
+     * the lock exists to prevent — just arriving from the file watcher instead
+     * of from a second HTTP request.
+     *
      * @param snapshot the new in-memory snapshot to publish to subscribers
      */
-    fun publishExternalUiSettings(snapshot: JsonObject) {
+    fun publishExternalUiSettings(snapshot: JsonObject) = synchronized(uiSettingsLock) {
         _uiSettings.value = snapshot
     }
 
@@ -719,6 +756,14 @@ class SettingsRepository(dbFile: File) {
      * from another Lunula app and Lunamux only race within their
      * respective scopes.
      *
+     * **Serialized on [uiSettingsLock].** The whole read-combine-write sequence
+     * is one critical section, so two callers merging different keys at the same
+     * time can no longer discard each other's change (LMX-137: the appearance
+     * toggle's POST losing to a concurrent one, leaving the server holding the
+     * previous dark/light choice). Callers keep their existing contract — the
+     * returned object is the snapshot as of *this* merge — they just queue behind
+     * one another while the two files are written.
+     *
      * No-op guard: when the merge produces a value identical to the current
      * in-memory snapshot (every incoming key already stored with the same
      * value), the call returns immediately — no disk writes, no file-watcher
@@ -731,11 +776,11 @@ class SettingsRepository(dbFile: File) {
      *                 existing keys are overwritten)
      * @return the merged [JsonObject] after persistence
      */
-    fun mergeUiSettings(incoming: JsonObject): JsonObject {
+    fun mergeUiSettings(incoming: JsonObject): JsonObject = synchronized(uiSettingsLock) {
         val existing = _uiSettings.value
         val merged = JsonObject(existing + incoming)
         // Identical merge — nothing to persist or publish (issue #93).
-        if (merged == existing) return existing
+        if (merged == existing) return@synchronized existing
         val sharedKeys = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
         val perAppKeys = LinkedHashMap<String, kotlinx.serialization.json.JsonElement>()
         for ((k, v) in merged) {
@@ -758,7 +803,7 @@ class SettingsRepository(dbFile: File) {
         // contributions. The renderer consumes the v2 theme keys directly;
         // no flattening needed.
         _uiSettings.value = JsonObject(sharedFinal + JsonObject(perAppKeys))
-        return _uiSettings.value
+        return@synchronized _uiSettings.value
     }
 
     /**
@@ -890,6 +935,21 @@ class SettingsRepository(dbFile: File) {
         private const val MCP_ENABLED_KEY = "mcp.enabled.v1"
         /** Key holding the per-database id nonce (see [instanceIdNonce]). */
         private const val INSTANCE_ID_NONCE_KEY = "instance.id_nonce.v1"
+
+        /**
+         * Lunamux's app name for the per-app UI-settings file. Used as the
+         * filename stem (`termtastic.json`) under the shared Lunula directory.
+         * Deliberately NOT renamed post-rebrand: it names a file every
+         * installed build already reads and writes.
+         */
+        private const val APP_NAME = "termtastic"
+
+        /**
+         * Filename used for the shared theme definitions when the
+         * OS-conventional shared path can't be resolved (rare — `user.home`
+         * would have to be missing), keeping it beside the database instead.
+         */
+        private const val SHARED_THEMES_FALLBACK = "themes.json"
     }
 }
 
