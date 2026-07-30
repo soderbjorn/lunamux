@@ -98,7 +98,11 @@ final class MiniTerminalRegistry {
     /// mutation and reads run on the main thread, where `FlowObserver` delivers,
     /// so the emulator needs no extra locking.
     private func makeEntry(sessionId: String) -> Entry {
-        let socket = client.openPtySocket(sessionId: sessionId)
+        // `initialGrid: nil` — a thumbnail has no grid of its own to declare, so
+        // the server synthesizes its attach redraw at the PTY's current dims.
+        // Passed explicitly because Kotlin default arguments are not exported to
+        // Swift: the parameter is optional in Kotlin and mandatory here.
+        let socket = client.openPtySocket(sessionId: sessionId, initialGrid: nil)
         let delegate = HeadlessTerminalDelegate()
         let terminal = SwiftTerm.Terminal(delegate: delegate)
         let box = MiniTerminalLineBox()

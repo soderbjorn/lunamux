@@ -27,6 +27,12 @@ struct TerminalScreen: View {
     /// label/colour to advertise it.
     @State private var hasNewOutput: Bool = false
 
+    /// Whether another device is driving the session, so this screen is showing a
+    /// passive mirror. Published by the coordinator's mode machine.
+    @State private var passive: Bool = false
+    /// [passive], debounced, so a momentary handoff blip doesn't flash the badge.
+    @State private var showTakeOver: Bool = false
+
     /// Quiet threshold for the on-foreground PTY refresh: sessions that
     /// streamed output within the last few seconds are clearly alive and
     /// are left alone; everything else (idle or killed-while-suspended)
@@ -48,6 +54,17 @@ struct TerminalScreen: View {
                             .padding(.trailing, 12)
                             .padding(.bottom, 10)
                             .transition(.opacity)
+                        }
+                    }
+                    // Take-over badge: shown while another device drives the PTY.
+                    // Tapping it is an explicit, input-free take-over. A tap on
+                    // the mirror itself deliberately does nothing — see
+                    // `TerminalCoordinator.handleMirrorTap`.
+                    .overlay(alignment: .top) {
+                        if showTakeOver {
+                            TakeOverBadge { coord.ensureDriving() }
+                                .padding(.top, 10)
+                                .transition(.opacity)
                         }
                     }
 
@@ -146,6 +163,19 @@ struct TerminalScreen: View {
             setupTerminal()
             UIApplication.shared.isIdleTimerDisabled = true
         }
+        // Debounce the badge: governance can change hands twice in quick
+        // succession during a handoff, and a badge that blinks on the way past
+        // reads as a glitch. `.task(id:)` cancels and restarts on every flip, so
+        // only a passive state that *persists* raises it.
+        .task(id: passive) {
+            guard passive else {
+                showTakeOver = false
+                return
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.15)) { showTakeOver = true }
+        }
         .onDisappear {
             coordinator?.teardown()
             UIApplication.shared.isIdleTimerDisabled = false
@@ -175,8 +205,19 @@ struct TerminalScreen: View {
             return
         }
 
-        let ptySocket = client.openPtySocket(sessionId: sessionId)
-        let coord = TerminalCoordinator(ptySocket: ptySocket, client: client, sessionId: sessionId)
+        // The grid holder rides the connect URL, so the server authors this pane's
+        // *attach* redraw at the width this phone renders at rather than at
+        // whatever the PTY currently is — the difference between a pane that opens
+        // correct and one that opens at another device's width and reflows a moment
+        // later. It is filled by the first natural-grid measurement.
+        let gridFlow = Client.PtyGridFlow()
+        let ptySocket = client.openPtySocket(sessionId: sessionId, initialGrid: gridFlow.flow)
+        let coord = TerminalCoordinator(
+            ptySocket: ptySocket,
+            client: client,
+            sessionId: sessionId,
+            gridFlow: gridFlow
+        )
         self.coordinator = coord
         self.headerTitle = sessionId
 
@@ -207,6 +248,12 @@ struct TerminalScreen: View {
                 withAnimation(.easeOut(duration: 0.12)) { self.hasNewOutput = true }
             }
         }
+
+        // Mode machine → take-over badge. The verdict is the server's (or the
+        // width fallback when nobody governs); this view only renders it.
+        coord.onPassiveChanged = { isPassive in
+            DispatchQueue.main.async { self.passive = isPassive }
+        }
     }
 }
 
@@ -215,14 +262,21 @@ struct TerminalScreen: View {
 /// Manages the SwiftTerm TerminalView lifecycle, PtySocket I/O, and
 /// server-pushed resize handling. This is the iOS equivalent of the
 /// Android TerminalScreen's emulator + PtySocket wiring.
-final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate, MirrorHostDelegate {
     let ptySocket: Client.PtySocket
     let client: Client.LunamuxClient
     let sessionId: String
 
     var terminalView: SwiftTerm.TerminalView?
+    /// The clipping container the terminal is laid out inside. It, not the
+    /// terminal, is this screen's viewport: the terminal's frame is the *server's*
+    /// grid and may be larger than the screen. See ``TerminalMirror``.
+    weak var mirrorHost: MirrorHostView?
     var onTitleChanged: ((String) -> Void)?
     var onStateChanged: ((String?) -> Void)?
+    /// Fires whenever the passive/driving verdict changes, driving the take-over
+    /// badge.
+    var onPassiveChanged: ((Bool) -> Void)?
     /// Fires with `true` when the viewport is at the bottom (auto-follow) and
     /// `false` when the user has scrolled up. Drives the "jump to bottom" pill.
     var onScrollChanged: ((Bool) -> Void)?
@@ -252,11 +306,64 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     /// Distance (px) under which we treat the viewport as "at the bottom" and
     /// resume auto-follow — covers sub-pixel rounding from `updateScroller`.
     private static let bottomEpsilon: CGFloat = 4
-    private var naturalCols: Int = 80
-    private var naturalRows: Int = 24
-    private var hasSentInitialSize = false
-    /// Trailing-debounce handle for ambient size votes (see `sizeChanged`).
-    private var sizeVoteTask: Task<Void, Never>?
+    /// The grid this phone would render at with the **user's own** font and the
+    /// host's box — measured by ``SwiftTermCellMetrics/naturalGrid(box:fontSize:)``
+    /// and applied to nothing.
+    ///
+    /// Deliberately not read back off the terminal: the terminal's grid is the
+    /// *server's*, and while mirroring its font is the shrunken mirror font, so
+    /// either would answer a different question and make the take-over target and
+    /// the mirror's baseline circular. This is what Reformat and every take-over
+    /// ask the PTY for, and what rides the connect URL.
+    private var naturalGrid: (cols: Int, rows: Int)?
+
+    /// The server's last authoritative PTY grid, or nil before it has said
+    /// anything.
+    private var serverGrid: (cols: Int, rows: Int)?
+
+    /// The server's governance verdict for *this* connection: true when this
+    /// device drives, false when another does, nil when no client governs yet (or
+    /// the server is too old to say).
+    ///
+    /// Authoritative — governance is the server's decision — so it outranks the
+    /// width comparison the mirror used to infer it from, which could not tell two
+    /// same-width clients apart and could not see governance move without the grid
+    /// moving. Nil falls back to that comparison.
+    private var driving: Bool?
+
+    /// The grid a take-over last asked for, held optimistically so a burst of
+    /// keystrokes does not each fire a `forceResize` before the server's `Size`
+    /// echo returns.
+    private var drivingTo: (cols: Int, rows: Int)?
+
+    /// Last verdict handed to ``onPassiveChanged``, so it only fires on a change.
+    private var lastPassive = false
+
+    /// Extra zoom applied to the mirror only, driven by pinch. Purely local
+    /// presentation: the server grid is untouched, so no other client sees it.
+    /// Kept across passive/driving transitions so re-entering the mirror preserves
+    /// it.
+    private var mirrorZoom: CGFloat = 1.0
+    /// The mirror's horizontal pan, in points from the grid's left edge.
+    private var mirrorPan: CGFloat = 0
+    /// The solved mirror window, or nil while driving (then the grid is this
+    /// phone's own and the window is the whole host).
+    private var mirrorWindow: MirrorWindow?
+    /// The font last pushed to the terminal, so the guarded setter fires only on a
+    /// real change — SwiftTerm's `font` setter runs `resetFont`, which resizes the
+    /// emulator *and* soft-resets it.
+    private var appliedFontSize: CGFloat?
+    /// Display link driving the pan fling's decay.
+    private var flingLink: CADisplayLink?
+    private var flingVelocity: CGFloat = 0
+
+    /// The desired-grid holder handed to `openPtySocket`, so the connect URL
+    /// carries this phone's width and the server authors its attach redraw at it.
+    private let gridFlow: Client.PtyGridFlow
+
+    /// Size requests are paced against the server's answers, not against a timer.
+    /// - SeeAlso: ``SizeVoteClock``
+    private var sizeVotes: SizeVoteClock!
 
     /// Our own pan recognizer that converts vertical finger swipes into mouse
     /// wheel events while the foreground program has mouse reporting enabled
@@ -268,6 +375,8 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     /// Accumulated vertical pan translation (points) not yet converted into a
     /// discrete wheel step; one step is emitted per cell-height of travel.
     private var wheelScrollAccumulator: CGFloat = 0
+    /// The **user's** terminal font size — the one this phone drives at, and the
+    /// one the natural grid is measured with. Never the mirror's fitted size.
     private(set) var currentFontSize: CGFloat = 12
     private static let minFontSize: CGFloat = 6
     private static let maxFontSize: CGFloat = 32
@@ -283,11 +392,25 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         TerminalFont.uiFont(size: size)
     }
 
-    init(ptySocket: Client.PtySocket, client: Client.LunamuxClient, sessionId: String) {
+    init(
+        ptySocket: Client.PtySocket,
+        client: Client.LunamuxClient,
+        sessionId: String,
+        gridFlow: Client.PtyGridFlow
+    ) {
         self.ptySocket = ptySocket
         self.client = client
         self.sessionId = sessionId
+        self.gridFlow = gridFlow
         super.init()
+        sizeVotes = SizeVoteClock(
+            sendVote: { [weak self] cols, rows in
+                try? await self?.ptySocket.resize(cols: Int32(cols), rows: Int32(rows))
+            },
+            sendForce: { [weak self] cols, rows in
+                try? await self?.ptySocket.forceResize(cols: Int32(cols), rows: Int32(rows))
+            }
+        )
         subscribeFlows()
     }
 
@@ -333,11 +456,15 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
 
         // Set a reasonable default font size (Android uses 32px ≈ ~12pt at 2x/3x).
         // On a roomy iPad canvas (regular horizontal size class) the 12 pt phone
-        // default reads tiny, so start a few points larger; pinch-to-zoom still
-        // adjusts from there within the min/max bounds.
+        // default reads tiny, so start a few points larger.
         let isRegularWidth = view.traitCollection.horizontalSizeClass == .regular
         currentFontSize = isRegularWidth ? 15 : 12
-        view.font = Self.terminalFont(size: currentFontSize)
+        // Applied through the geometry pass rather than directly, so the frame is
+        // always sized for the font before the font is installed — SwiftTerm's
+        // `font` setter derives a grid from the *current* frame (`resetFont`), so
+        // setting it against a stale frame resizes the emulator to a grid nobody
+        // asked for and soft-resets it on the way.
+        applyGeometry()
 
         // Apply theme from centrally-fetched settings, or fetch independently
         if let settings = Palette.settings {
@@ -400,6 +527,21 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
                 DispatchQueue.main.async {
                     self.applyServerSize(cols: cols, rows: rows)
                 }
+            } else if let govEv = value as? Client.PtyEventGovernance {
+                // Who drives is the server's call. An ungoverned session (nobody
+                // has acted yet, or the governor just left) clears the verdict
+                // rather than pinning a stale one, so the width fallback resumes.
+                let verdict: Bool? = govEv.governed ? govEv.driving : nil
+                DispatchQueue.main.async {
+                    self.driving = verdict
+                    // Re-solve now, on the event stream, rather than on the next
+                    // layout pass: a same-width take-over moves governance with no
+                    // `Size` frame at all, so this is the only signal that the
+                    // presentation must change hands.
+                    self.applyGeometry()
+                    self.publishPassive()
+                    if let tv = self.terminalView { self.syncScrollEnabled(tv) }
+                }
             } else if value is Client.PtyEventReset {
                 DispatchQueue.main.async {
                     guard let tv = self.terminalView else { return }
@@ -437,8 +579,28 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         }
     }
 
+    // MARK: - Geometry: the server's grid, this phone's window onto it
+
+    /// Adopt the server's authoritative grid.
+    ///
+    /// The emulator follows the server on **both** axes, driving or mirroring.
+    /// The stream is absolutely cursor-addressed for exactly the server's screen,
+    /// so a client whose rows differ lands every address in the wrong place — the
+    /// symptom being typed characters splicing into the middle of the transcript.
+    ///
+    /// - Parameters:
+    ///   - cols: the server's column count.
+    ///   - rows: the server's row count.
     private func applyServerSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
+        serverGrid = (cols, rows)
+        // The vote pipeline is clocked by these frames: any answer from the server
+        // resolves whatever this phone last asked for.
+        sizeVotes.onServerGrid(cols: cols, rows: rows)
+        // The server drifted off the grid we forced to → another device reclaimed;
+        // drop the optimistic guard so the next real input re-takes-over.
+        if let d = drivingTo, d != (cols, rows) { drivingTo = nil }
+
         // A Size can arrive before the view is laid out; stash it and let
         // configureView apply it once terminalView exists.
         guard terminalView != nil else {
@@ -447,34 +609,226 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         }
         applyingServerSize = true
         terminalView?.getTerminal().resize(cols: cols, rows: rows)
+        // Re-solve the window against the new grid and resize the terminal's frame
+        // to match it, so the view's own measurement agrees with what we just did
+        // rather than undoing it on the next layout pass.
+        applyGeometry()
+        publishPassive()
         terminalView?.setNeedsDisplay()
         DispatchQueue.main.async { self.applyingServerSize = false }
     }
 
-    /// Called from updateUIView to report the terminal's actual size once the
-    /// view has been laid out. This closes the race where the PTY socket is
-    /// opened before SwiftUI has measured the TerminalView.
+    /// Whether this phone should present a passive mirror rather than drive.
     ///
-    /// Deliberately an ambient vote, not a force: merely opening a pane must not
-    /// seize the PTY's size from the device the user is actually working on —
-    /// every PTY resize makes the running program repaint, and a normal-buffer
-    /// repainter (Claude Code) leaks a duplicate frame into scrollback each time
-    /// (anthropics/claude-code#49086). Taking over stays an explicit act: the
-    /// Reformat toolbar button (`forceResize`).
-    func assertSizeIfNeeded(_ view: SwiftTerm.TerminalView) {
-        guard !hasSentInitialSize else { return }
-        let cols = view.getTerminal().cols
-        let rows = view.getTerminal().rows
-        guard cols > 0, rows > 0 else { return }
-        hasSentInitialSize = true
-        naturalCols = cols
-        naturalRows = rows
-        Task { try? await ptySocket.resize(cols: Int32(cols), rows: Int32(rows)) }
+    /// The shared definition, so Android, web and iOS cannot disagree about what
+    /// "passive" means.
+    var isPassive: Bool {
+        Client.PtyPresentation.shared.isPassive(
+            naturalCols: Int32(naturalGrid?.cols ?? 0),
+            serverCols: Int32(serverGrid?.cols ?? 0),
+            driving: driving.map { KotlinBoolean(bool: $0) }
+        )
     }
 
+    /// Push the verdict out to the badge, but only when it actually moved.
+    private func publishPassive() {
+        let now = isPassive
+        guard now != lastPassive else { return }
+        lastPassive = now
+        if !now {
+            // Take-over: the mirror's window collapses. Zoom is kept (re-entering
+            // the mirror preserves it); the pan is not, because a driving grid fits
+            // its own view and there is nowhere to pan to.
+            mirrorPan = 0
+            stopFling()
+        }
+        onPassiveChanged?(now)
+    }
+
+    /// Re-measure this phone's natural grid and *ask* the PTY for it.
+    ///
+    /// Driven by the host's layout pass (rotation, keyboard show/hide, split) and
+    /// by a change to the user's font size.
+    ///
+    /// Measuring is unconditional; only the **ask** is a vote, and a vote is soft —
+    /// the arbiter moves governance only on an explicit force or on real input. So
+    /// rotating the phone rescales the mirror instead of stealing the PTY, while
+    /// still keeping the take-over target and the fit baseline truthful.
+    ///
+    /// Deliberately not a force: merely opening a pane must not seize the size from
+    /// the device the user is actually working on — every PTY resize makes the
+    /// running program repaint, and a normal-buffer repainter (Claude Code) leaks a
+    /// duplicate frame into scrollback each time (anthropics/claude-code#49086).
+    /// Taking over stays explicit: the Reformat button, the badge, or real typing.
+    private func remeasureAndAsk() {
+        guard let host = mirrorHost else { return }
+        guard let natural = SwiftTermCellMetrics.naturalGrid(
+            box: host.bounds.size,
+            fontSize: currentFontSize
+        ) else { return }
+        if naturalGrid == nil || naturalGrid! != natural {
+            naturalGrid = natural
+            gridFlow.set(cols: Int32(natural.cols), rows: Int32(natural.rows))
+        }
+        sizeVotes.request(cols: natural.cols, rows: natural.rows, force: false)
+    }
+
+    /// Lay the terminal out: pick the font, size its frame to the server's grid,
+    /// and place it.
+    ///
+    /// This is the *only* place the terminal's frame or font is set, and that is
+    /// the whole pin. Because SwiftTerm derives its grid as
+    /// `Int(bounds / cell)`, a frame sized to `serverGrid x cell` makes the view's
+    /// own measurement land on the server's answer — so no layout pass can ever
+    /// reflow the emulator out from under the redraw the server authored for it.
+    func applyGeometry() {
+        guard let view = terminalView, let host = mirrorHost else { return }
+        let box = host.bounds.size
+
+        guard box.width > 0, box.height > 0, let grid = serverGrid else {
+            // No box yet (pre-layout), or nothing said by the server yet: there is
+            // no grid to pin to, so the terminal simply fills the host — the
+            // pre-attach behaviour, and what demo/offline panes keep.
+            applyFont(currentFontSize, view: view, frame: host.bounds)
+            host.panEnabled = false
+            return
+        }
+
+        let passive = isPassive
+        let window = passive
+            ? MirrorWindow.solve(
+                box: box,
+                serverCols: grid.cols,
+                serverRows: grid.rows,
+                zoom: mirrorZoom
+            )
+            : nil
+        mirrorWindow = window
+
+        let fontSize = window?.fontSize ?? currentFontSize
+        let cell = window?.cell ?? SwiftTermCellMetrics.cellDimension(fontSize: fontSize)
+        let contentWidth = CGFloat(grid.cols) * cell.width
+        let contentHeight = CGFloat(grid.rows) * cell.height
+
+        // A sub-point epsilon on each axis, and the size of it is load-bearing in
+        // both directions.
+        //
+        // It has to be there at all because the frame must floor-divide back to
+        // exactly the server's grid: `cols * cellWidth / cellWidth` is not reliably
+        // `cols` in binary floating point, and one ulp low floors to `cols - 1`.
+        // That would not merely drop the right-most column — SwiftTerm would resize
+        // the emulator to the short grid, this coordinator would put it back, and
+        // the two would trade places on every layout pass.
+        //
+        // It has to stay *small* because SwiftTerm pins `contentOffset` to
+        // `(lines - rows) * cellHeight` while the scroll view's own maximum is
+        // `contentSize - bounds`, so every point of slack here is a point the
+        // viewport can settle back by under a drag. Half a cell — the obvious
+        // choice — is half a row of visible drift. Half a point is ~1.5 px and is
+        // still eleven orders of magnitude above the rounding it defends against.
+        let epsilon: CGFloat = 0.5
+        let frameSize = CGSize(
+            width: contentWidth + epsilon,
+            height: contentHeight + epsilon
+        )
+
+        let originX: CGFloat
+        let originY: CGFloat
+        if let window {
+            mirrorPan = CGFloat(Client.MirrorFit.shared.clampPan(
+                panPx: Float(mirrorPan),
+                contentWidthPx: Float(window.contentWidth),
+                viewWidthPx: Int32(box.width)
+            ))
+            originX = -mirrorPan
+            originY = window.offsetY
+            host.panEnabled = window.contentWidth > box.width
+        } else {
+            // A driving grid fits its own view, so there is nothing to centre and
+            // nowhere to pan.
+            mirrorPan = 0
+            originX = 0
+            originY = 0
+            host.panEnabled = false
+        }
+
+        applyFont(fontSize, view: view, frame: CGRect(origin: CGPoint(x: originX, y: originY), size: frameSize))
+    }
+
+    /// Place the frame, then install the font — in that order, always.
+    ///
+    /// SwiftTerm's `font` setter calls `resetFont`, which recomputes the cell and
+    /// then resizes the emulator from the frame it finds. Installing a font against
+    /// a frame still sized for the *old* cell therefore resizes the shared emulator
+    /// to a grid nobody asked for. Sizing first makes that derived resize land on
+    /// exactly the grid we want.
+    ///
+    /// That derived resize also **soft-resets** the emulator (`Terminal.softReset`),
+    /// which is SwiftTerm's behaviour and not something a package consumer can turn
+    /// off. Two consequences are worth naming, because the mirror changes the font
+    /// far more often than a driving terminal ever did:
+    ///
+    /// - `resetAllColors()` reverts the palette to stock, so the applied theme has
+    ///   to be re-installed or default-coloured text becomes unreadable against the
+    ///   themed background. This was already true of pinch-to-zoom before the
+    ///   mirror existed; it simply went unnoticed because it took a deliberate
+    ///   gesture to trigger.
+    /// - Scroll margins and the application-cursor mode are cleared. Those are
+    ///   captured and restored here because a full-screen TUI's mirror renders
+    ///   wrong without its margins, and the arrow-key encoding matters the moment
+    ///   the user takes over. The remaining flags (origin mode, insert mode,
+    ///   cursor visibility) are not public API on `Terminal` and are left to the
+    ///   next resync's mode epilogue.
+    ///
+    /// - Parameters:
+    ///   - fontSize: the point size to draw at.
+    ///   - view: the terminal.
+    ///   - frame: the terminal's frame in host coordinates.
+    private func applyFont(_ fontSize: CGFloat, view: SwiftTerm.TerminalView, frame: CGRect) {
+        mirrorHost?.placeTerminal(frame)
+        guard appliedFontSize != fontSize else { return }
+        appliedFontSize = fontSize
+
+        let terminal = view.getTerminal()
+        let scrollTop = terminal.buffer.scrollTop
+        let scrollBottom = terminal.buffer.scrollBottom
+        let applicationCursor = terminal.applicationCursor
+
+        view.font = Self.terminalFont(size: fontSize)
+
+        // Clamped, because the resize the font change provoked may have moved the
+        // row count out from under the saved margin.
+        let rows = terminal.rows
+        if scrollTop < rows {
+            terminal.buffer.scrollTop = scrollTop
+            terminal.buffer.scrollBottom = min(scrollBottom, rows - 1)
+        }
+        terminal.applicationCursor = applicationCursor
+        if let settings = Palette.settings {
+            applyTheme(settings)
+        }
+    }
+
+    /// Take-over: force the shared PTY to this phone's natural grid.
+    ///
+    /// A no-op when the server already matches (ordinary typing while driving is
+    /// free) or when a force to that grid is already in flight. After the force the
+    /// server's `Size` and resync arrive, the verdict flips, and the mirror's window
+    /// collapses. Invoked by real input, the take-over badge and Reformat — the
+    /// "intent, not presence" model.
+    func ensureDriving() {
+        guard let local = naturalGrid, local.cols > 0, local.rows > 0 else { return }
+        if let sg = serverGrid, sg == local { return }
+        if let d = drivingTo, d == local { return }
+        drivingTo = local
+        sizeVotes.request(cols: local.cols, rows: local.rows, force: true)
+    }
+
+    /// Reformat: the explicit, input-free take-over on the toolbar.
     func forceResize() {
-        guard naturalCols > 0, naturalRows > 0 else { return }
-        Task { try? await ptySocket.forceResize(cols: Int32(naturalCols), rows: Int32(naturalRows)) }
+        guard let local = naturalGrid, local.cols > 0, local.rows > 0 else { return }
+        drivingTo = local
+        sizeVotes.request(cols: local.cols, rows: local.rows, force: true)
     }
 
     /// The maximum vertical content offset (the "bottom" of the scrollback).
@@ -532,8 +886,35 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     /// - Parameter gestureRecognizer: The recognizer asking to begin.
     /// - Returns: `true` to begin; `false` to fail (defer to native scrolling).
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // The mirror's pan only exists while there is something to pan to: a
+        // driving grid fits its own view by definition, so the recognizer fails
+        // and the terminal's own gestures behave exactly as they do today.
+        if gestureRecognizer === mirrorHost?.mirrorPan {
+            return mirrorHost?.panEnabled == true
+        }
+        // Pinch means two different things, and both are allowed. While mirroring
+        // it is purely local presentation — the server grid is untouched, so no
+        // other client sees it. While driving it changes the user's font, which
+        // changes the grid this device would fit, so it measures and *votes* and
+        // waits for the server, exactly as the web client's font-size control does.
+        //
+        // Android instead makes the driving font a fixed setting and the pinch
+        // mirror-only. That is not portable here: iOS has no font-size setting
+        // anywhere else, so the same choice would leave the terminal with no font
+        // control at all.
+        if gestureRecognizer === mirrorHost?.mirrorPinch {
+            return true
+        }
+        if gestureRecognizer === mirrorHost?.mirrorDoubleTap {
+            return isPassive && mirrorHost?.panEnabled == true
+        }
         guard gestureRecognizer === scrollWheelPan, let view = terminalView else { return true }
-        return mouseReportingActive(view)
+        // While mirroring, a swipe scrolls our own transcript rather than being
+        // turned into wheel reports for the remote program: the synthesized redraw
+        // replays the driving program's mouse-tracking modes, and the mirror drops
+        // the reports it would then emit, so without this the mirror could not be
+        // scrolled at all. Android calls the same thing `setLocalScrollOnly`.
+        return mouseReportingActive(view) && !isPassive
     }
 
     /// Coexist with the taps / long-press / pinch recognizers, but never with
@@ -548,6 +929,12 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     /// - Returns: `true` for non-pan recognizers, `false` for pans.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // The mirror's pan must coexist with the terminal's scroll view, because
+        // one diagonal drag has to do both jobs: our recognizer takes the
+        // horizontal component and the scroll view keeps the vertical one. Taking
+        // the gesture exclusively instead would make a panned mirror unscrollable.
+        if gestureRecognizer === mirrorHost?.mirrorPan { return true }
+        if gestureRecognizer === mirrorHost?.mirrorPinch { return true }
         guard gestureRecognizer === scrollWheelPan else { return false }
         return !(otherGestureRecognizer is UIPanGestureRecognizer)
     }
@@ -570,21 +957,121 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
         return mouseReportingActive(view)
     }
 
-    @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
-        guard let view = terminalView else { return }
-        if gesture.state == .changed {
-            let scale = gesture.scale
-            // Apply a deadzone to avoid jitter (matching Android's 5% threshold)
-            if scale < 0.95 || scale > 1.05 {
-                let newSize = (currentFontSize * scale).clamped(to: Self.minFontSize...Self.maxFontSize)
-                let rounded = round(newSize * 2) / 2  // snap to 0.5pt increments
-                if rounded != currentFontSize {
-                    currentFontSize = rounded
-                    view.font = Self.terminalFont(size: currentFontSize)
-                }
-                gesture.scale = 1.0
-            }
+    // MARK: - MirrorHostDelegate
+
+    /// The host's box moved (rotation, keyboard, split view): re-measure what this
+    /// phone would fit, and re-solve the mirror's window against the new box.
+    func mirrorHostDidLayout(_ host: MirrorHostView) {
+        remeasureAndAsk()
+        applyGeometry()
+        publishPassive()
+    }
+
+    /// Pan the window, never the grid. Both offsets are pure view state, so this
+    /// costs no resize, no vote and no `SIGWINCH`, and no other client sees it.
+    func mirrorHostDidPan(_ host: MirrorHostView, translationX: CGFloat) {
+        stopFling()
+        // Pixels, not columns: cell-snapped panning is visibly janky.
+        mirrorPan -= translationX
+        applyGeometry()
+    }
+
+    func mirrorHostDidEndPan(_ host: MirrorHostView, velocityX: CGFloat) {
+        startFling(velocityX: velocityX)
+    }
+
+    /// Pinch. Two gestures wearing one recognizer, because they read identically to
+    /// the hand: make the text bigger.
+    ///
+    /// **While driving** it changes the user's font size. That changes the grid this
+    /// device would fit, so it re-measures and votes and waits for the server to
+    /// answer — it does *not* refit the terminal locally. A client that answered its
+    /// own font change would be a second geometry authority, which is the
+    /// disagreement the whole design removes; the visible cost is the tmux round
+    /// trip, accepted deliberately.
+    ///
+    /// **While mirroring** it is local zoom on the mirror's window, and nothing
+    /// leaves the device.
+    func mirrorHostDidPinch(_ host: MirrorHostView, scale: CGFloat, focusX: CGFloat) {
+        // Deadzone against jitter, matching Android's 5% threshold.
+        guard scale < 0.95 || scale > 1.05 else { return }
+
+        guard let window = mirrorWindow else {
+            let target = (currentFontSize * scale).clamped(to: Self.minFontSize...Self.maxFontSize)
+            // Snap to 0.5 pt increments so a slow pinch does not send a vote per
+            // sub-point step.
+            let rounded = (target * 2).rounded() / 2
+            guard rounded != currentFontSize else { return }
+            currentFontSize = rounded
+            applyGeometry()
+            remeasureAndAsk()
+            return
         }
+        let oldCellWidth = window.cell.width
+        // Bounds are derived, not constant: the floor is the font at which the
+        // whole width fits (the overview) and the ceiling the one that fills the
+        // height. A fixed floor could not reach the overview, and anything above
+        // the ceiling hides the prompt.
+        mirrorZoom = min(max(mirrorZoom * scale, window.zoomFloor), MirrorWindow.zoomMax)
+        applyGeometry()
+        guard let newCellWidth = mirrorWindow?.cell.width, newCellWidth != oldCellWidth else { return }
+        mirrorPan = CGFloat(Client.MirrorFit.shared.focalAnchoredPan(
+            oldPanPx: Float(mirrorPan),
+            focusXPx: Float(focusX),
+            oldCellWidthPx: Float(oldCellWidth),
+            newCellWidthPx: Float(newCellWidth)
+        ))
+        // Unclamped above by design — clamped here, against the *new* content width.
+        applyGeometry()
+    }
+
+    /// Double tap toggles the mirror between filling the height and the whole-width
+    /// overview — the photo-viewer idiom, and what makes a panned mirror navigable:
+    /// the overview is the map.
+    func mirrorHostDidDoubleTap(_ host: MirrorHostView) {
+        guard let window = mirrorWindow, window.zoomFloor < MirrorWindow.zoomMax else { return }
+        let midpoint = (window.zoomFloor + MirrorWindow.zoomMax) / 2
+        mirrorZoom = mirrorZoom > midpoint ? window.zoomFloor : MirrorWindow.zoomMax
+        applyGeometry()
+    }
+
+    // MARK: - Pan fling
+
+    /// Decay a flick into a glide, so the mirror feels like a canvas rather than a
+    /// control that stops dead under the finger.
+    ///
+    /// A display-link decay rather than a `UIView` animation because the pan is not
+    /// an animatable property — it is recomputed and re-clamped through
+    /// `applyGeometry` on every step, which is also what stops the glide cleanly at
+    /// either edge.
+    ///
+    /// - Parameter velocityX: the gesture's exit velocity in points/second.
+    private func startFling(velocityX: CGFloat) {
+        stopFling()
+        guard mirrorHost?.panEnabled == true, abs(velocityX) > 80 else { return }
+        flingVelocity = -velocityX
+        let link = CADisplayLink(target: self, selector: #selector(stepFling))
+        link.add(to: .main, forMode: .common)
+        flingLink = link
+    }
+
+    @objc private func stepFling(_ link: CADisplayLink) {
+        let dt = CGFloat(link.duration)
+        mirrorPan += flingVelocity * dt
+        // Exponential decay, tuned to settle in roughly half a second.
+        flingVelocity *= pow(0.002, dt)
+        let before = mirrorPan
+        applyGeometry()
+        // Clamped to a standstill (an edge) or slowed to a crawl: stop.
+        if abs(flingVelocity) < 40 || mirrorPan != before {
+            stopFling()
+        }
+    }
+
+    private func stopFling() {
+        flingLink?.invalidate()
+        flingLink = nil
+        flingVelocity = 0
     }
 
     /// Whether the foreground program currently has mouse reporting on. When it
@@ -613,7 +1100,12 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     ///
     /// - Parameter view: The SwiftTerm view to reconfigure.
     private func syncScrollEnabled(_ view: SwiftTerm.TerminalView) {
-        let shouldScroll = !mouseReportingActive(view)
+        // While mirroring, keep native scrolling on even in mouse-reporting mode.
+        // The synthesized redraw replays the driving program's mouse-tracking
+        // modes, but the mirror has a local transcript of its own and must not
+        // inject input, so a swipe belongs to our scrollback rather than to the
+        // remote program. Android calls the same thing `setLocalScrollOnly`.
+        let shouldScroll = !mouseReportingActive(view) || isPassive
         if view.isScrollEnabled != shouldScroll {
             view.isScrollEnabled = shouldScroll
         }
@@ -634,7 +1126,9 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     ///
     /// - Parameter gesture: The pan recognizer driving the scroll.
     @objc func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
-        guard let view = terminalView, mouseReportingActive(view) else { return }
+        // While mirroring, a swipe scrolls our own transcript: the mirror must not
+        // inject input, so the wheel reports it would emit are dropped anyway.
+        guard let view = terminalView, mouseReportingActive(view), !isPassive else { return }
         switch gesture.state {
         case .began:
             wheelScrollAccumulator = 0
@@ -697,6 +1191,8 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
     }
 
     func teardown() {
+        stopFling()
+        sizeVotes.cancel()
         flowObserver.clear()
         ptySocket.closeDetached()
     }
@@ -745,24 +1241,60 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
 
     // MARK: - TerminalViewDelegate
 
+    /// Bytes the terminal wants to write to the PTY — typed input, but also
+    /// machine-generated reports the local emulator produced by itself.
+    ///
+    /// Real input takes over first, so it lands at this phone's width. The two
+    /// exceptions are what stopped a passive mirror from silently seizing the
+    /// session:
+    ///
+    /// - **Device replies** (cursor position, device attributes, colour reports)
+    ///   are answers to a question the *remote program* asked. They must still be
+    ///   sent — the program is blocked waiting — but they are not user intent, and
+    ///   treating them as such made the phone take the PTY whenever a program
+    ///   probed the terminal. (The server drops them anyway now, having one
+    ///   answerer of its own; sending them is harmless and keeps the client honest
+    ///   against an older server.)
+    /// - **Ambient reports** (mouse wheel, focus in/out) are emitted by the mirror
+    ///   itself from scrolling and focus changes. They are neither input nor a
+    ///   take-over, so while passive they are dropped outright — otherwise merely
+    ///   scrolling the mirror would steal the grid.
     func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
         let bytes = Array(data)
-        Task { try? await ptySocket.send(bytes: KotlinByteArray.from(bytes)) }
+        let kotlinBytes = KotlinByteArray.from(bytes)
+        let presentation = Client.PtyPresentation.shared
+        if presentation.isDeviceReply(bytes: kotlinBytes) {
+            Task { try? await ptySocket.send(bytes: kotlinBytes) }
+            return
+        }
+        if isPassive, presentation.isAmbientReport(bytes: kotlinBytes) {
+            return
+        }
+        ensureDriving()
+        Task { try? await ptySocket.send(bytes: kotlinBytes) }
     }
 
+    /// SwiftTerm re-measured itself.
+    ///
+    /// Deliberately does **not** vote, and deliberately does not update the natural
+    /// grid. The terminal's frame is sized to the *server's* grid (see
+    /// ``applyGeometry()``), so this fires with the server's own answer echoed back
+    /// — voting on it would be this client telling the server what the server just
+    /// told it. What this phone would like is measured separately, at the user's
+    /// font, by ``remeasureAndAsk()``.
+    ///
+    /// It is kept as a safety net: if a layout pass ever beats the geometry pass
+    /// and lands the emulator on the wrong grid, re-asserting restores it.
     func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
-        if !applyingServerSize {
-            naturalCols = newCols
-            naturalRows = newRows
-            // Trailing debounce (matches Android's SIZE_VOTE_DEBOUNCE_MS): rotation
-            // and keyboard animation fire a burst of layout passes, and each vote
-            // that changes the effective size costs the program a SIGWINCH repaint.
-            sizeVoteTask?.cancel()
-            sizeVoteTask = Task {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard !Task.isCancelled else { return }
-                try? await ptySocket.resize(cols: Int32(newCols), rows: Int32(newRows))
-            }
+        guard !applyingServerSize, let grid = serverGrid else { return }
+        guard newCols != grid.cols || newRows != grid.rows else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let view = self.terminalView, let grid = self.serverGrid else { return }
+            guard view.getTerminal().cols != grid.cols || view.getTerminal().rows != grid.rows else { return }
+            self.applyingServerSize = true
+            view.getTerminal().resize(cols: grid.cols, rows: grid.rows)
+            self.applyGeometry()
+            DispatchQueue.main.async { self.applyingServerSize = false }
         }
     }
 
@@ -785,17 +1317,24 @@ final class TerminalCoordinator: NSObject, TerminalViewDelegate, UIScrollViewDel
 
 // MARK: - UIViewRepresentable wrapper
 
+/// Hosts the terminal inside ``MirrorHostView``.
+///
+/// SwiftUI lays out the *host*, never the terminal: the terminal's frame is the
+/// server's grid and may be wider or taller than the screen, which is exactly
+/// what makes a passive mirror possible. See ``TerminalMirror`` for why sizing
+/// the frame is what pins the emulator.
 private struct TerminalViewRepresentable: UIViewRepresentable {
     let coordinator: TerminalCoordinator
 
-    func makeUIView(context: Context) -> SwiftTerm.TerminalView {
+    func makeUIView(context: Context) -> MirrorHostView {
         let tv = SwiftTerm.TerminalView(frame: .zero)
         tv.backgroundColor = UIColor(Palette.background)
-        coordinator.configureView(tv)
 
-        // Pinch-to-zoom for font size (matches Android behaviour)
-        let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(TerminalCoordinator.handlePinch(_:)))
-        tv.addGestureRecognizer(pinch)
+        let host = MirrorHostView(terminalView: tv, gestureDelegate: coordinator)
+        host.backgroundColor = UIColor(Palette.background)
+        host.delegate = coordinator
+        coordinator.mirrorHost = host
+        coordinator.configureView(tv)
 
         // Wheel-scroll pan: forwards swipes as mouse wheel events while the
         // foreground program has mouse reporting on, so full-screen TUIs scroll
@@ -807,15 +1346,17 @@ private struct TerminalViewRepresentable: UIViewRepresentable {
         tv.addGestureRecognizer(scrollPan)
         coordinator.scrollWheelPan = scrollPan
 
-        return tv
+        return host
     }
 
-    func updateUIView(_ uiView: SwiftTerm.TerminalView, context: Context) {
-        // Once the view has a real layout, assert the terminal size to the
-        // server. SwiftUI may not trigger sizeChanged until well after the
-        // socket is open, so we do it explicitly on each layout pass until
-        // a valid size has been sent.
-        coordinator.assertSizeIfNeeded(uiView)
+    func updateUIView(_ uiView: MirrorHostView, context: Context) {
+        // Geometry is driven by the host's own layout pass
+        // (`mirrorHostDidLayout`) and by the server's `Size` frames, not from
+        // here: a SwiftUI update that re-measured and re-voted would make this
+        // client a second geometry authority, which is the thing the design
+        // forbids. Re-solving is idempotent, so this is only a backstop for an
+        // update that carries no layout change.
+        coordinator.applyGeometry()
     }
 }
 
@@ -904,6 +1445,43 @@ private struct ScrollToBottomPill: View {
             .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
         }
         .accessibilityLabel(hasNewOutput ? "New output below, jump to bottom" : "Jump to bottom")
+    }
+}
+
+// MARK: - Take-over badge
+
+/// Shown while another device drives the PTY and this screen is a passive mirror.
+///
+/// Tapping it is an explicit, input-free take-over: it fits the shared PTY to this
+/// device's width. A tap on the *mirror itself* deliberately does nothing — a pan
+/// that ends with barely any movement arrives as a tap, and each accidental one
+/// would cost a real `SIGWINCH`, a full repaint of the running program, one frame
+/// leaked into its scrollback (anthropics/claude-code#49086) and a reflow under
+/// whoever is using the laptop. Take-over stays explicit: this badge, the Reformat
+/// button, or actually typing.
+///
+/// Copy is neutral because the size broadcast does not carry *which* device is
+/// driving. Filled with the accent rather than the surface tint so it reads as an
+/// action over the mirrored content instead of blending into the terminal chrome —
+/// the same treatment as the "New output" pill.
+private struct TakeOverBadge: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("Mirroring another device")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("\u{00B7} Tap to take over")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .foregroundStyle(Palette.background)
+            .background(Palette.headerAccent, in: Capsule())
+            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+        }
+        .accessibilityLabel("Mirroring another device. Tap to take over.")
     }
 }
 
