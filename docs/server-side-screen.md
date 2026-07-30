@@ -657,11 +657,66 @@ after the grid resize and the Size event are seq'd, so the program's repaint byt
 never reach clients ahead of the Size frame nor be fed into an old-geometry grid
 (poisoning the next resync).
 
-iOS ignores the new event (it casts events by type), so it keeps its current behaviour
-until the mirror is driven further there. What iOS did get: opening a pane no longer
-force-resizes the PTY (first-layout size is an ambient vote now; the Reformat button is
-the explicit take-over), and its per-layout votes are debounced — the 200 ms debounce web
-and Android have since replaced with ack-clocking.
+iOS now consumes the event too, and presents the same mirror as Android — see "iOS
+mirror parity" below for how it pins the grid without a patchable emulator view.
+
+## iOS mirror parity
+
+iOS reaches the same behaviour as web and Android — server-assigned governance, the
+fill-height passive mirror with panning, the take-over badge, and ack-clocked votes — by a
+different mechanism, because **SwiftTerm is a remote SPM package and cannot be patched**.
+Android's pin is a field read by its vendored `TerminalView.updateSize`; there is no
+equivalent seam here.
+
+What replaces it is structural rather than defensive. SwiftTerm derives its grid purely as
+`Int(bounds.width / cellWidth) x Int(bounds.height / cellHeight)`
+(`AppleTerminalView.processSizeChange`), so **sizing the terminal view's frame to the
+server's grid makes its own measurement produce the server's grid**. There is nothing to
+fight and nothing to override: the view measures itself and arrives at the server's answer.
+The terminal is laid out inside a clipping `MirrorHostView`, so a grid wider than the phone
+overflows and is panned over, and the emulator never learns that the phone is narrow. It is
+the same invariant as Android's, obtained by construction instead of by interception, and it
+applies while driving too — the frame is the server's grid in both modes, only the font and
+the offsets differ.
+
+Consequences worth knowing, all recorded rather than smoothed over:
+
+- **The frame carries a sub-point epsilon.** `cols * cellWidth / cellWidth` is not reliably
+  `cols` in floating point, and one ulp low would floor to `cols - 1` — which is not a
+  cosmetic column loss but a resize war, SwiftTerm shortening the emulator on each layout
+  pass and the coordinator putting it back. The epsilon is deliberately half a point rather
+  than the obvious half a cell, because SwiftTerm pins `contentOffset` past the scroll view's
+  own maximum by exactly this slack, and half a cell of it is half a row of visible drift
+  under a drag.
+- **A font change soft-resets the emulator.** SwiftTerm's `font` setter runs `resetFont` →
+  `resize` → `Terminal.softReset`, which is package behaviour a consumer cannot switch off.
+  `resetAllColors()` in particular reverts the palette to stock — a *pre-existing* iOS bug on
+  pinch-to-zoom that went unnoticed because it took a deliberate gesture, and which the
+  mirror would hit on every zoom step. The theme is now re-applied after every font change,
+  and scroll margins plus application-cursor mode are captured and restored around it. Origin
+  mode, insert mode and cursor visibility are not public API on `Terminal` and are left to
+  the next resync's mode epilogue.
+- **The frame must be sized before the font is installed**, always: `resetFont` derives its
+  resize from the frame it finds, so a font installed against a frame still sized for the old
+  cell resizes the shared emulator to a grid nobody asked for.
+- **`sizeChanged` no longer votes.** The terminal's frame is the server's grid, so that
+  delegate fires with the server's own answer echoed back; voting on it would be the client
+  telling the server what the server just said. What this device would like is measured
+  separately, at the *user's* font, by `SwiftTermCellMetrics.naturalGrid` — the iOS
+  counterpart of Android's `measureNaturalGrid`, and the same reasoning applies: the applied
+  font is the shrunken mirror font while another device drives, so reading the grid back off
+  the view answers a different question.
+- **`PtyGridFlow`** exists only because `kotlinx.coroutines` is not an exported dependency of
+  the iOS framework, so Swift cannot construct the `MutableStateFlow` that `openPtySocket`
+  wants for the connect-URL grid. Android builds one inline.
+- **iOS's 200 ms vote debounce is gone**, replaced by a Swift port of `SizeVoteClock` with
+  the identical contract. Do not reintroduce a timer to pace votes.
+
+Verification status is narrower than Android's and should be read that way: the app builds,
+the shared `:client` tests pass, and it launches and renders in the simulator. It has **not**
+been exercised against a live two-client session, so the mirror's fit, panning and take-over
+are argued from the arithmetic rather than measured in the hand. That is the one piece of
+this arc still owed a device.
 
 ## Remaining work
 
@@ -672,8 +727,10 @@ and Android have since replaced with ack-clocking.
    is the remaining half of "pure renderer". Cost, not correctness.
 2. **`justToCursor` right-of-cursor truncation.** The reflow copies the cursor row only up to
    the cursor, so anything to its right is dropped — RPROMPT loss on a narrowing.
-3. **iOS mirror parity**: scaled passive mirror, take-over badge, and the ack-clocked vote
-   pipeline, matching web/Android. iOS still runs its 200 ms debounce.
+3. **Device-test the iOS mirror.** The implementation has landed (see "iOS mirror parity"
+   above) but has only been verified by build, unit tests and a simulator launch — never
+   against a live session with a second, wider client. The fit, the panning feel and the
+   take-over hand-off all want a physical device.
 4. **`AgentSession`'s 64 KB raw ring** (`AgentSession.kt`) is a separate subsystem that was
    never migrated to the canonical grid; it still replays raw bytes.
 5. **Upstream**: this branch produced a clean byte-level repro of #49086 (renderer
