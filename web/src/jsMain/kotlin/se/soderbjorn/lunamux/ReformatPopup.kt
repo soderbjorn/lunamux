@@ -17,9 +17,11 @@
  *     `/api/ui-settings` REST bridge the rest of the global settings use.
  *
  * "Reflow" / "Reformat" here means re-asserting the remote PTY size to match
- * the pane on resize, tab activation, reconnect and font load (see
- * [forceReassert]). Turning it off freezes a terminal at its current size;
- * the explicit Reformat button click still reflows it on demand.
+ * the pane on resize, tab activation, reconnect and font load. Those automatic
+ * reasserts are *soft votes* (see [reassertSoft]) so they never seize the grid
+ * from a phone driver; the explicit Reformat button / hotkey still *force* it
+ * ([forceReassert]). Turning it off freezes a terminal at its current size; the
+ * explicit Reformat button click still reflows it on demand.
  *
  * Wiring strategy: the toolkit owns (and rebuilds) the pane chrome on every
  * rerender, so rather than re-attaching listeners to each freshly built
@@ -144,7 +146,10 @@ private fun applyPerPaneAutoReflow(paneId: String, enabled: Boolean) {
     val entry = terminals[paneId] ?: return
     entry.autoReflow = enabled
     if (enabled) {
-        try { forceReassert(entry) } catch (_: Throwable) {}
+        // Soft reassert: re-enabling auto-reflow catches this pane's own grid
+        // up to its container, but is not a user "reformat" gesture — it votes
+        // rather than seizing the grid from a phone driver. @see reassertSoft
+        try { reassertSoft(entry) } catch (_: Throwable) {}
     } else {
         // Refresh the overlay so any "unused space" hint reflects the now
         // frozen grid immediately.

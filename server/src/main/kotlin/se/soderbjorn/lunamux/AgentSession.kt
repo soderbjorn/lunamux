@@ -32,6 +32,10 @@
  */
 package se.soderbjorn.lunamux
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +43,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -82,6 +87,32 @@ class AgentSession(
 
     private val _output = MutableSharedFlow<ByteArray>(replay = 0, extraBufferCapacity = 256)
     override val output = _output.asSharedFlow()
+
+    // Owns the forwarder coroutine that relays the ordered event channel to
+    // subscribers; cancelled in [shutdown].
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // ── Ordered outbound stream (see SessionEvent) ──────────────────────────
+    // Same discipline as TerminalSession: output/size are stamped with a monotonic
+    // seq under [outboundLock] so [attachPayload] is exact against the live stream.
+    // No grid/reflow here — agent output is authored at one width, so a resize emits
+    // only a Size event (no synthesized resync redraw).
+    private val outboundLock = Any()
+    private var eventSeq = 0L
+    private val eventChannel = Channel<SessionEvent>(Channel.UNLIMITED)
+    private val _events = MutableSharedFlow<SessionEvent>(replay = 0, extraBufferCapacity = 256)
+    override val events: SharedFlow<SessionEvent> = _events.asSharedFlow()
+    private val forwarderJob = scope.launch { for (ev in eventChannel) _events.emit(ev) }
+
+    override fun attachPayload(): AttachPayload = synchronized(outboundLock) {
+        val (c, r) = _sizeEvents.value
+        AttachPayload(eventSeq, c, r, ringSnapshot())
+    }
+
+    /** Enqueue a Size event so attached `/pty` clients re-fit to the new grid. */
+    private fun emitSizeEvent(cols: Int, rows: Int) = synchronized(outboundLock) {
+        eventChannel.trySend(SessionEvent.Size(++eventSeq, cols, rows))
+    }
 
     // No shell → no cwd / program title, but the members must exist.
     private val _cwd = MutableStateFlow<String?>(null)
@@ -143,7 +174,7 @@ class AgentSession(
     private val lines = Channel<String>(capacity = 64)
 
     /** Discrete key/resize events awaiting poll_input / read_key. */
-    private val events = Channel<AgentInputEvent>(capacity = 512)
+    private val inputEvents = Channel<AgentInputEvent>(capacity = 512)
 
     // ── Output path (the MCP client "prints") ────────────────────────────
 
@@ -155,7 +186,10 @@ class AgentSession(
     fun emitOutput(bytes: ByteArray) {
         if (bytes.isEmpty() || closed) return
         screen.feed(bytes, bytes.size)
-        appendToRing(bytes)
+        synchronized(outboundLock) {
+            appendToRing(bytes)
+            eventChannel.trySend(SessionEvent.Output(++eventSeq, bytes))
+        }
         _output.tryEmit(bytes)
     }
 
@@ -260,7 +294,7 @@ class AgentSession(
     fun pollEvents(max: Int): List<AgentInputEvent> {
         val out = mutableListOf<AgentInputEvent>()
         while (out.size < max) {
-            val e = events.tryReceive().getOrNull() ?: break
+            val e = inputEvents.tryReceive().getOrNull() ?: break
             out.add(e)
         }
         return out
@@ -274,7 +308,7 @@ class AgentSession(
      */
     suspend fun awaitEvent(timeoutMs: Long): AgentInputEvent? =
         withTimeoutOrNull(timeoutMs) {
-            runCatching { events.receive() }.getOrNull()
+            runCatching { inputEvents.receive() }.getOrNull()
         }
 
     // Cooked-mode line buffer (transcript mode typed input).
@@ -290,7 +324,7 @@ class AgentSession(
         if (closed) return
         if (renderMode == "screen") {
             for (token in parseKeyTokens(bytes)) {
-                events.trySend(AgentInputEvent(type = "key", key = token))
+                inputEvents.trySend(AgentInputEvent(type = "key", key = token))
             }
             return
         }
@@ -370,7 +404,8 @@ class AgentSession(
         if (Pair(c, r) == _sizeEvents.value) return
         screen.resize(c, r)
         _sizeEvents.value = Pair(c, r)
-        events.trySend(AgentInputEvent(type = "resize", cols = c, rows = r))
+        inputEvents.trySend(AgentInputEvent(type = "resize", cols = c, rows = r))
+        emitSizeEvent(c, r)
     }
 
     /**
@@ -382,6 +417,7 @@ class AgentSession(
         clientSizes.clear()
         screen.resize(cols, rows)
         _sizeEvents.value = Pair(cols, rows)
+        emitSizeEvent(cols, rows)
     }
 
     override fun detectState(): SessionState? = null
@@ -394,7 +430,8 @@ class AgentSession(
         emitOutput("\u001B[0m\u001B[?25h".toByteArray(Charsets.US_ASCII))
     }
 
-    override fun snapshot(): ByteArray = synchronized(ringLock) {
+    /** A copy of the agent's replay ring (its recent output bytes). */
+    private fun ringSnapshot(): ByteArray = synchronized(ringLock) {
         if (ringSize == 0) return@synchronized ByteArray(0)
         val out = ByteArray(ringSize)
         if (ringStart + ringSize <= ringCapacity) {
@@ -407,12 +444,20 @@ class AgentSession(
         out
     }
 
+    // Agent output is authored at one width and never reflows, so persistence and
+    // read_scrollback just hand back the ring (persist bytes verbatim; read_scrollback
+    // strips ANSI). No grid/synthesized redraw as for a PTY session.
+    override fun persistSnapshot(): ByteArray = ringSnapshot()
+
+    override fun transcriptText(): String = ringSnapshot().toString(Charsets.UTF_8)
+
     override fun shutdown() {
         if (closed) return
         closed = true
         _transcriptEvents.tryEmit(AgentServerMessage.Closed)
         lines.close()
-        events.close()
+        inputEvents.close()
+        scope.cancel()
     }
 
     private fun appendToRing(chunk: ByteArray) = synchronized(ringLock) {

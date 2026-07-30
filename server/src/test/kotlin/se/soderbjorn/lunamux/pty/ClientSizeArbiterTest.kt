@@ -1,11 +1,16 @@
 /**
- * Tests for [ClientSizeArbiter] — the latest-active-client PTY size policy:
- *  - upstream parity when no activity is recorded (tiered min over votes,
- *    hold-on-empty),
- *  - governance transfer via input, mobile votes, and forced resizes,
- *  - ambient (NORMAL/THREE_D) votes never stealing governance,
- *  - tier interactions (THREE_D overrides a typing 2D viewer; an actively
- *    used MOBILE client overrides everything),
+ * Tests for [ClientSizeArbiter] — the latest-active-client PTY size policy
+ * with viewer/driver posture:
+ *  - upstream parity when no activity is recorded (tiered min over the drivers'
+ *    votes, hold-on-empty),
+ *  - governance transfer via input and forced take-overs,
+ *  - viewer posture: a phone attaching never shrinks the drivers' grid, its
+ *    keystrokes do not govern, and it takes over only by forcing,
+ *  - the no-eviction reclaim: a laptop reclaims the grid by typing after a
+ *    phone take-over (the bug the old eviction created),
+ *  - tier interactions (THREE_D overrides a typing 2D viewer; an explicit force
+ *    beats a standing THREE_D override and the authority is sticky until
+ *    another client takes over),
  *  - removal fallback to the most recently active remaining client,
  *  - the null no-op guard on unchanged sizes.
  */
@@ -23,9 +28,8 @@ class ClientSizeArbiterTest {
 
     private fun normal(c: Int, r: Int) = SizeVote(c, r, SizePriority.NORMAL)
     private fun threeD(c: Int, r: Int) = SizeVote(c, r, SizePriority.THREE_D)
-    private fun mobile(c: Int, r: Int) = SizeVote(c, r, SizePriority.MOBILE)
 
-    // ── no-activity fallback: upstream parity ────────────────────────────
+    // ── no-activity fallback: upstream parity (every client a driver) ────────
 
     @Test
     fun single_vote_applies() {
@@ -94,39 +98,75 @@ class ClientSizeArbiterTest {
         assertNull(a.noteInput("desktop"))
     }
 
-    // ── mobile semantics ─────────────────────────────────────────────────
+    // ── viewer/driver posture ────────────────────────────────────────────
 
     @Test
-    fun mobile_vote_claims_the_size_immediately() {
+    fun a_viewer_attaching_does_not_shrink_the_drivers_grid() {
         val a = arbiter()
-        a.setSize("desktop", normal(200, 60))
-        a.noteInput("desktop")
-        assertEquals(40 to 20, a.setSize("phone", mobile(40, 20)))
+        a.setSize("desktop", normal(200, 60))         // driver by default
+        a.setPosture("phone", ClientPosture.VIEWER)
+        // The phone mirrors the desktop; its ambient vote must not shrink it,
+        // even with no driver activity recorded yet (the no-activity fallback
+        // considers only driver votes).
+        assertNull(a.setSize("phone", normal(40, 20)))
+        assertEquals(200 to 60, a.effective)
     }
 
     @Test
-    fun desktop_keystroke_reclaims_from_an_idle_phone() {
+    fun a_viewer_keystroke_does_not_govern() {
         val a = arbiter()
         a.setSize("desktop", normal(200, 60))
-        a.setSize("phone", mobile(40, 20))
+        a.noteInput("desktop")
+        a.setPosture("phone", ClientPosture.VIEWER)
+        a.setSize("phone", normal(40, 20))
+        // A stray keystroke from a viewer that has not taken over is ignored.
+        assertNull(a.noteInput("phone"))
+        assertEquals(200 to 60, a.effective)
+    }
+
+    @Test
+    fun a_viewer_governs_only_after_taking_over() {
+        val a = arbiter()
+        a.setSize("desktop", normal(200, 60))
+        a.noteInput("desktop")
+        a.setPosture("phone", ClientPosture.VIEWER)
+        assertNull(a.setSize("phone", normal(40, 20)))    // ambient, no take-over
+        assertEquals(200 to 60, a.effective)
+        // Explicit take-over (force) promotes the phone to a driver and governs.
+        assertEquals(40 to 20, a.forceSize("phone", normal(40, 20)))
+    }
+
+    @Test
+    fun laptop_reclaims_by_typing_after_a_phone_takes_over() {
+        val a = arbiter()
+        a.setSize("desktop", normal(200, 60))
+        a.noteInput("desktop")
+        a.setPosture("phone", ClientPosture.VIEWER)
+        assertEquals(40 to 20, a.forceSize("phone", normal(40, 20)))  // phone takes over
+        // The desktop's vote was NOT evicted, so one keystroke reclaims the grid
+        // (the exact case the old force-evicts-everything broke).
         assertEquals(200 to 60, a.noteInput("desktop"))
         assertEquals(200 to 60, a.effective)
     }
 
     @Test
-    fun phone_rotation_revote_reclaims_for_the_phone() {
+    fun a_phone_revote_after_taking_over_applies() {
         val a = arbiter()
         a.setSize("desktop", normal(200, 60))
-        a.setSize("phone", mobile(40, 20))
         a.noteInput("desktop")
-        assertEquals(20 to 40, a.setSize("phone", mobile(20, 40)))
+        a.setPosture("phone", ClientPosture.VIEWER)
+        a.forceSize("phone", normal(40, 20))              // phone drives at 40x20
+        assertEquals(20 to 40, a.setSize("phone", normal(20, 40)))  // rotate → applies
     }
 
     @Test
-    fun active_mobile_governor_beats_a_three_d_override() {
+    fun a_phone_only_session_sizes_to_the_phone() {
         val a = arbiter()
-        a.setSize("rider", threeD(200, 60))
-        assertEquals(40 to 20, a.setSize("phone", mobile(40, 20)))
+        a.setPosture("phone", ClientPosture.VIEWER)
+        // Only a viewer is attached — the fallback still sizes to it so a
+        // phone-only session is usable without a take-over.
+        assertEquals(40 to 20, a.setSize("phone", normal(40, 20)))
+        assertEquals(40 to 20, a.effective)
     }
 
     // ── 3D-tier interactions ─────────────────────────────────────────────
@@ -148,24 +188,48 @@ class ClientSizeArbiterTest {
         assertEquals(150 to 60, a.setSize("r2", threeD(150, 80)))
     }
 
-    // ── forced resizes (Reformat) ────────────────────────────────────────
+    // ── forced resizes (Reformat / take-over) ────────────────────────────
 
     @Test
-    fun force_evicts_other_votes_and_governs() {
+    fun force_governs_without_evicting_and_ambient_revotes_dont_steal_back() {
         val a = arbiter()
         a.setSize("small", normal(80, 24))
         a.noteInput("small")
         assertEquals(200 to 60, a.forceSize("desktop", normal(200, 60)))
-        // The evicted client re-votes ambiently — must not steal back.
+        // The other client re-votes ambiently — its vote is kept, but it does
+        // not govern, so it must not steal the size back.
         assertNull(a.setSize("small", normal(80, 24)))
         assertEquals(200 to 60, a.effective)
     }
 
     @Test
-    fun force_beats_a_standing_three_d_vote_by_evicting_it() {
+    fun force_beats_a_standing_three_d_override() {
         val a = arbiter()
         a.setSize("rider", threeD(200, 60))
+        // An explicit force outranks the 3D tier (no eviction needed).
         assertEquals(100 to 30, a.forceSize("desktop", normal(100, 30)))
+    }
+
+    @Test
+    fun force_over_3d_stays_while_the_forcer_types_on() {
+        val a = arbiter()
+        a.setSize("rider", threeD(200, 60))
+        a.forceSize("desktop", normal(100, 30))   // 100x30 — force beats 3D
+        // The forcer keeps typing; its take-over authority is sticky.
+        assertNull(a.noteInput("desktop"))
+        assertEquals(100 to 30, a.effective)
+    }
+
+    @Test
+    fun a_stale_force_over_3d_is_dropped_when_another_driver_types() {
+        val a = arbiter()
+        a.setSize("rider", threeD(200, 60))
+        a.setSize("laptop", normal(150, 50))       // ambient; 3D still wins
+        a.forceSize("phone", normal(100, 30))      // force beats 3D → 100x30
+        // An ordinary keystroke on the laptop supersedes the phone's force, so
+        // the force authority is dropped and the 3D override reasserts (a plain
+        // typist does not beat 3D).
+        assertEquals(200 to 60, a.noteInput("laptop"))
     }
 
     // ── removal ──────────────────────────────────────────────────────────
@@ -177,8 +241,9 @@ class ClientSizeArbiterTest {
         a.noteInput("first")
         a.setSize("second", normal(150, 45))
         a.noteInput("second")
-        a.setSize("phone", mobile(40, 20))     // phone governs (latest)
-        assertEquals(150 to 45, a.remove("phone"))
+        a.setSize("third", normal(88, 22))
+        a.noteInput("third")                       // third governs (latest)
+        assertEquals(150 to 45, a.remove("third"))
         assertEquals(100 to 30, a.remove("second"))
     }
 
@@ -195,5 +260,62 @@ class ClientSizeArbiterTest {
         val a = arbiter()
         a.setSize("desktop", normal(87, 41))
         assertNull(a.remove("nope"))
+    }
+
+    // ── governor identity ────────────────────────────────────────────────
+
+    @Test
+    fun no_client_governs_until_one_acts() {
+        val a = arbiter()
+        assertNull(a.governor())
+        // An ambient vote is not activity, so it does not make anyone the governor —
+        // the size still moves via the no-activity fallback.
+        a.setSize("desktop", normal(120, 40))
+        assertNull(a.governor())
+        a.noteInput("desktop")
+        assertEquals("desktop", a.governor())
+    }
+
+    @Test
+    fun governance_moves_between_same_width_clients_without_a_size_change() {
+        // The case that made the client-side width comparison unfixable: two clients
+        // rendering at the SAME width. Governance moves, the effective size does not,
+        // so a client watching only the size stream sees nothing at all — and both
+        // clients conclude they are driving because both widths match the server's.
+        val a = arbiter()
+        a.setSize("laptop", normal(120, 40))
+        a.noteInput("laptop")
+        a.setSize("phone", normal(120, 40))
+        assertEquals("laptop", a.governor())
+
+        assertNull(a.forceSize("phone", normal(120, 40)), "same width: no size change")
+        assertEquals("phone", a.governor(), "governance must move even though the grid did not")
+    }
+
+    @Test
+    fun a_viewers_input_moves_neither_the_size_nor_governance() {
+        val a = arbiter()
+        a.setSize("laptop", normal(120, 40))
+        a.noteInput("laptop")
+        a.setPosture("phone", ClientPosture.VIEWER)
+        a.setSize("phone", normal(50, 20))
+
+        assertNull(a.noteInput("phone"), "a viewer's keystroke must not seize the grid")
+        assertEquals("laptop", a.governor(), "nor governance")
+    }
+
+    @Test
+    fun losing_the_governor_leaves_the_session_ungoverned() {
+        // With the governor gone and only ambient votes left, nobody governs. The
+        // route reports governed=false so clients resume their own width fallback
+        // rather than being frozen as mirrors of a device that is no longer attached.
+        val a = arbiter()
+        a.setSize("laptop", normal(120, 40))
+        a.noteInput("laptop")
+        a.setSize("phone", normal(50, 20))
+        assertEquals("laptop", a.governor())
+
+        a.remove("laptop")
+        assertNull(a.governor())
     }
 }

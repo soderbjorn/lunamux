@@ -35,7 +35,6 @@ import com.termux.terminal.TerminalEmulator
 import com.termux.view.TerminalView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,7 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+import se.soderbjorn.lunamux.client.PtyEvent
 import se.soderbjorn.lunamux.client.PtySocket
 import se.soderbjorn.lunamux.client.LunamuxClient
 
@@ -104,44 +103,54 @@ class MiniTerminalRegistry(
     private fun createEntry(sessionId: String): Entry {
         val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
         val socket = client.openPtySocket(sessionId)
-        // No view backs a registry emulator; the ref stays null and
-        // applyingServerSize stays true so the shared session never echoes a
-        // resize to the server.
+        // No view backs a registry emulator; the ref stays null. The session never votes a
+        // size on its own (only the layout listener in TerminalScreen does, and there is no
+        // view here), and a thumbnail never takes input, so its take-over gate is a no-op.
         val viewRef = mutableStateOf<TerminalView?>(null)
         val session = createExternalTerminalSession(
             scope = scope,
             emulatorDispatcher = dispatcher,
             terminalViewRef = viewRef,
-            applyingServerSize = AtomicBoolean(true),
             ptySocket = socket,
+            // No view drives updateSize here, so the pin is never read; the
+            // thumbnail sizes its emulator directly in the Size collector below.
+            // A thumbnail never takes input, so the input handler is a no-op.
+            serverGridPin = java.util.concurrent.atomic.AtomicReference(null),
+            handleInput = {},
         )
         val emulator = createSyncedEmulator(session)
         val lines = MutableStateFlow<List<String>>(emptyList())
 
+        // One ordered collector: size, output and reconnect resets applied to
+        // the headless preview emulator in the order the server produced them
+        // (the old split size/output collectors could interleave and mangle the
+        // thumbnail's wrap). A thumbnail never votes a size, so this only reads.
         val job = scope.launch {
-            coroutineScope {
-                launch {
-                    socket.ptySize.collect { sz ->
-                        if (sz == null) return@collect
-                        withContext(dispatcher) {
-                            synchronized(emulator) {
-                                runCatching { emulator.resize(sz.first, sz.second, 1, 1) }
+            socket.events.collect { ev ->
+                withContext(dispatcher) {
+                    synchronized(emulator) {
+                        when (ev) {
+                            is PtyEvent.Size ->
+                                // The thumbnail passes no grid on connect, so the
+                                // server synthesizes the redraw at the PTY dims — the
+                                // thumbnail just renders at exactly that width.
+                                runCatching {
+                                    emulator.resize(ev.cols, ev.rows, 1, 1)
+                                }
+                            is PtyEvent.Bytes -> emulator.append(ev.data, ev.data.size)
+                            // A thumbnail renders at whatever width the server sends and
+                            // never votes, so it is never the governor and has nothing to
+                            // change when governance moves.
+                            is PtyEvent.Governance -> Unit
+                            PtyEvent.Reset -> {
+                                val ris = byteArrayOf(0x1b, 'c'.code.toByte())
+                                emulator.append(ris, ris.size)
                             }
-                        }
-                        lines.value = synchronized(emulator) {
-                            extractRecentLines(emulator, MINI_REGISTRY_MAX_LINES)
                         }
                     }
                 }
-                launch {
-                    socket.output.collect { chunk ->
-                        withContext(dispatcher) {
-                            synchronized(emulator) { emulator.append(chunk, chunk.size) }
-                        }
-                        lines.value = synchronized(emulator) {
-                            extractRecentLines(emulator, MINI_REGISTRY_MAX_LINES)
-                        }
-                    }
+                lines.value = synchronized(emulator) {
+                    extractRecentLines(emulator, MINI_REGISTRY_MAX_LINES)
                 }
             }
         }

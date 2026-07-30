@@ -77,6 +77,10 @@ tasks.named("processResources") {
 
 dependencies {
     implementation(projects.clientServer)
+    // Vendored Termux terminal core, extracted to a pure-JVM module so the server
+    // can run a canonical headless screen (SessionGrid) with the exact emulator the
+    // Android renderer uses. No Android dependency — safe on the bundled JRE.
+    implementation(projects.terminalCore)
     implementation(libs.lunula.core)
     implementation(libs.lunula.store)
     implementation(libs.logback)

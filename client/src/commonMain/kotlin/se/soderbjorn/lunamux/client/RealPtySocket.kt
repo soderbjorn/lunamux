@@ -6,8 +6,8 @@
  * Includes automatic reconnection: when the connection drops (network blip,
  * app backgrounded long enough for the OS to kill the socket), the socket
  * reconnects with backoff. Because the server replays the session's full
- * ring buffer on every attach, each *re*-connect is prefixed with a full
- * terminal reset (`ESC c`) on [output] so the renderer repaints exactly the
+ * ring buffer on every attach, each *re*-connect emits a [PtyEvent.Reset] on
+ * [events] before the replay so the renderer clears and repaints exactly the
  * current server-side content instead of appending a duplicate replay.
  *
  * @see PtySocket
@@ -46,22 +46,27 @@ import se.soderbjorn.lunamux.PtyServerMessage
 
 /**
  * Live WebSocket connection to `/pty/{sessionId}`. See [PtySocket] for the
- * consumer contract; this class adds the Ktor WebSocket transport, including
- * the server's 128 kB ring-buffer replay as the first frames on [output] and
- * reconnect-with-reset on connection loss.
+ * consumer contract; this class adds the Ktor WebSocket transport, delivering
+ * the server's 128 kB ring-buffer replay as the first [PtyEvent.Bytes] on
+ * [events] and a [PtyEvent.Reset] before each reconnect's replay.
  */
 class RealPtySocket internal constructor(
     private val client: LunamuxClient,
     override val sessionId: String,
+    private val initialGrid: StateFlow<Pair<Int, Int>?>? = null,
 ) : PtySocket {
-    private val _output = MutableSharedFlow<ByteArray>(
+    // One ordered stream of Bytes | Size | Reset. `replay = 64` lets a late
+    // subscriber (a screen that composes after the socket connected) catch up
+    // on recent events — the same window the old two-flow design replayed.
+    private val _events = MutableSharedFlow<PtyEvent>(
         replay = 64,
         extraBufferCapacity = 64,
     )
-    override val output: SharedFlow<ByteArray> = _output.asSharedFlow()
+    override val events: SharedFlow<PtyEvent> = _events.asSharedFlow()
 
-    // Latest authoritative PTY size as reported by the server's
-    // PtyServerMessage.Size frames. Null until the first frame arrives.
+    // Conflated mirror of the latest server size, for pure size observers only
+    // (see PtySocket.ptySize); emulator feeders read PtyEvent.Size off [events]
+    // so the resize stays ordered relative to the redraw bytes.
     private val _ptySize = MutableStateFlow<Pair<Int, Int>?>(null)
     override val ptySize: StateFlow<Pair<Int, Int>?> = _ptySize.asStateFlow()
 
@@ -101,13 +106,6 @@ class RealPtySocket internal constructor(
          * not hammering a genuinely unreachable/rejecting server forever.
          */
         private const val MAX_INITIAL_CONNECT_ATTEMPTS = 5
-
-        /**
-         * Full terminal reset (RIS), emitted on [output] before a
-         * reconnect's ring-buffer replay so renderers clear the stale
-         * content first instead of appending a duplicate transcript.
-         */
-        private val TERMINAL_RESET = "\u001bc".encodeToByteArray()
     }
 
     init {
@@ -120,29 +118,58 @@ class RealPtySocket internal constructor(
             var everConnected = false
             while (!closed) {
                 try {
+                    // Declare the grid this client renders so the server synthesizes
+                    // the attach redraw at our width. On the first connect the view may
+                    // not have laid out yet (Android opens the socket early), so wait
+                    // briefly for the first real grid; on reconnects the current value
+                    // is already good. No grid → the server uses the PTY dims (correct
+                    // for a passive viewer / thumbnail).
+                    val grid: Pair<Int, Int>? = if (!everConnected) {
+                        initialGrid?.let { flow -> withTimeoutOrNull(500) { flow.filterNotNull().first() } }
+                    } else {
+                        initialGrid?.value
+                    }
                     val session = client.httpClient.webSocketSession(
-                        client.wsUrlWithAuth("/pty/$sessionId")
+                        // Viewer posture: this (mobile) client mirrors the desktop's PTY
+                        // size and does not govern it until the user deliberately takes
+                        // over. See PtyRoutes.readClientPosture / ptyConnectQuery.
+                        client.wsUrlWithAuth("/pty/$sessionId") + ptyConnectQuery("viewer", grid)
                     )
                     _activeSession.value = session
                     lastTrafficAtMillis = Clock.System.now().toEpochMilliseconds()
                     attempt = 0
                     if (everConnected) {
-                        // The server is about to replay the whole ring
-                        // buffer again — wipe the renderer first.
-                        _output.emit(TERMINAL_RESET)
+                        // The server is about to replay the whole ring buffer
+                        // again — tell the renderer to reset (clear + re-theme)
+                        // before the replay instead of appending a duplicate.
+                        _events.emit(PtyEvent.Reset)
                     }
                     everConnected = true
                     session.incoming.consumeEach { frame ->
                         lastTrafficAtMillis = Clock.System.now().toEpochMilliseconds()
                         when (frame) {
-                            is Frame.Binary -> _output.emit(frame.readBytes())
+                            is Frame.Binary -> _events.emit(PtyEvent.Bytes(frame.readBytes()))
                             is Frame.Text -> runCatching {
                                 val msg = client.json.decodeFromString<PtyServerMessage>(
                                     frame.readText()
                                 )
                                 when (msg) {
-                                    is PtyServerMessage.Size ->
+                                    is PtyServerMessage.Size -> {
+                                        // Ordered on [events] for emulator feeders;
+                                        // also mirrored into the conflated ptySize
+                                        // for pure size observers.
+                                        _events.emit(PtyEvent.Size(msg.cols, msg.rows))
                                         _ptySize.value = Pair(msg.cols, msg.rows)
+                                    }
+                                    is PtyServerMessage.Governance -> {
+                                        // Ordered on [events] with the bytes it
+                                        // qualifies: presentation must change
+                                        // before the redraw authored for the new
+                                        // driver arrives, not after it is painted.
+                                        _events.emit(
+                                            PtyEvent.Governance(msg.driving, msg.governed)
+                                        )
+                                    }
                                 }
                             }
                             else -> Unit

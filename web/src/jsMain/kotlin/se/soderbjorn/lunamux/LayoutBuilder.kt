@@ -26,6 +26,7 @@ import org.w3c.dom.Node
 import org.w3c.dom.events.FocusEvent
 import org.w3c.dom.events.MouseEvent
 import kotlin.js.json
+import se.soderbjorn.lunamux.client.PtyPresentation
 import se.soderbjorn.lunula.web.themeeditor.resolveFontFamilyCss
 
 /**
@@ -62,90 +63,103 @@ fun attachDragDrop(container: HTMLElement, term: Terminal) {
 }
 
 /**
- * Debounced automatic PTY size vote carrying [entry]'s current grid.
+ * The automatic PTY size vote: measure the grid this pane would like, then ask the server
+ * for it through the ack-clocked pipeline.
  *
- * Fired by the shared `term.onResize` handler (registered once per xterm
- * instance in [ensureTerminal]) and by [connectPane]'s open handler. Reads
- * [TerminalEntry.socket] at call time instead of closing over a specific
- * connection: xterm.js offers no listener unsubscribe through our bindings,
- * so a per-connection closure would leave one extra `onResize` listener
- * behind on every reconnect and multiply each vote. The debounce handle
- * lives on the entry ([TerminalEntry.pendingResizeTimer]) for the same
- * reason.
+ * The single chokepoint every automatic size request funnels through, so the guards below
+ * (frozen pane, cold-restore settle, mid-drag gesture) are stated once. Reads
+ * [TerminalEntry.socket] at call time instead of closing over a specific connection:
+ * xterm.js offers no listener unsubscribe through our bindings, so a per-connection
+ * closure would leave one extra listener behind on every reconnect and multiply each vote.
  *
- * The grid is sampled synchronously (`term.cols/rows` at call time) so the
- * vote carries the freshly fitted size even though the send itself is
- * debounced; the socket is re-read at fire time so a vote scheduled just
- * before a reconnect lands on the new connection.
+ * What changed with the pure-renderer model: this used to read `term.cols/rows`, i.e. the
+ * result of a local fit that had already happened, and send it behind a 200 ms trailing
+ * debounce. There is no local fit any more — the grid is whatever the server last said —
+ * so the vote is measured ([measureNaturalGrid]) instead of read back, and the debounce is
+ * gone: [requestPtyGrid] paces the votes against the server's answers.
  *
- * @param entry the terminal whose grid to vote.
- * @see ensureTerminal
- * @see forceReassert
+ * @param entry the terminal whose grid to measure and vote.
+ * @see requestPtyGrid @see ensureTerminal @see forceReassert
  */
 fun sendResize(entry: TerminalEntry) {
     if (entry.applyingServerSize) return
-    // Cold-restore settling window: swallow the vote. The stale fit sampled at
-    // socket open (before the split geometry / webfont settled) debounces
-    // through here ~200 ms later — after the server has already restored the
-    // pane to its persisted width and the snapshot has rendered at it. Voting
-    // that transient width would make the arbiter rebroadcast it and xterm
-    // reflow the transcript to the wrong width (lossy for TUI output). The
-    // single [finishRestoreSettle] pass casts the one authoritative vote once
-    // the pane is stable. See [TerminalEntry.restoreSettling].
+    // Demo mode has no server to mandate a grid, so a demo pane is its own size authority:
+    // it fits locally — the one sanctioned exception to server-driven geometry — and tells
+    // the simulated session. Routed through this chokepoint so every converted call site
+    // works in both modes without restating the branch. @see pushDemoSessionResize
+    if (isDemoClient) {
+        if (!entry.autoReflow || resizeGestureActive) return
+        try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+        refreshNaturalGrid(entry)
+        pushDemoSessionResize(entry)
+        return
+    }
+    // Measure unconditionally, ahead of the gates below. The natural grid drives the
+    // mirror scale, the take-over target and the out-of-bounds hatch, so it has to track
+    // the pane's box even when the *ask* is suppressed (frozen pane, cold restore,
+    // mid-drag). Measuring resizes nothing, so there is nothing to suppress about it —
+    // only the request is gated.
+    refreshNaturalGrid(entry)
+    // Cold-restore settling window: swallow the vote. The pane's split geometry and
+    // webfont metrics are still moving, so a measurement taken now can be a column or two
+    // off the width the scrollback was persisted at. Voting that transient width would
+    // make the arbiter rebroadcast it and xterm reflow the just-replayed transcript to the
+    // wrong width (lossy for cursor-positioned TUI output). The single
+    // [finishRestoreSettle] pass casts the one authoritative vote once the pane is stable.
+    // See [TerminalEntry.restoreSettling].
     if (entry.restoreSettling) return
     // Per-pane "stop automatic reflow": when off, never push a resize to
-    // the PTY automatically. This is the single chokepoint every
-    // automatic local refit funnels through (via `term.onResize`), so
-    // gating here freezes the remote PTY size regardless of which
-    // geometry path triggered the local fit. The manual Reformat button
+    // the PTY automatically. This is the single chokepoint every automatic size request
+    // funnels through, so gating here freezes the remote PTY size regardless of which
+    // geometry path asked. The manual Reformat button
     // bypasses this by calling `forceReassert`, which sends a
     // `ForceResize` directly. See [TerminalEntry.autoReflow].
     if (!entry.autoReflow) return
-    // Mid-gesture suppression: while the user drags a split bar or resize
-    // corner, local refits keep the grid visually responsive but nothing is
-    // voted to the PTY — programs hard-wrap output at whatever transient
-    // COLUMNS they see, and xterm.js cannot reflow hard-wrapped lines, so a
-    // mid-drag width that reaches the PTY leaves a permanent half-width
-    // scar in scrollback. The final size is asserted on release (the
-    // gesture-end flush in main.kt, plus the toolkit's onGeometryChanged →
+    // Mid-gesture suppression: while the user drags a split bar or resize corner, nothing
+    // is voted to the PTY — programs hard-wrap output at whatever transient COLUMNS they
+    // see, and no reflow can undo a hard wrap, so a mid-drag width that reaches the PTY
+    // leaves a permanent half-width scar in scrollback. Kept even though votes are now
+    // ack-clocked: the clock bounds how MANY votes a drag sends, not whether the sizes it
+    // passes through are ones the PTY should ever see. The final size is asserted on
+    // release (the gesture-end flush in main.kt, plus the toolkit's onGeometryChanged →
     // forceReassert, which bypasses this gate). See [resizeGestureActive].
     if (resizeGestureActive) return
     if (!entryOpen(entry)) return
-    val cols = entry.term.cols; val rows = entry.term.rows
+    // Re-measure first: with the grid pinned to the server, `term.cols/rows` is whatever
+    // the server last mandated, so voting it would only ever echo the current PTY size
+    // back — including a driver's size while this pane mirrors. What this pane wants is
+    // its NATURAL grid: the one it would fit at the user's own font.
+    //
+    // A mirror does still vote. It is a soft vote, and the arbiter only hands governance
+    // over on an explicit force or on real input, so this loses to a client that is
+    // actually driving and wins by `driverFallback` when nobody is — which is the whole
+    // point: the earlier "a mirror never votes" guard deadlocked a lone client. On restore
+    // the server holds the session at its *persisted* width, so the only client attached
+    // could differ from it, latch to passive, and then never be able to say so: no vote,
+    // no refit, no take-over. It sat "Mirroring another device" with no other device in
+    // existence.
+    val cols = entry.naturalCols
+    val rows = entry.naturalRows
+    if (cols < 2 || rows < 2) return
     // While the pane rides a 3D-world plane, this automatic vote lands on the
-    // *same* socket/clientId as the 3D world's explicit vote — fired by
-    // `term.onResize` the instant `setPaneGrid` resizes the grid, and again on
-    // every fresh socket-open re-seed. Vote at the pane's **tier** so it
+    // *same* socket/clientId as the 3D world's explicit vote — fired by the pane's
+    // ResizeObserver as the plane re-presents, and again on every fresh socket-open
+    // re-seed. Vote at the pane's **tier** so it
     // *reinforces* rather than clobbers: a pane carrying a `grid3d` override
     // re-votes THREE_D at the same grid (a plain NORMAL Resize here would
     // silently drop the override to the NORMAL tier — the "counter-voted back"
     // failure the `isRidingSpikePlane` doc describes), while any other riding
-    // pane, and every 2D pane, votes NORMAL. The circular fit that would ratchet
-    // the grid down is suppressed separately (ResizeObserver / onopen guards), so
-    // `cols`/`rows` here is always PTY-truth, never a fit proposal. Muting the
-    // vote entirely instead would strand a pane that reconnects or re-mounts in
-    // 3D with no size vote at all (blank on world round-trip).
+    // pane, and every 2D pane, votes NORMAL. The circular fit that used to ratchet the
+    // grid down is gone by construction now — nothing fits the grid to a container that
+    // was itself derived from the grid — but the riding pane is still excluded from
+    // measuring for that reason (see the ResizeObserver guard). Muting the vote entirely
+    // instead would strand a pane that reconnects or re-mounts in 3D with no size vote at
+    // all (blank on world round-trip).
     // @see setPaneGrid @see isRidingSpikePlane @see SizePriority
     val priority =
         if (isRidingSpikePlane(entry) && entry.paneId in spikeGrid3dByPane) SizePriority.THREE_D
         else SizePriority.NORMAL
-    entry.pendingResizeTimer?.let { window.clearTimeout(it) }
-    // 200 ms trailing debounce. This is the only transient-width mitigation
-    // for resize paths that have no drag gesture to gate on (OS window-edge
-    // drags, sidebar toggles): long enough to coalesce a continuous drag's
-    // intermediate widths into (mostly) the final one, short enough that a
-    // settled size still feels immediate.
-    entry.pendingResizeTimer = window.setTimeout({
-        entry.pendingResizeTimer = null
-        val socket = entry.socket
-        if (socket != null && entryOpen(entry)) {
-            socket.send(
-                windowJson.encodeToString<PtyControl>(
-                    PtyControl.Resize(cols = cols, rows = rows, priority = priority)
-                )
-            )
-        }
-    }, 200)
+    requestPtyGrid(entry, cols, rows, priority, force = false)
 }
 
 /**
@@ -232,13 +246,10 @@ fun finishRestoreSettle(entry: TerminalEntry) {
     entry.restoreSettling = false
     entry.settleTimer = null
     if (entry.autoReflow && !isRidingSpikePlane(entry)) {
-        // The single reconciling fit: changes term.cols/rows only when the
-        // settled width differs from the restored one (a genuine size change),
-        // in which case this is the one intentional reflow.
-        try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
-        // Vote the settled grid. A no-op on the server when it equals the
-        // restored width (the common case); otherwise it propagates the one
-        // real resize to the PTY.
+        // The single reconciling request: measure the settled geometry and vote it. A no-op
+        // on the server when it equals the restored width (the common case); otherwise the
+        // server answers with a Size frame and that — not a local fit — is what reflows the
+        // replayed transcript, exactly once, at a width the server agrees with.
         sendResize(entry)
     }
 }
@@ -274,7 +285,33 @@ fun connectPane(entry: TerminalEntry) {
         connectDemoPane(entry)
         return
     }
-    val url = "$proto://$backendHost/pty/${entry.sessionId}?$authQueryParam"
+    // Declare the grid this pane currently renders so the server synthesizes the attach
+    // redraw at our width (the server-authoritative-screen model) — but only when this pane
+    // HAS a grid of its own to declare.
+    //
+    // A first connect does not. [ensureTerminal] builds the container detached from the
+    // document, runs its one creation-time fit there — where the element has no box, so the
+    // fit cannot measure anything — and calls this function as its last statement; the caller
+    // appends the container to its layout cell only afterwards. So `term.cols/rows` is still
+    // xterm's untouched 80×24 default, and declaring it made the server resize the *shared
+    // PTY* to 80×24: a real SIGWINCH at a width nobody asked for, a redraw synthesized at it,
+    // another when the settle vote corrected it, and the "opening a tab loads the transcript
+    // several times, a line or two more each time" flicker. Measured off a screen recording:
+    // the first paint wrapped at column 81 and filled exactly 24 rows. It was also a hazard
+    // for a second window — the arbiter takes min() over votes, so a fresh pane's 80 columns
+    // would have shrunk a session another window was driving until its settle vote landed.
+    //
+    // With the params absent the server synthesizes at the session's current grid, which for a
+    // restored session is the width its scrollback was persisted at — exactly what the
+    // restore-settle design wants rendered first, with the single reconciling vote following
+    // from [finishRestoreSettle] once the geometry is stable. A *reconnect* does declare: by
+    // then `term.cols/rows` is the grid the server last mandated, so it re-asserts a size the
+    // arbiter already holds rather than inventing one.
+    //
+    // @see finishRestoreSettle
+    val declaredGrid =
+        if (entry.everConnected) "&cols=${entry.term.cols}&rows=${entry.term.rows}" else ""
+    val url = "$proto://$backendHost/pty/${entry.sessionId}?$authQueryParam$declaredGrid"
     connectionState[entry.sessionId] = "connecting"
     updateAggregateStatus()
 
@@ -352,15 +389,11 @@ fun connectPane(entry: TerminalEntry) {
                 entry.restoreSettling = true
                 entry.settleAttempts = 0
             } else if (entry.container.offsetParent != null) {
-                // Reconnect (the transcript is already settled at the live
-                // width): re-fit and soft-vote as before. No local fit while
-                // the pane rides a 3D-world plane — there the container is
-                // grid-derived, so a fit would propose a slightly smaller grid
-                // (padding allowance) and the current grid IS the truth to
-                // vote. See [isRidingSpikePlane].
-                if (!isRidingSpikePlane(entry)) {
-                    try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
-                }
+                // Reconnect (the transcript is already settled at the live width):
+                // re-measure and soft-vote. No measurement while the pane rides a
+                // 3D-world plane — there the container is grid-derived, so measuring it
+                // would propose a slightly smaller grid (padding allowance) and the
+                // current grid IS the truth to vote. See [isRidingSpikePlane].
                 sendResize(entry)
             } else {
                 window.setTimeout({ sendResize(entry) }, 0)
@@ -372,24 +405,33 @@ fun connectPane(entry: TerminalEntry) {
         if (data is String) {
             runCatching {
                 val msg = windowJson.decodeFromString<PtyServerMessage>(data)
-                when (msg) { is PtyServerMessage.Size -> applyServerSize(entry, msg.cols, msg.rows) }
+                when (msg) {
+                    is PtyServerMessage.Size ->
+                        applyServerSize(entry, msg.cols, msg.rows)
+                    is PtyServerMessage.Governance -> {
+                        // The server names the governor; an ungoverned session
+                        // (`governed = false`) restores the width-comparison
+                        // fallback rather than pinning us to a stale verdict.
+                        entry.driving = if (msg.governed) msg.driving else null
+                        applyMirrorPresentation(entry)
+                    }
+                }
             }
         } else {
             val buf = data as org.khronos.webgl.ArrayBuffer
             val bytes = org.khronos.webgl.Uint8Array(buf)
             if (entry.awaitingSnapshot) {
                 // First binary frame of this connection = the server's
-                // scrollback replay (the /pty protocol sends Size → snapshot
-                // → live output, and WebSocket frames are ordered). On a
-                // reconnect the grid still holds the previous connection's
-                // transcript and the replay would append a second full copy,
-                // so reset the terminal first (RIS) — parity with the native
-                // client, which prepends ESC c on reconnect. A first attach
-                // writes into an empty grid and needs no reset. Scroll
-                // holding is irrelevant on both paths (empty or just-reset
-                // grid), hence the direct write.
+                // synthesized attach redraw (the /pty protocol sends Governance,
+                // then Size, then the redraw, and WebSocket frames are ordered).
+                // It is self-clearing —
+                // a RIS (ESC c) + ED3 (CSI 3 J) prefix resets the emulator and
+                // clears scrollback before repainting — so, unlike the old ring
+                // replay, no explicit pre-reset is needed even on a reconnect: the
+                // old grid's transcript is wiped by the redraw's own RIS+ED3.
+                // Scroll holding is irrelevant against a just-reset grid, hence the
+                // direct write.
                 entry.awaitingSnapshot = false
-                if (entry.everConnected) entry.term.write("\u001bc")
                 entry.everConnected = true
                 // Gate keystrokes while xterm parses the replay: a query
                 // sequence in replayed bytes would be answered via onData
@@ -478,6 +520,22 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
         "<span class=\"stb-arrow\">↓</span>"
     container.appendChild(scrollBtn)
 
+    // Take-over pill: shown while this pane renders another client's grid (see
+    // [applyMirrorPresentation]). Clicking it is an input-free take-over — fit the
+    // shared PTY to this window. Neutral copy: the size broadcast doesn't say which
+    // device is driving.
+    val takeOverBadge = document.createElement("button") as HTMLElement
+    takeOverBadge.className = "take-over-badge"
+    takeOverBadge.setAttribute("type", "button")
+    takeOverBadge.setAttribute(
+        "title",
+        "Another device is driving this session at a different size — " +
+            "click to fit it to this window"
+    )
+    takeOverBadge.innerHTML = "<span class=\"tob-label\">Mirroring another device</span>" +
+        "<span class=\"tob-action\">Take over</span>"
+    container.appendChild(takeOverBadge)
+
     val term = Terminal(kotlin.js.json(
         "cursorBlink" to true,
         "fontFamily" to resolveFontFamilyCss(appVm.stateFlow.value.paneFontFamily),
@@ -494,6 +552,9 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
     term.loadAddon(fit)
     term.open(inner)
     term.options.theme = buildXtermTheme()
+    // The one creation-time fit: a brand-new terminal has no socket and no server grid yet,
+    // so this gives it a sane starting size (and seeds the natural grid below). From the
+    // first `Size` frame on, the grid is the server's — see [applyServerSize].
     try { safeFit(term, fit) } catch (_: Throwable) {}
     // Deliberately NO `term.focus()` here. Terminal creation is not a
     // user focus gesture: this factory runs for every pane the toolkit
@@ -530,24 +591,24 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
                     // reconciling fit runs against the correct metrics.
                     terminals[paneId]?.let { scheduleRestoreSettle(it) }
                 } else if (container.offsetParent != null) {
-                    fitPreservingScroll(term, fit)
-                    // Cell metrics changed when the bundled webfont
-                    // replaced the fallback; the refit above updated
-                    // the local grid but the PTY is still at the
-                    // pre-font size. Propagate the new grid to the
-                    // server too so `top`/`htop` and similar full-
-                    // screen programs don't end up with a phantom
-                    // blank row at the bottom. `terminals[paneId]?`
-                    // is the safe lookup — the entry is registered
-                    // by `ensureTerminal` before this fonts callback
-                    // can fire, but during teardown it may already
-                    // be gone.
-                    // Skipped for panes with automatic reflow off — the
-                    // local refit above keeps metrics correct, but the
-                    // frozen PTY is left untouched.
-                    terminals[paneId]?.let { if (it.autoReflow) forceReassert(it) }
+                    // Cell metrics changed when the bundled webfont replaced the fallback,
+                    // so the grid this pane fits has changed even though its box has not.
+                    // Re-measure and vote; the server's answer reflows the terminal. Doing
+                    // it the other way round — refit locally, then tell the server — is
+                    // what left `top`/`htop` with a phantom blank row whenever the two
+                    // disagreed. `terminals[paneId]?` is the safe lookup: the entry is
+                    // registered by `ensureTerminal` before this fonts callback can fire,
+                    // but during teardown it may already be gone.
+                    //
+                    // Skipped for panes with automatic reflow off — the user froze the
+                    // size, so the new metrics simply render at the existing grid. A *soft*
+                    // reassert: a webfont load is not a user "reformat" gesture, so it
+                    // votes rather than seizing the grid from a phone driver.
+                    terminals[paneId]?.let { if (it.autoReflow) reassertSoft(it) }
                 } else {
-                    safeFit(term, fit)
+                    // Hidden: nothing measurable, and nothing to render. The natural grid
+                    // is re-measured on the hidden→visible edge.
+                    terminals[paneId]?.let { refreshNaturalGrid(it) }
                 }
             } catch (_: Throwable) {}
         }, { _: dynamic -> })
@@ -604,6 +665,20 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
     })
 
     val entry = TerminalEntry(paneId, sessionId, term, fit, container)
+    // Seed the natural grid from the creation-time fit above. `term.onResize` (which
+    // records it thereafter) is registered further down, so that first fit would
+    // otherwise leave it at 0 — and a 0 natural width makes `isPassive` undecidable,
+    // so the pane can neither judge whether it is mirroring nor vote a sane grid
+    // until some later ambient refit happens to fire.
+    entry.naturalCols = term.cols
+    entry.naturalRows = term.rows
+    entry.baseFontSize = appVm.stateFlow.value.paneFontSize ?: 14
+    // No vote-pending grace is armed here any more. The mirror-flash it existed to
+    // suppress is now covered by a fact rather than a clock: until the first server `Size`
+    // frame arrives `entry.ptyCols` is null, and [isAwaitingOwnSize] treats that as "this
+    // pane has not been told anything yet" — which is exactly the startup window, and
+    // needs no deadline to expire. Pre-latching `awaitingVoteAnswer` would now also hold
+    // the ack-clocked pipeline shut before the first request. @see requestPtyGrid
     // Freeze the effective automatic-reflow flag at creation time: the
     // per-pane override if the pane carries one, otherwise a *snapshot* of
     // the current global default. Snapshotting here (rather than evaluating
@@ -612,6 +687,12 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
     // (future windows)" — only panes created afterwards pick up the change.
     entry.autoReflow = perPaneAutoReflowOverride(paneId) ?: globalAutoReformatDefault()
     entry.scrollButton = scrollBtn
+    entry.takeOverBadge = takeOverBadge
+    takeOverBadge.addEventListener("click", { ev ->
+        ev.stopPropagation()
+        forceReassert(entry)
+        try { term.focus() } catch (_: Throwable) {}
+    })
     terminals[paneId] = entry
     connectionState[sessionId] = "connecting"
     updateAggregateStatus()
@@ -630,9 +711,41 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
     // [TerminalEntry.replaying]). The resize handler also forwards demo-mode
     // grid changes ([pushDemoSessionResize], a no-op outside demo mode —
     // this is the single registration demo panes rely on too).
-    term.onData { data -> if (!entry.replaying) entry.sendInput?.invoke(data) }
+    // Outbound bytes are classified three ways, exactly as the Android client does
+    // (shared rules in [PtyPresentation]) — the difference only matters while this
+    // pane is a passive mirror:
+    //  - device replies (cursor position, device attributes, colour/mode reports)
+    //    are xterm answering a query the *remote program* sent. They must be
+    //    delivered — the program is blocked on them — but they are not user intent,
+    //    and treating them as such made a mirroring client seize the PTY whenever
+    //    the running program happened to probe the terminal.
+    //  - ambient mouse/focus reports the mirror's own view generates are dropped:
+    //    neither input nor a take-over, or scrolling a mirror would steal the grid.
+    //  - anything else is real input, so take over first (fit the shared PTY to this
+    //    window) and then send, so the keystroke lands at this pane's width.
+    term.onData { data ->
+        if (!entry.replaying) {
+            val bytes = data.encodeToByteArray()
+            when {
+                PtyPresentation.isDeviceReply(bytes) -> entry.sendInput?.invoke(data)
+                entry.passive && PtyPresentation.isAmbientReport(bytes) -> Unit
+                else -> {
+                    if (entry.passive) forceReassert(entry)
+                    entry.sendInput?.invoke(data)
+                }
+            }
+        }
+    }
     term.onResize { _ ->
-        sendResize(entry)
+        // Purely a "the grid changed, refresh what depends on it" hook now. Nothing local
+        // reflows the terminal any more, so this fires for a server Size frame
+        // ([applyServerSize]), the 3D world following one, the creation-time fit, and the
+        // demo path's own fit — never for a fit this pane chose in answer to its own box.
+        //
+        // Which is why it no longer records the natural grid or votes. The natural grid is
+        // MEASURED ([refreshNaturalGrid]) rather than read back from a fit that already
+        // happened, and voting here would echo a server-mandated size straight back at the
+        // server — the feedback loop `applyingServerSize` existed to suppress.
         pushDemoSessionResize(entry)
         updateOobOverlay(entry)
     }
@@ -706,7 +819,11 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
                         // the not-yet-visible → visible case).
                         scheduleRestoreSettle(entry)
                     } else {
-                        fitPreservingScroll(entry.term, entry.fit)
+                        // Measure the new box and vote it; the grid follows when the server
+                        // answers. Nothing is fitted here — a client that refits itself is
+                        // what let two devices disagree about the grid a redraw was authored
+                        // at.
+                        sendResize(entry)
                         // Hidden→visible transition: the toolkit's pane-chrome
                         // cache reattaches inactive-tab content on first tab
                         // activation, so a pane that was restored at startup
@@ -716,9 +833,12 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
                         // — same fix as the startup-active-tab case in
                         // `connectPane.onopen`, just deferred to first
                         // activation. Tracking visibility across fires means
-                        // a quick hide/show cycle re-fires correctly.
+                        // a quick hide/show cycle re-fires correctly. A *soft*
+                        // reassert: first tab activation is not a user
+                        // "reformat" gesture, so it votes rather than seizes the
+                        // grid from a phone driver.
                         if (!entry.wasContainerVisible) {
-                            forceReassert(entry)
+                            reassertSoft(entry)
                         }
                     }
                 }
@@ -849,18 +969,18 @@ fun mountPaneContent(paneId: String): HTMLElement {
                 // /pty/{sessionId} socket a shell pane uses, and keystrokes
                 // typed here flow back into the agent's input channel.
                 val entry = ensureTerminal(paneId, sessionId)
-                entry.term.options.fontSize = (appVm.stateFlow.value.paneFontSize ?: 14)
+                try { setPaneFontSize(entry, appVm.stateFlow.value.paneFontSize ?: 14) } catch (_: Throwable) {}
                 entry.term.options.fontFamily = resolveFontFamilyCss(appVm.stateFlow.value.paneFontFamily)
                 // See the terminal branch below: don't steal the container off a
                 // 3D plane while the world is open. @see closeWorld3dSpike
                 if (!spikeOpen) {
-                    // Skip the mount refit while a cold-restored pane is still
-                    // settling: a tab switch onto it would otherwise reflow the
-                    // drawn transcript at a transient width before
-                    // [finishRestoreSettle] reconciles it. The initial mount
-                    // (before onopen sets the flag) still fits normally.
+                    // Mounting is a geometry change: measure the cell's box and vote it.
+                    // Skipped while a cold-restored pane is still settling — a tab switch
+                    // onto it would otherwise vote a transient width ahead of
+                    // [finishRestoreSettle], and the server's answer to that would reflow
+                    // the drawn transcript at the wrong width.
                     if (!entry.restoreSettling) {
-                        try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+                        try { sendResize(entry) } catch (_: Throwable) {}
                     }
                     cell.appendChild(entry.container)
                 }
@@ -879,7 +999,7 @@ fun mountPaneContent(paneId: String): HTMLElement {
             // `entry.autoReflow` at the value frozen in `ensureTerminal`, so
             // a later global-default change never drifts this open pane.
             (leaf.content?.autoReflow as? Boolean)?.let { entry.autoReflow = it }
-            entry.term.options.fontSize = (appVm.stateFlow.value.paneFontSize ?: 14)
+            try { setPaneFontSize(entry, appVm.stateFlow.value.paneFontSize ?: 14) } catch (_: Throwable) {}
             entry.term.options.fontFamily = resolveFontFamilyCss(appVm.stateFlow.value.paneFontFamily)
             // While the 3D world owns this terminal, its `entry.container` is
             // reparented onto a CSS3D plane. Do NOT append it into this (hidden)
@@ -893,15 +1013,13 @@ fun mountPaneContent(paneId: String): HTMLElement {
             // path (world closed) this is the usual mount + refit.
             // @see closeWorld3dSpike @see se.soderbjorn.lunamux.spikeOpen
             if (!spikeOpen) {
-                // Skip the mount-time refit for frozen panes so re-rendering the
-                // chrome (tab switch, sidebar toggle) doesn't silently reformat a
-                // terminal the user pinned; auto-reflow panes refit as before.
-                // Also skip while a cold-restored pane is still settling: a tab
-                // switch onto it would reflow the drawn transcript at a
-                // transient width ahead of [finishRestoreSettle]. The initial
-                // mount (before onopen sets the flag) is unaffected.
+                // Skip the mount-time vote for frozen panes so re-rendering the chrome
+                // (tab switch, sidebar toggle) doesn't silently reformat a terminal the
+                // user pinned; auto-reflow panes ask as before. Also skip while a
+                // cold-restored pane is still settling: a tab switch onto it would vote a
+                // transient width ahead of [finishRestoreSettle].
                 if (entry.autoReflow && !entry.restoreSettling) {
-                    try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+                    try { sendResize(entry) } catch (_: Throwable) {}
                 }
                 cell.appendChild(entry.container)
             }

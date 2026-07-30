@@ -18,6 +18,20 @@ import org.w3c.dom.HTMLElement
 internal val terminals = HashMap<String, TerminalEntry>()
 
 /**
+ * Whether [term] currently renders another client's grid as a read-only mirror
+ * ([TerminalEntry.passive]).
+ *
+ * Exists because the ambient fit callers reach for a bare [Terminal] rather than the
+ * owning [TerminalEntry]; [safeFit] uses this to refuse to reflow a mirror.
+ *
+ * @param term the xterm instance to classify.
+ * @return true when some live entry owning [term] is mirroring.
+ * @see safeFit @see applyMirrorPresentation
+ */
+internal fun isMirroringTerm(term: Terminal): Boolean =
+    terminals.values.any { it.passive && it.term === term }
+
+/**
  * Pane id of the terminal the user most recently interacted with, or
  * `null` if the user has never focused a terminal in this session.
  *
@@ -87,16 +101,17 @@ internal val connectionState = HashMap<String, String>()
 internal var windowSocketConnected = false
 
 /**
- * Refits all visible terminal instances to their current container sizes.
+ * Re-measures every visible terminal and votes the grid it would like.
  *
- * Iterates all registered terminals and calls [fitPreservingScroll] on
- * those whose DOM element has a non-null offsetParent (i.e., is visible).
+ * Iterates all registered terminals and calls [sendResize] on those whose DOM element has
+ * a non-null offsetParent (i.e. is visible). It used to refit them locally; a client's grid
+ * is set only by a server `Size` frame now, so the most a sweep like this may do is ask.
  */
 internal fun fitVisible() {
     for (entry in terminals.values) {
         val parent = (entry.term.asDynamic().element as? HTMLElement)?.offsetParent
         if (parent != null) {
-            try { fitPreservingScroll(entry.term, entry.fit) } catch (_: Throwable) {}
+            try { sendResize(entry) } catch (_: Throwable) {}
         }
     }
 }

@@ -268,11 +268,11 @@ data class Pane(
      * Unlike [zoom] this one *does* reflow the PTY — but only while the 3D
      * world is the size-driving view. The mechanism is [PtyControl] size
      * *priority*: the 3D world votes this size at [SizePriority.THREE_D], which
-     * outranks the 2D clients' [SizePriority.NORMAL] votes but loses to a
-     * connected mobile client's [SizePriority.MOBILE] floor. Because that vote
-     * is tied to the 3D socket's liveness, a crashed/closed 3D view simply
-     * drops the vote and the PTY falls back to the 2D size with no explicit
-     * cleanup — see `TerminalSessionManager.applyEffectiveSize`.
+     * outranks the 2D clients' [SizePriority.NORMAL] votes but loses to an
+     * explicit take-over (a Reformat / phone force wins even over the 3D tier).
+     * Because that vote is tied to the 3D socket's liveness, a crashed/closed 3D
+     * view simply drops the vote and the PTY falls back to the 2D size with no
+     * explicit cleanup — see `TerminalSessionManager.applyEffectiveSize`.
      *
      * Written by [WindowCommand.SetPaneGrid3d] (the 3D world's grid keys), and
      * cleared (set back to `null`) by the 3D world's "restore native grid"

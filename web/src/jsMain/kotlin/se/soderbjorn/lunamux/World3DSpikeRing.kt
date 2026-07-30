@@ -284,6 +284,9 @@ internal fun buildRingPane(spec: PaneSpec, n: Int, scene: Scene, chrome: SpikeCh
                             when (msg) {
                                 is PtyServerMessage.Size ->
                                     applyMirrorSize(spec.paneId, mTerm, msg.cols, msg.rows)
+                                // A ring pane is a mirror by construction — it never
+                                // drives — so governance changes nothing here.
+                                is PtyServerMessage.Governance -> Unit
                             }
                         }
                     } else {

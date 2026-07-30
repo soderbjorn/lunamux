@@ -10,10 +10,10 @@
  *     scrollback and simulated command responses from the in-process
  *     [se.soderbjorn.lunamux.client.demo.DemoServer] (demo mode).
  *
- * Consumers subscribe to [PtySocket.output] for terminal output bytes and
- * call [PtySocket.send] to forward user keystrokes. Resize notifications are
- * sent via [PtySocket.resize] (or [PtySocket.forceResize] to override
- * multi-client min-aggregation).
+ * Consumers subscribe to [PtySocket.events] for the ordered stream of output
+ * bytes + size changes and call [PtySocket.send] to forward user keystrokes.
+ * Resize notifications are sent via [PtySocket.resize] (or
+ * [PtySocket.forceResize] to override multi-client min-aggregation).
  *
  * @see LunamuxClient.openPtySocket
  * @see se.soderbjorn.lunamux.client.viewmodel.TerminalBackingViewModel
@@ -25,11 +25,64 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
+ * A single transport event from the remote PTY, delivered in the exact order
+ * the server produced it. Collapsing output bytes and size changes into one
+ * ordered stream is what keeps a resize and the redraw bytes it triggers from
+ * racing: a [Size] followed by the program's repaint [Bytes] must reach the
+ * renderer in that order, or the emulator repaints at the wrong width and the
+ * grid mangles.
+ *
+ * @see PtySocket.events
+ */
+sealed interface PtyEvent {
+    /**
+     * A frame of raw PTY output bytes — the ring-buffer replay first, then live
+     * output. Not a `data class`: [ByteArray] has identity equality, so a data
+     * class would advertise a misleading `equals`, and events are never compared.
+     */
+    class Bytes(val data: ByteArray) : PtyEvent
+
+    /**
+     * The server's authoritative PTY grid. Renderers follow it exactly; the
+     * synthesized redraws on the wire are authored for this grid.
+     */
+    data class Size(val cols: Int, val rows: Int) : PtyEvent
+
+    /**
+     * A reconnect boundary: the server is about to replay the whole ring buffer,
+     * so the renderer should reset (feed RIS `ESC c` to its emulator and
+     * re-apply its theme) before the replay bytes that follow, instead of
+     * appending a duplicate transcript. A genuine server-side `reset` is NOT
+     * this — it still arrives as `ESC c` inside a [Bytes] frame.
+     */
+    data object Reset : PtyEvent
+
+    /**
+     * Whether this client is the session's *driving* client, as decided by the
+     * server. The driver's size vote governs the PTY and it renders 1:1; every
+     * other attached client presents a passive, scaled mirror.
+     *
+     * Ordered with [Bytes] and [Size] on purpose: a client that learned it had
+     * gone passive only after applying a redraw authored for the new driver's
+     * width would render one frame at the wrong presentation and visibly correct
+     * itself.
+     *
+     * @property driving true when this client governs the session.
+     * @property governed false when *no* client governs yet (a freshly restored
+     *   session nobody has touched, or the governor just disconnected). Consumers
+     *   fall back to comparing their natural width against the server's while
+     *   this is false — see [PtyPresentation.isPassive].
+     */
+    data class Governance(val driving: Boolean, val governed: Boolean) : PtyEvent
+}
+
+/**
  * Live connection to a terminal session. Consumers:
- *   - subscribe to [output] for binary frames from the remote PTY (the first
- *     frames are the 64 KB ring-buffer replay, then live output — the caller
- *     doesn't need to special-case them, it's just a stream of bytes to feed
- *     into whatever terminal renderer is in use);
+ *   - subscribe to [events] for the ordered stream from the remote PTY: output
+ *     [PtyEvent.Bytes] (the first frames are the 64 KB ring-buffer replay, then
+ *     live output), authoritative [PtyEvent.Size] changes, and a
+ *     [PtyEvent.Reset] marker before a reconnect's replay — all interleaved in
+ *     the order the server produced them;
  *   - call [send] to write raw user-input bytes back to the PTY;
  *   - call [resize] whenever the renderer's cell grid changes.
  *
@@ -41,14 +94,21 @@ interface PtySocket {
     /** The PTY session this socket is attached to. */
     val sessionId: String
 
-    /** Terminal output bytes: ring-buffer replay first, then live frames. */
-    val output: SharedFlow<ByteArray>
+    /**
+     * The ordered stream of transport events (output bytes, size changes, and
+     * reconnect resets). This is the single source of truth for a renderer that
+     * feeds an emulator: apply each event in arrival order so a size change and
+     * the repaint it provokes never race. See [PtyEvent].
+     */
+    val events: SharedFlow<PtyEvent>
 
     /**
-     * Latest authoritative PTY size as reported by the server. Null until
-     * the first size frame arrives. StateFlow so late subscribers (e.g. a
-     * Compose `collectAsState` that binds after the socket's first frame)
-     * see the current value.
+     * Latest authoritative PTY size as reported by the server. Null until the
+     * first size frame arrives. A conflated [StateFlow] purely for consumers
+     * that only want the *current* size (pane headers, sidebar entries) and do
+     * not feed an emulator — those get the value immediately on a late
+     * subscribe. Renderers that feed an emulator must instead read
+     * [PtyEvent.Size] off [events] so the resize stays ordered with the bytes.
      */
     val ptySize: StateFlow<Pair<Int, Int>?>
 

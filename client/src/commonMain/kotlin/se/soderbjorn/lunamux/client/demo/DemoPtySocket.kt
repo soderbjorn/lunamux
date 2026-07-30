@@ -20,12 +20,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import se.soderbjorn.lunamux.client.PtyEvent
 import se.soderbjorn.lunamux.client.PtySocket
 
 /**
  * The PTY channel of demo mode. On creation it attaches to the simulated
  * session and mirrors its output (snapshot first, then live frames) into
- * [output] — same contract as the real socket's ring-buffer replay.
+ * [events] as [PtyEvent.Bytes] — same contract as the real socket's
+ * ring-buffer replay. It never reconnects, so it emits no [PtyEvent.Reset].
  *
  * Resize behaves like a single-client server: whatever grid the client
  * reports is echoed back as the authoritative PTY size, so no out-of-bounds
@@ -42,18 +44,18 @@ class DemoPtySocket internal constructor(
 ) : PtySocket {
     private val session: DemoSession = server.session(sessionId)
 
-    private val _output = MutableSharedFlow<ByteArray>(
+    private val _events = MutableSharedFlow<PtyEvent>(
         replay = 64,
         extraBufferCapacity = 64,
     )
-    override val output: SharedFlow<ByteArray> = _output.asSharedFlow()
+    override val events: SharedFlow<PtyEvent> = _events.asSharedFlow()
 
     private val _ptySize = MutableStateFlow<Pair<Int, Int>?>(null)
     override val ptySize: StateFlow<Pair<Int, Int>?> = _ptySize.asStateFlow()
 
-    /** Mirrors session output into [_output]; cancelled by [close]. */
+    /** Mirrors session output into [_events] as bytes; cancelled by [close]. */
     private val mirrorJob: Job = scope.launch {
-        session.output().collect { _output.emit(it) }
+        session.output().collect { _events.emit(PtyEvent.Bytes(it)) }
     }
 
     @Throws(CancellationException::class, Exception::class)
@@ -64,12 +66,14 @@ class DemoPtySocket internal constructor(
     @Throws(CancellationException::class, Exception::class)
     override suspend fun resize(cols: Int, rows: Int) {
         _ptySize.value = Pair(cols, rows)
+        _events.emit(PtyEvent.Size(cols, rows))
         session.resize(cols, rows)
     }
 
     @Throws(CancellationException::class, Exception::class)
     override suspend fun forceResize(cols: Int, rows: Int) {
         _ptySize.value = Pair(cols, rows)
+        _events.emit(PtyEvent.Size(cols, rows))
         session.resize(cols, rows)
     }
 

@@ -675,6 +675,37 @@ body.appearance-light .terminal-inner .xterm-viewport {
     border-color: transparent;
 }
 
+/* Take-over pill, shown only while this pane renders another client's grid (a
+   phone took the session over, so the shared PTY is at its width and this pane
+   is a read-only, font-scaled mirror). Accent-filled rather than surface-tinted
+   so it reads as an action over mirrored content instead of blending into the
+   terminal chrome — the same treatment the "New output" pill uses. Sits top
+   centre, clear of the bottom-right "jump to bottom" pill. */
+.take-over-badge {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 4;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: var(--t-accent, var(--lunamux-orange));
+    color: var(--t-bg, #1C1C1E);
+    font: 600 12px/1 var(--dt-font-sidebar, system-ui, sans-serif);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    opacity: 0.92;
+    transition: opacity 0.12s ease;
+}
+.take-over-badge:hover { opacity: 1; }
+.take-over-badge.visible { display: inline-flex; }
+.take-over-badge .tob-action { font-weight: 700; }
+.take-over-badge .tob-action::before { content: "· "; font-weight: 600; }
+
 .terminal-inner {
     width: 100%;
     flex: 1;

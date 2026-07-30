@@ -154,8 +154,14 @@ private fun start() {
 
     clientTypeAtStart =
         if (window.navigator.userAgent.contains("Electron", ignoreCase = true)) "Computer" else "Web"
+    // Declare a driver posture on every /pty socket: a desktop/web client owns
+    // the PTY size (it may seize governance by typing or reformatting), as
+    // opposed to a phone viewer that mirrors until it takes over. The server
+    // would sniff the same default from clientType, but declaring it explicitly
+    // keeps governance intent in the client's hands (see PtyRoutes.readClientPosture).
     authQueryParam = "auth=" + encodeUriComponent(authTokenForSending()) +
-        "&clientType=" + encodeUriComponent(clientTypeAtStart)
+        "&clientType=" + encodeUriComponent(clientTypeAtStart) +
+        "&posture=driver"
     isElectronClient = window.navigator.userAgent.contains("Electron", ignoreCase = true)
     // The `dt-electron-mac` body class is added by lunula's
     // `autoApplyElectronMacBodyClass` (called from `injectLunulaStyles`

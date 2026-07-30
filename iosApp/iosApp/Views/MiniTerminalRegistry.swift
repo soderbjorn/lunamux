@@ -104,22 +104,23 @@ final class MiniTerminalRegistry {
         let box = MiniTerminalLineBox()
         let observer = Client.FlowObserver()
 
-        // Server-pushed PTY size → resize the headless emulator so its wrap
-        // width matches the real terminal before output is replayed.
-        observer.observe(flow: socket.ptySize) { [weak box, weak terminal] value in
-            guard let terminal,
-                  let pair = value as? KotlinPair<KotlinInt, KotlinInt> else { return }
-            let cols = Int(truncating: pair.first ?? 0)
-            let rows = Int(truncating: pair.second ?? 0)
-            guard cols > 0, rows > 0 else { return }
-            terminal.resize(cols: cols, rows: rows)
-            box?.lines = extractRecentLines(terminal, maxLines: miniRegistryMaxLines)
-        }
-
-        // PTY output → feed the emulator, then republish the trailing lines.
-        observer.observe(flow: socket.output) { [weak box, weak terminal] chunk in
-            guard let terminal, let data = chunk as? KotlinByteArray else { return }
-            terminal.feed(byteArray: data.toMiniBytes())
+        // One ordered event stream: size, output and reconnect resets applied
+        // to the headless emulator in the order the server produced them (so a
+        // resize can't race the bytes it wraps and mangle the thumbnail).
+        observer.observe(flow: socket.events) { [weak box, weak terminal] value in
+            guard let terminal else { return }
+            if let bytesEv = value as? Client.PtyEventBytes {
+                terminal.feed(byteArray: bytesEv.data.toMiniBytes())
+            } else if let sizeEv = value as? Client.PtyEventSize {
+                let cols = Int(sizeEv.cols)
+                let rows = Int(sizeEv.rows)
+                guard cols > 0, rows > 0 else { return }
+                terminal.resize(cols: cols, rows: rows)
+            } else if value is Client.PtyEventReset {
+                terminal.feed(byteArray: [0x1b, UInt8(ascii: "c")])
+            } else {
+                return
+            }
             box?.lines = extractRecentLines(terminal, maxLines: miniRegistryMaxLines)
         }
 

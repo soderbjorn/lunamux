@@ -129,16 +129,6 @@ class Grid3dOverrideTest {
     }
 
     @Test
-    fun mobile_floor_beats_even_a_three_d_override() {
-        val votes = listOf(
-            SizeVote(200, 60, SizePriority.THREE_D),
-            SizeVote(120, 40, SizePriority.NORMAL),
-            SizeVote(40, 20, SizePriority.MOBILE),
-        )
-        assertEquals(40 to 20, pickEffectiveSize(votes))
-    }
-
-    @Test
     fun min_is_taken_within_the_winning_tier() {
         val votes = listOf(
             SizeVote(200, 60, SizePriority.THREE_D),

@@ -1429,7 +1429,11 @@ fun bootViaToolkitShell(root: HTMLElement) {
                     if (!entry.autoReflow) continue
                     val parent = (entry.term.asDynamic().element as? HTMLElement)?.offsetParent
                     if (parent != null) {
-                        try { forceReassert(entry) } catch (_: Throwable) {}
+                        // Soft reassert: a settled geometry change (split-bar
+                        // drag, maximize, preset) is not a user "reformat"
+                        // gesture, so it votes rather than seizing the grid from
+                        // a phone driver. @see reassertSoft
+                        try { reassertSoft(entry) } catch (_: Throwable) {}
                     }
                 }
             },

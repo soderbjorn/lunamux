@@ -66,7 +66,11 @@ internal fun applyGlobalFontFamily(key: String?) {
 private fun applyStackToTerminals(stack: String) {
     for ((_, entry) in terminals) {
         entry.term.options.fontFamily = stack
-        try { safeFit(entry.term, entry.fit) } catch (_: Throwable) {}
+        // A different font means different cell metrics, so the grid this pane fits has
+        // changed even though its box has not. Measure and vote; the server's answer
+        // reflows the terminal. Fitting locally instead would put this client's grid a step
+        // ahead of the PTY's.
+        try { sendResize(entry) } catch (_: Throwable) {}
     }
     (document.documentElement as? HTMLElement)
         ?.style?.setProperty("--t-font-mono", stack)

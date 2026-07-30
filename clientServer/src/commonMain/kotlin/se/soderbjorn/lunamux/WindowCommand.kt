@@ -800,19 +800,18 @@ sealed class WindowCommand {
  *    the 2D clients so the 3D size actually takes, without evicting anyone; the
  *    vote lives only as long as the 3D socket, so leaving/crashing 3D drops it
  *    and the PTY falls back to the 2D size automatically.
- *  - [MOBILE] — a phone/tablet client (classified server-side from the reported
- *    client type). A small mobile viewport must always win so the terminal
- *    stays readable on the phone, overriding even a 3D override.
  *
- * Only [NORMAL] and [THREE_D] ever travel on the wire (from web/desktop
- * clients); the server elevates a vote to [MOBILE] itself based on the
- * connection's client type, so mobile clients need no protocol change.
+ * A phone/tablet no longer has its own tier: instead of forcing a small mobile
+ * viewport to win, a phone attaches as a *viewer* that mirrors the desktop and
+ * only governs after an explicit take-over (which the server treats as a force,
+ * see [se.soderbjorn.lunamux.pty.ClientPosture]). Both tiers travel on the wire
+ * from any client.
  *
  * @see PtyControl.Resize.priority
  * @see Pane.grid3d
  */
 @Serializable
-enum class SizePriority { NORMAL, THREE_D, MOBILE }
+enum class SizePriority { NORMAL, THREE_D }
 
 /**
  * Control-frame message sent client → server over the `/pty/{id}` websocket
@@ -831,12 +830,12 @@ sealed class PtyControl {
      * The [priority] tier decides how this vote competes with other clients'
      * (see [SizePriority]): the server arbitrates latest-active-client-wins
      * — a [SizePriority.NORMAL] vote applies when this client is the one the
-     * user most recently used (typed on / reformatted), the 3D world sends
+     * user most recently used (typed on / reformatted), and the 3D world sends
      * [SizePriority.THREE_D] to assert a pane's [Pane.grid3d] override over
-     * the 2D clients, and a [SizePriority.MOBILE] vote claims the size
-     * immediately so the terminal is readable the moment a phone opens it.
-     * With no recorded activity the classic tiered min() decides. Old
-     * clients omit the field, so it defaults to [SizePriority.NORMAL].
+     * the 2D clients. A phone attaches as a viewer and its ambient votes never
+     * govern until it takes over (see [ForceResize]). With no recorded activity
+     * the classic tiered min() over the drivers' votes decides. Old clients
+     * omit the field, so it defaults to [SizePriority.NORMAL].
      */
     @Serializable
     @SerialName("resize")
@@ -847,17 +846,26 @@ sealed class PtyControl {
     ) : PtyControl()
 
     /**
-     * "Reformat" from the client's UI: force the PTY to this client's
-     * cols/rows, evicting every *other* client's size entry from the
-     * aggregation and making this client the size governor. The next
-     * auto-resize those clients send re-populates their votes, but ambient
-     * re-votes no longer steal the size back — governance moves when the
-     * user acts on another client (types there, reformats there, or opens
-     * the session on a phone).
+     * "Reformat" / take-over from the client's UI: force the PTY to this
+     * client's cols/rows and make this client the size governor. Other clients'
+     * votes are **kept** (not evicted) — governance is decided by which client
+     * the user most recently acted on, so ambient re-votes no longer steal the
+     * size back and a laptop reclaims the grid simply by typing. A viewer (e.g.
+     * a phone) that forces is promoted to a driver by this action, which is how
+     * a phone deliberately takes over a session it was mirroring.
+     *
+     * [priority] lets the sender preserve its tier while forcing (the 3D world
+     * forces at [SizePriority.THREE_D]); it defaults to [SizePriority.NORMAL],
+     * so old clients that omit it — and ordinary Reformat / take-over — force
+     * at the normal tier.
      */
     @Serializable
     @SerialName("forceResize")
-    data class ForceResize(val cols: Int, val rows: Int) : PtyControl()
+    data class ForceResize(
+        val cols: Int,
+        val rows: Int,
+        val priority: SizePriority = SizePriority.NORMAL,
+    ) : PtyControl()
 
     /**
      * "Reset terminal" from the pane menu: asks the server to broadcast
@@ -885,12 +893,46 @@ sealed class PtyServerMessage {
     /**
      * Informs the client of the current authoritative PTY grid dimensions.
      * The client uses this to visually indicate which portion of its viewport
-     * falls within the active PTY area.
+     * falls within the active PTY area, and to size its terminal renderer.
      *
      * @param cols number of columns in the PTY grid
      * @param rows number of rows in the PTY grid
      */
     @Serializable
     @SerialName("size")
-    data class Size(val cols: Int, val rows: Int) : PtyServerMessage()
+    data class Size(
+        val cols: Int,
+        val rows: Int,
+    ) : PtyServerMessage()
+
+    /**
+     * Tells *this* connection whether it is the session's driving client — the
+     * one whose size vote governs the PTY and whose input reaches the program
+     * unqualified. Every other attached client presents a passive mirror.
+     *
+     * Sent on attach and again whenever governance moves. It is deliberately a
+     * per-connection boolean rather than a broadcast client id: the server
+     * resolves "is the governor me?" using the connection's own id, so no client
+     * ever learns another's identity.
+     *
+     * Why this exists: governance is a server decision (see
+     * [se.soderbjorn.lunamux.pty.ClientSizeArbiter]), but clients used to
+     * *infer* it by comparing the authoritative width against the width they
+     * would render at. That inference is wrong whenever two clients happen to
+     * size alike — both then believe they drive — and it cannot represent
+     * governance moving without the grid changing at all, which is exactly what
+     * happens when a same-width client takes over.
+     *
+     * @param driving true when this connection is the governing client.
+     * @param governed false when *no* client currently governs (nobody has acted
+     *   yet, or the governor disconnected). Clients fall back to their own
+     *   width comparison while this is false, which preserves the pre-governance
+     *   behaviour for a freshly restored session that no one has touched.
+     */
+    @Serializable
+    @SerialName("governance")
+    data class Governance(
+        val driving: Boolean,
+        val governed: Boolean = true,
+    ) : PtyServerMessage()
 }

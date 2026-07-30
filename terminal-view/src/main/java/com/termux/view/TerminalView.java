@@ -32,6 +32,7 @@ import android.view.autofill.AutofillValue;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.widget.OverScroller;
 import android.widget.Scroller;
 
 import androidx.annotation.Nullable;
@@ -84,6 +85,20 @@ public final class TerminalView extends View {
 
     /** The top row of text to display. Ranges from -activeTranscriptRows to 0. */
     int mTopRow;
+
+    /**
+     * When true, a scroll gesture always scrolls this view's own transcript and is
+     * never translated into something the remote program sees (wheel mouse reports
+     * while mouse tracking is on, arrow keys while the alternate buffer is active).
+     *
+     * Set while the view is a read-only mirror of another client's grid: the
+     * synthesized redraw replays the driving program's DEC modes, so mouse tracking
+     * is typically active on the mirror too — and the wheel reports it produced were
+     * dropped (a mirror must not inject input), which left the mirror unscrollable.
+     *
+     * @see #setLocalScrollOnly(boolean)
+     */
+    private boolean mLocalScrollOnly;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -98,6 +113,60 @@ public final class TerminalView extends View {
 
     /** What was left in from scrolling movement. */
     float mScrollRemainder;
+
+    /**
+     * LUNAMUX ADDITION. How far the window onto the grid has moved right from column 0, in
+     * pixels.
+     *
+     * Non-zero only when the drawn grid is wider than this view, which happens while mirroring
+     * another client's screen at a font fitted to the ROWS so it fills the height (see
+     * {@code MirrorFit}). A driving client's grid fits its own view by definition, so the range
+     * is zero and panning is inert with no mode flag to keep in sync.
+     *
+     * Pixels rather than whole columns because cell-snapped panning is visibly janky. May sit
+     * briefly outside {@code [0, getPanRangePx()]} while a drag or fling overscrolls; every
+     * other path clamps.
+     */
+    private float mPanX;
+
+    /**
+     * LUNAMUX ADDITION. Vertical offset the grid is drawn at, in pixels, pushed in by the
+     * client from {@code MirrorFit.centreOffsetY}.
+     *
+     * Positive centres a grid shorter than the view — which is what keeps a zoomed-out mirror
+     * in the middle of the screen instead of parked against the top edge. Negative
+     * bottom-anchors a grid too tall to fit, keeping the prompt and newest output visible.
+     */
+    private float mContentOffsetY;
+
+    /**
+     * LUNAMUX ADDITION. Pixel-space scroller for pan flings and edge spring-back. Deliberately
+     * separate from {@link #mScroller}, which works in ROWS for the scrollback fling.
+     */
+    private final OverScroller mPanScroller;
+
+    /** LUNAMUX ADDITION. Focal point of the pinch in progress, or NaN. @see #consumePinchFocusX */
+    private float mPinchFocusX = Float.NaN;
+
+    /** LUNAMUX ADDITION. Notified on a double tap so the client can toggle the mirror's zoom. */
+    private Runnable mMirrorDoubleTapListener;
+
+    /** How much of a drag past the pan limits is honoured, and how far it may stretch. */
+    private static final float PAN_OVERSCROLL_RESISTANCE = 0.35f;
+    private static final float PAN_OVERSCROLL_MAX_PX = 120f;
+    /** Fling velocity damping, matched to the scrollback fling's feel. */
+    private static final float PAN_FLING_SCALE = 0.6f;
+
+    /** LUNAMUX ADDITION. Drives {@link #mPanScroller}; posted while a pan animation runs. */
+    private final Runnable mPanAnimator = new Runnable() {
+        @Override
+        public void run() {
+            if (mPanScroller.isFinished()) return;
+            boolean more = mPanScroller.computeScrollOffset();
+            applyPan(mPanScroller.getCurrX(), false);
+            if (more) post(this);
+        }
+    };
 
     /** If non-zero, this is the last unicode code point received if that was a combining character. */
     int mCombiningAccent;
@@ -152,6 +221,8 @@ public final class TerminalView extends View {
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
+                // LUNAMUX: release a stretched pan first, whatever else this touch-up means.
+                settlePan();
                 if (mEmulator != null && mEmulator.isMouseTrackingActive() && !event.isFromSource(InputDevice.SOURCE_MOUSE) && !isSelectingText() && !scrolledWithFinger) {
                     // Quick event processing when mouse tracking is active - do not wait for check of double tapping
                     // for zooming.
@@ -187,6 +258,10 @@ public final class TerminalView extends View {
                     sendMouseEventCode(e, TerminalEmulator.MOUSE_LEFT_BUTTON_MOVED, true);
                 } else {
                     scrolledWithFinger = true;
+                    // LUNAMUX: the horizontal component pans the window over a grid wider than
+                    // the view (a no-op when it already fits). Both axes from one gesture is
+                    // what makes a diagonal drag feel like dragging a canvas.
+                    panBy(distanceX);
                     distanceY += mScrollRemainder;
                     int deltaRows = (int) (distanceY / mRenderer.mFontLineSpacing);
                     mScrollRemainder = distanceY - deltaRows * mRenderer.mFontLineSpacing;
@@ -198,6 +273,10 @@ public final class TerminalView extends View {
             @Override
             public boolean onScale(float focusX, float focusY, float scale) {
                 if (mEmulator == null || isSelectingText()) return true;
+                // LUNAMUX: remember where the fingers are. The client changes the font in
+                // answer and anchors the pan so this point stays put; without that, zooming
+                // scales around the left edge and the content slides out from under them.
+                mPinchFocusX = focusX;
                 mScaleFactor *= scale;
                 mScaleFactor = mClient.onScale(mScaleFactor);
                 return true;
@@ -206,6 +285,12 @@ public final class TerminalView extends View {
             @Override
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
                 if (mEmulator == null) return true;
+                // LUNAMUX: a dominantly horizontal fling carries the window's momentum and
+                // never touches the transcript.
+                if (Math.abs(velocityX) > Math.abs(velocityY) && getPanRangePx() > 0f) {
+                    flingPan(velocityX);
+                    return true;
+                }
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
@@ -252,6 +337,10 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onDoubleTap(MotionEvent event) {
+                // LUNAMUX: toggle the mirror between filling the height and the whole-width
+                // overview — the photo-viewer idiom, and the affordance that makes the panned
+                // content navigable.
+                if (mMirrorDoubleTapListener != null) mMirrorDoubleTapListener.run();
                 // Do not treat is as a single confirmed tap - it may be followed by zoom.
                 return false;
             }
@@ -267,6 +356,7 @@ public final class TerminalView extends View {
             }
         });
         mScroller = new Scroller(context);
+        mPanScroller = new OverScroller(context);
         AccessibilityManager am = (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
         mAccessibilityEnabled = am.isEnabled();
     }
@@ -309,6 +399,10 @@ public final class TerminalView extends View {
 
         // Wait with enabling the scrollbar until we have a terminal to get scroll position from.
         setVerticalScrollBarEnabled(true);
+        // LUNAMUX: the horizontal bar is the pan's affordance — nothing else hints that there is
+        // content off to the right. It draws only while the range exceeds the extent, so it
+        // stays invisible for a grid that fits, i.e. on every driving client.
+        setHorizontalScrollBarEnabled(true);
 
         return true;
     }
@@ -553,8 +647,10 @@ public final class TerminalView extends View {
      * @return Array with the column and row.
      */
     public int[] getColumnAndRow(MotionEvent event, boolean relativeToScroll) {
-        int column = (int) (event.getX() / mRenderer.mFontWidth);
-        int row = (int) ((event.getY() - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
+        // LUNAMUX: undo the window offsets, as the four helpers below do — this one feeds mouse
+        // reports and the selection controller.
+        int column = (int) ((event.getX() + mPanX) / mRenderer.mFontWidth);
+        int row = (int) ((event.getY() - mContentOffsetY - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
         if (relativeToScroll) {
             row += mTopRow;
         }
@@ -579,14 +675,180 @@ public final class TerminalView extends View {
         mEmulator.sendMouseEvent(button, x, y, pressed);
     }
 
+    /**
+     * Whether scroll gestures scroll this view's own transcript instead of being
+     * forwarded to the remote program. Enabled while the view mirrors another
+     * client's grid read-only.
+     *
+     * @param localScrollOnly true to keep scrolling local.
+     */
+    public void setLocalScrollOnly(boolean localScrollOnly) {
+        mLocalScrollOnly = localScrollOnly;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // LUNAMUX ADDITION: the window onto a grid wider than this view.
+    //
+    // All of this moves the WINDOW, never the grid. The emulator's dims are pinned to the
+    // server's on both axes (see TerminalEmulatorHolder) because the mirrored stream is
+    // absolutely cursor-addressed for exactly that screen; a view measurement must never feed
+    // back into them. Panning and the vertical offset are pure view state, so they cost no
+    // resize, no vote and no SIGWINCH.
+    // ---------------------------------------------------------------------------------------
+
+    /** @return the current horizontal pan offset in pixels. */
+    public float getPanX() {
+        return mPanX;
+    }
+
+    /**
+     * How far the window can pan: the drawn grid's width beyond this view's, or zero when the
+     * grid already fits — which is every driving client, so pan needs no enabling flag.
+     *
+     * @return the maximum pan offset in pixels, never negative.
+     */
+    public float getPanRangePx() {
+        if (mEmulator == null || mRenderer == null) return 0f;
+        float range = mEmulator.mColumns * mRenderer.mFontWidth - getWidth();
+        return range > 0f ? range : 0f;
+    }
+
+    /**
+     * Pan the window, clamped to the range the current grid and box allow.
+     *
+     * @param px the desired offset in pixels.
+     */
+    public void setPanX(float px) {
+        applyPan(px, true);
+    }
+
+    /** Return the window to column 0, cancelling any pan animation in flight. */
+    public void resetPan() {
+        mPanScroller.forceFinished(true);
+        applyPan(0f, true);
+    }
+
+    /**
+     * Set the vertical offset the grid is drawn at.
+     *
+     * Computed by the client with {@code MirrorFit.centreOffsetY} rather than here, so the
+     * centre-versus-bottom-anchor rule lives in one tested place.
+     *
+     * @param px pixels to shift the grid down by; negative bottom-anchors an over-tall grid.
+     */
+    public void setContentOffsetY(float px) {
+        if (mContentOffsetY == px) return;
+        mContentOffsetY = px;
+        invalidate();
+    }
+
+    /**
+     * The applied font's cell width, so the client can anchor a pinch to its focal point across
+     * a font change ({@code MirrorFit.focalAnchoredPan}).
+     *
+     * @return the cell width in pixels, or 0 before the renderer exists.
+     */
+    public float getCellWidthPx() {
+        return mRenderer == null ? 0f : mRenderer.mFontWidth;
+    }
+
+    /**
+     * Read and clear the focal point of the pinch that most recently scaled this view.
+     *
+     * The client changes the font in answer to a pinch, and only it knows the resulting cell
+     * width, so the focal anchoring happens there — one gesture, one consumer.
+     *
+     * @return the focal x in view pixels, or NaN when no pinch is pending.
+     */
+    public float consumePinchFocusX() {
+        float focus = mPinchFocusX;
+        mPinchFocusX = Float.NaN;
+        return focus;
+    }
+
+    /**
+     * Listen for double taps, which the client uses to toggle the mirror between filling the
+     * height and the whole-width overview.
+     *
+     * @param listener invoked on the main thread, or null to stop listening.
+     */
+    public void setOnMirrorDoubleTapListener(Runnable listener) {
+        mMirrorDoubleTapListener = listener;
+    }
+
+    /** Store a pan offset and repaint. Clamping is skipped while an overscroll is in flight. */
+    private void applyPan(float px, boolean clamp) {
+        float next = px;
+        if (clamp) {
+            float range = getPanRangePx();
+            next = Math.max(0f, Math.min(range, next));
+        }
+        if (next == mPanX) return;
+        mPanX = next;
+        if (!awakenScrollBars()) invalidate();
+    }
+
+    /**
+     * Pan one drag step. Dragging past either end is honoured with resistance and a hard stop,
+     * so the edge is felt rather than hit — {@link #settlePan()} springs it back on release.
+     */
+    private void panBy(float dx) {
+        float range = getPanRangePx();
+        if (range <= 0f) return;
+        float next = mPanX + dx;
+        if (next < 0f) {
+            next = -Math.min(PAN_OVERSCROLL_MAX_PX, -next * PAN_OVERSCROLL_RESISTANCE);
+        } else if (next > range) {
+            next = range + Math.min(PAN_OVERSCROLL_MAX_PX, (next - range) * PAN_OVERSCROLL_RESISTANCE);
+        }
+        applyPan(next, false);
+    }
+
+    /** Spring the window back inside its range if a drag left it stretched past an end. */
+    private void settlePan() {
+        float range = getPanRangePx();
+        if (mPanX >= 0f && mPanX <= range) return;
+        mPanScroller.forceFinished(true);
+        mPanScroller.springBack((int) mPanX, 0, 0, (int) range, 0, 0);
+        post(mPanAnimator);
+    }
+
+    /** Carry a horizontal fling's momentum, bouncing off the ends. */
+    private void flingPan(float velocityX) {
+        float range = getPanRangePx();
+        if (range <= 0f) return;
+        mPanScroller.forceFinished(true);
+        // The gesture detector's velocity points the way the finger moved; the window travels
+        // the other way.
+        mPanScroller.fling((int) mPanX, 0, (int) (-velocityX * PAN_FLING_SCALE), 0,
+            0, (int) range, 0, 0, (int) PAN_OVERSCROLL_MAX_PX, 0);
+        post(mPanAnimator);
+    }
+
+    @Override
+    protected int computeHorizontalScrollRange() {
+        if (mEmulator == null || mRenderer == null) return 0;
+        return (int) (mEmulator.mColumns * mRenderer.mFontWidth);
+    }
+
+    @Override
+    protected int computeHorizontalScrollExtent() {
+        return getWidth();
+    }
+
+    @Override
+    protected int computeHorizontalScrollOffset() {
+        return (int) mPanX;
+    }
+
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
         for (int i = 0; i < amount; i++) {
-            if (mEmulator.isMouseTrackingActive()) {
+            if (!mLocalScrollOnly && mEmulator.isMouseTrackingActive()) {
                 sendMouseEventCode(event, up ? TerminalEmulator.MOUSE_WHEELUP_BUTTON : TerminalEmulator.MOUSE_WHEELDOWN_BUTTON, true);
-            } else if (mEmulator.isAlternateBufferActive()) {
+            } else if (!mLocalScrollOnly && mEmulator.isAlternateBufferActive()) {
                 // Send up and down key events for scrolling, which is what some terminals do to make scroll work in
                 // e.g. less, which shifts to the alt screen without mouse handling.
                 handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
@@ -1003,6 +1265,14 @@ public final class TerminalView extends View {
         }
 
         if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows)) {
+            // LUNAMUX CHANGE. The session may pin the emulator to the server's grid while
+            // passively mirroring (see TerminalEmulatorHolder), in which case the emulator's
+            // dims deliberately differ from the view-derived ones and this branch is entered
+            // on every layout pass with nothing actually changing. Resetting the scroll
+            // unconditionally yanked a mirror out of scrollback on any relayout (IME
+            // show/hide, recomposition), so reset it only when the emulator's grid moved.
+            int oldColumns = mEmulator == null ? -1 : mEmulator.mColumns;
+            int oldRows = mEmulator == null ? -1 : mEmulator.mRows;
             mTermSession.updateSize(newColumns, newRows, (int) mRenderer.getFontWidth(), mRenderer.getFontLineSpacing());
             mEmulator = mTermSession.getEmulator();
             mClient.onEmulatorSet();
@@ -1011,10 +1281,20 @@ public final class TerminalView extends View {
             if (mTerminalCursorBlinkerRunnable != null)
                 mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
 
-            mTopRow = 0;
-            scrollTo(0, 0);
+            if (mEmulator == null || mEmulator.mColumns != oldColumns || mEmulator.mRows != oldRows) {
+                mTopRow = 0;
+                scrollTo(0, 0);
+                // LUNAMUX: a columns change means the server rewrote the content at a new width
+                // (its resync is RIS-prefixed), so a horizontal offset into the old content is
+                // meaningless. A rows-only change leaves the pan where the user put it.
+                if (mEmulator == null || mEmulator.mColumns != oldColumns) resetPan();
+            }
             invalidate();
         }
+
+        // LUNAMUX: the box or the font may have moved the pan range under an offset that was
+        // legal a moment ago — rotation being the obvious one.
+        applyPan(mPanX, true);
     }
 
     @Override
@@ -1034,7 +1314,15 @@ public final class TerminalView extends View {
             // capacity mid-setChar. Callers that mutate the emulator off
             // the UI thread must acquire the same monitor on mEmulator.
             synchronized (mEmulator) {
+                clampTopRow();
+                // LUNAMUX: the window onto the grid — pan horizontally over a grid wider than
+                // the view, and centre (or bottom-anchor) one that does not fill its height.
+                // The renderer still draws every column and lets the clip discard what is off
+                // screen, so it needs no notion of either offset.
+                int saved = canvas.save();
+                canvas.translate(-mPanX, mContentOffsetY);
                 mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
+                canvas.restoreToCount(saved);
             }
 
             // render the text selection handles
@@ -1046,27 +1334,52 @@ public final class TerminalView extends View {
         return mTermSession;
     }
 
+    /**
+     * Clamp {@link #mTopRow} to the transcript that exists right now.
+     *
+     * The scroll offset is set against the transcript length at the moment of the
+     * gesture, but the transcript can shrink underneath it afterwards: a synthesized
+     * redraw begins with RIS + ED3 (clear scrollback), so a resync arriving while the
+     * user sits scrolled up leaves mTopRow pointing at rows that are gone. Reading or
+     * rendering those throws — {@code IllegalArgumentException: extRow=-3 ...
+     * mActiveTranscriptRows=0} from the renderer, {@code ArrayIndexOutOfBoundsException}
+     * from {@link #getText()}. Callers must hold the emulator monitor.
+     */
+    private void clampTopRow() {
+        int transcriptRows = mEmulator.getScreen().getActiveTranscriptRows();
+        if (mTopRow < -transcriptRows) mTopRow = -transcriptRows;
+        if (mTopRow > 0) mTopRow = 0;
+    }
+
     private CharSequence getText() {
+        synchronized (mEmulator) {
+            clampTopRow();
+        }
         return mEmulator.getScreen().getSelectedText(0, mTopRow, mEmulator.mColumns, mTopRow + mEmulator.mRows);
     }
 
+    // LUNAMUX: these four are the only pixel<->cell conversions in the view, and their only
+    // callers are the text-selection controller (touch -> cell) and its handle views
+    // (cell -> position). They must undo the same window offsets onDraw applies, or a selection
+    // silently picks the wrong columns while its handles float away from the text.
+
     public int getCursorX(float x) {
-        return (int) (x / mRenderer.mFontWidth);
+        return (int) ((x + mPanX) / mRenderer.mFontWidth);
     }
 
     public int getCursorY(float y) {
-        return (int) (((y - 40) / mRenderer.mFontLineSpacing) + mTopRow);
+        return (int) (((y - mContentOffsetY - 40) / mRenderer.mFontLineSpacing) + mTopRow);
     }
 
     public int getPointX(int cx) {
         if (cx > mEmulator.mColumns) {
             cx = mEmulator.mColumns;
         }
-        return Math.round(cx * mRenderer.mFontWidth);
+        return Math.round(cx * mRenderer.mFontWidth - mPanX);
     }
 
     public int getPointY(int cy) {
-        return Math.round((cy - mTopRow) * mRenderer.mFontLineSpacing);
+        return Math.round((cy - mTopRow) * mRenderer.mFontLineSpacing + mContentOffsetY);
     }
 
     public int getTopRow() {

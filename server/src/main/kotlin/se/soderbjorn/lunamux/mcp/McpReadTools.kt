@@ -382,7 +382,7 @@ fun registerMcpReadTools(settingsRepo: SettingsRepository, usageMonitor: ClaudeU
         val source = args.optString("source") ?: "scrollback"
         val text = when (source) {
             "screen" -> session.screenText().trimEnd()
-            else -> stripAnsi(session.snapshot().toString(Charsets.UTF_8))
+            else -> stripAnsi(session.transcriptText())
         }
         val tail = text.lines().takeLast(lines).joinToString("\n")
         McpToolResult.text(tail)

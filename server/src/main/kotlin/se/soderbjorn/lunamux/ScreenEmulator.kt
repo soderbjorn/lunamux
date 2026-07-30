@@ -22,7 +22,6 @@ import com.jediterm.terminal.CursorShape
 import com.jediterm.terminal.RequestOrigin
 import com.jediterm.terminal.TerminalDataStream
 import com.jediterm.terminal.TerminalDisplay
-import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.emulator.JediEmulator
 import com.jediterm.terminal.emulator.mouse.MouseFormat
 import com.jediterm.terminal.emulator.mouse.MouseMode
@@ -165,162 +164,6 @@ class ScreenEmulator(initialCols: Int, initialRows: Int) {
     }
 
     /**
-     * Whether a full-screen program currently owns the alternate buffer.
-     *
-     * Called by [se.soderbjorn.lunamux.TerminalSession] when persisting
-     * scrollback, to decide between replaying normal-buffer history and
-     * freezing the live TUI frame via [renderAlternateScreenFrame].
-     */
-    fun isAlternateScreenActive(): Boolean {
-        textBuffer.lock()
-        try {
-            return textBuffer.isUsingAlternateBuffer
-        } finally {
-            textBuffer.unlock()
-        }
-    }
-
-    /**
-     * Render the alternate buffer's current contents as a self-contained block
-     * of ANSI text: SGR-styled rows separated by CRLF, ending in a reset.
-     *
-     * This exists because the killed-server restore path cannot replay the raw
-     * alternate-buffer bytes. A TUI emits far more redraw traffic than the
-     * replay ring holds, so those bytes are always truncated part-way through
-     * a frame — and the program that would repaint them died with the server.
-     * Rendering from the grid sidesteps both problems: the frame is whatever
-     * was last *visible*, at whatever size it was drawn, regardless of how much
-     * byte history survived.
-     *
-     * The output is deliberately inert. It carries no buffer switch, no cursor
-     * addressing and no mode sets — only colors and text — so a restore can
-     * paste it into the normal buffer as a frozen image of the dead program,
-     * with the fresh shell's prompt continuing underneath.
-     *
-     * @return the rendered frame, or null when there is nothing worth freezing
-     *   — no program owns the alternate buffer, or its grid is blank — in
-     *   which case normal-buffer history is the whole story.
-     * @see se.soderbjorn.lunamux.TerminalSession.persistSnapshot
-     */
-    fun renderAlternateScreenFrame(): ByteArray? {
-        textBuffer.lock()
-        try {
-            if (!textBuffer.isUsingAlternateBuffer) return null
-            val cols = textBuffer.width
-            // Stop at the last row with anything on it. A program using only
-            // the top of its grid would otherwise contribute a run of blank
-            // rows, pushing the scrollback the frame is appended to off the
-            // viewport for no reason.
-            val lastRow = lastPaintedRow(cols)
-            if (lastRow < 0) return null
-            val sb = StringBuilder((lastRow + 1) * (cols + 8))
-            for (y in 0..lastRow) {
-                if (y > 0) sb.append("\r\n")
-                appendRow(sb, y, cols)
-            }
-            return sb.toString().toByteArray(Charsets.UTF_8)
-        } catch (_: Throwable) {
-            // The grid is read outside JediTerm's own accessors' comfort zone
-            // (an in-flight resize can shrink a line mid-scan). A missing
-            // freeze-frame degrades to plain scrollback; it must never take
-            // the persistence pass down with it.
-            return null
-        } finally {
-            textBuffer.unlock()
-        }
-    }
-
-    /**
-     * Append row [y] to [sb] as SGR-styled text, trimming the run of trailing
-     * blanks so an idle screen doesn't cost a full row of spaces per line.
-     */
-    private fun appendRow(sb: StringBuilder, y: Int, cols: Int) {
-        val end = lastPaintedColumn(y, cols)
-        var current: TextStyle? = null
-        for (x in 0..end) {
-            val style = textBuffer.getStyleAt(x, y)
-            if (style != current) {
-                sb.append(sgr(style))
-                current = style
-            }
-            val ch = textBuffer.getCharAt(x, y)
-            // The grid pads unwritten cells with NUL; they render as blanks.
-            sb.append(if (ch == '\u0000') ' ' else ch)
-        }
-        sb.append(SGR_RESET)
-    }
-
-    /**
-     * Index of the last row that renders as anything other than empty.
-     *
-     * @return the row index, or -1 when the whole grid is blank.
-     */
-    private fun lastPaintedRow(cols: Int): Int {
-        var y = textBuffer.height - 1
-        while (y >= 0) {
-            if (lastPaintedColumn(y, cols) >= 0) return y
-            y--
-        }
-        return -1
-    }
-
-    /**
-     * Index of the last column in row [y] that carries anything visible — a
-     * non-blank glyph, or a blank whose background is painted.
-     *
-     * @return the column index, or -1 for a row that renders as empty.
-     */
-    private fun lastPaintedColumn(y: Int, cols: Int): Int {
-        var x = cols - 1
-        while (x >= 0) {
-            val ch = textBuffer.getCharAt(x, y)
-            val blank = ch == ' ' || ch == '\u0000'
-            if (!blank || textBuffer.getStyleAt(x, y)?.background != null) return x
-            x--
-        }
-        return -1
-    }
-
-    /**
-     * Build the SGR sequence that selects [style] from a reset state.
-     *
-     * Emits a reset first so each run is absolute rather than differential —
-     * the frame is pasted into a terminal whose attribute state is unknown.
-     */
-    private fun sgr(style: TextStyle?): String {
-        if (style == null) return SGR_RESET
-        val codes = mutableListOf("0")
-        if (style.hasOption(TextStyle.Option.BOLD)) codes.add("1")
-        if (style.hasOption(TextStyle.Option.DIM)) codes.add("2")
-        if (style.hasOption(TextStyle.Option.ITALIC)) codes.add("3")
-        if (style.hasOption(TextStyle.Option.UNDERLINED)) codes.add("4")
-        if (style.hasOption(TextStyle.Option.SLOW_BLINK)) codes.add("5")
-        if (style.hasOption(TextStyle.Option.RAPID_BLINK)) codes.add("6")
-        if (style.hasOption(TextStyle.Option.INVERSE)) codes.add("7")
-        if (style.hasOption(TextStyle.Option.HIDDEN)) codes.add("8")
-        style.foreground?.let { codes.addAll(colorCodes(it, foreground = true)) }
-        style.background?.let { codes.addAll(colorCodes(it, foreground = false)) }
-        return "[" + codes.joinToString(";") + "m"
-    }
-
-    /**
-     * SGR parameters selecting [color], as either an indexed (`38;5;n`) or a
-     * true-color (`38;2;r;g;b`) selector depending on how it was specified.
-     *
-     * Indexed colors are kept indexed rather than resolved to RGB so the
-     * restored frame still follows the client's palette and theme.
-     */
-    private fun colorCodes(color: com.jediterm.terminal.TerminalColor, foreground: Boolean): List<String> {
-        val base = if (foreground) "38" else "48"
-        return if (color.isIndexed) {
-            listOf(base, "5", color.colorIndex.toString())
-        } else {
-            val c = color.toColor()
-            listOf(base, "2", c.red.toString(), c.green.toString(), c.blue.toString())
-        }
-    }
-
-    /**
      * A no-op [TerminalDisplay]. JediTerm calls these methods from the
      * emulator thread (our feed call) to notify a UI. We don't have a UI —
      * the [TerminalTextBuffer] is our only interesting state and it is
@@ -435,10 +278,5 @@ class ScreenEmulator(initialCols: Int, initialRows: Int) {
             val head = chunks.first()
             return chunks.size == 1 && headIndex >= head.size
         }
-    }
-
-    private companion object {
-        /** SGR reset — closes every styled run in a rendered frame. */
-        const val SGR_RESET = "[0m"
     }
 }

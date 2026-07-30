@@ -229,15 +229,23 @@ class LunamuxClient(
     }
 
     /**
-     * Open a websocket to `/pty/{sessionId}`. Emits the 64 KB ring-buffer
-     * replay as the first items on `output`, then live frames as they arrive.
+     * Open a websocket to `/pty/{sessionId}`. The server synthesizes a
+     * width-correct attach redraw as the first frames, then live frames.
      *
-     * In demo mode this returns a [DemoPtySocket] that replays the session's
-     * canned scrollback and simulates command execution locally.
+     * @param sessionId the PTY session to attach to.
+     * @param initialGrid the grid this client renders, sampled onto the connect
+     *   URL (`&cols=&rows=`) so the server synthesizes the redraw at that width.
+     *   Null (or a null value) lets the server use the current PTY dims — correct
+     *   for a passive viewer or a thumbnail. See [ptyConnectQuery].
+     * @return the socket; a [DemoPtySocket] in demo mode (which ignores
+     *   [initialGrid] — the demo is single-client and never passive).
      */
-    fun openPtySocket(sessionId: String): PtySocket {
+    fun openPtySocket(
+        sessionId: String,
+        initialGrid: kotlinx.coroutines.flow.StateFlow<Pair<Int, Int>?>? = null,
+    ): PtySocket {
         demoServer?.let { return DemoPtySocket(sessionId = sessionId, server = it, scope = scope) }
-        return RealPtySocket(client = this, sessionId = sessionId)
+        return RealPtySocket(client = this, sessionId = sessionId, initialGrid = initialGrid)
     }
 
     /**
