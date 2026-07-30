@@ -1,0 +1,116 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "url": "../../lunula-store/0.2.71/lunula-store-0.2.71.module",
+    "group": "se.soderbjorn.lunula",
+    "module": "lunula-store",
+    "version": "0.2.71",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "iosSimulatorArm64ApiElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-api",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.71"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-store-iosSimulatorArm64Main-0.2.71.klib",
+          "url": "lunula-store-iossimulatorarm64-0.2.71.klib",
+          "size": 61161,
+          "sha512": "23110e6f8cbe211e61457b5556819416e6cb8186e8e305bbc24c739cf13c3b0f39af2e83fa0ffc9ce9b279af9174a02b466393adf0cdd53dc1c3688b89a22d64",
+          "sha256": "305ecbcd43e765e8e81c57c80fd133776744843b936e233282d04a789f932815",
+          "sha1": "9ced586075702239af1c7e5e4832af5a2f32ff66",
+          "md5": "6b2dcb4545efea814b97c04e3d14d5fb"
+        }
+      ]
+    },
+    {
+      "name": "iosSimulatorArm64SourcesElements-published",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-runtime",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "files": [
+        {
+          "name": "lunula-store-iossimulatorarm64-0.2.71-sources.jar",
+          "url": "lunula-store-iossimulatorarm64-0.2.71-sources.jar",
+          "size": 17798,
+          "sha512": "c2025e7df6c045a483bf7dae818d9d29d3286f3dc906e503f1a0e7cd74099a697d7a7c769c39e9e3e6e14dbf8f620eaebc99f6240691a512204bd0fd94ae6c24",
+          "sha256": "b7a1906c9c836e7e3393baa6682567be7e27ac44e9a87844c9ee1c655e130ce0",
+          "sha1": "5d43c82693e86b3644d10c4b233a0ce975257ece",
+          "md5": "cdccc626b164d639f9a9c86d8ee3df10"
+        }
+      ]
+    },
+    {
+      "name": "iosSimulatorArm64MetadataElements-published",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.jvm.environment": "non-jvm",
+        "org.gradle.usage": "kotlin-metadata",
+        "org.jetbrains.kotlin.native.target": "ios_simulator_arm64",
+        "org.jetbrains.kotlin.platform.type": "native"
+      },
+      "dependencies": [
+        {
+          "group": "se.soderbjorn.lunula",
+          "module": "lunula-core",
+          "version": {
+            "requires": "0.2.71"
+          }
+        },
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib",
+          "version": {
+            "requires": "2.3.20"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "lunula-store-iossimulatorarm64-0.2.71-metadata.jar",
+          "url": "lunula-store-iossimulatorarm64-0.2.71-metadata.jar",
+          "size": 3829,
+          "sha512": "c34d408efbad0b24866de9acbec855d284e4e62f9c6098a63a87a1d5fe97192a44ae07a1ac0e0b9f9f4df0ed3d62bbda5e839160eb48ce5b96ef6aa34ed747c7",
+          "sha256": "380412d2b7e04b21b6f5f7d7b503bb8ab4dff6573e9c139f69a0bb3c9d513adf",
+          "sha1": "38aeeb35167cc0a817173922d4f5d055c261162c",
+          "md5": "b71bc76ec7c110fbc3db598231845306"
+        }
+      ]
+    }
+  ]
+}
