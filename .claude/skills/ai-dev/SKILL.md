@@ -121,11 +121,17 @@ From the result, take **every** issue whose `status` is `config.statuses.ready`.
 **This snapshot is frozen for the whole cycle.** Tickets that land in the column
 while you are working belong to the *next* cycle. Never re-query it mid-cycle.
 
-**Order the snapshot by priority**, using the board's own `priorities` array as the
-ranking (index 0 is the most urgent — currently `Very high` → `Very low`). Do not
-hardcode priority names; read the order from the board. Break ties by ascending
-issue id, so older tickets go first. That order is the claim order and the
-dispatch order, and it does not change for the rest of the cycle.
+**Keep the order the board gave you.** The `issues` array already arrives in board
+order: priority group first (the board's own `priorities` ranking, index 0 most
+urgent), and *within* a group the order a human dragged the cards into, oldest
+last. Take the ready column's issues in the order they appear in that array and do
+not sort them yourself — the intra-group order is the maintainer's ranking, it is
+carried by array position alone, and every re-sort you can write throws it away.
+In particular, do not break ties by issue id: that reads a column somebody
+deliberately arranged as if it were unordered.
+
+That order is the claim order and the dispatch order, and it does not change for
+the rest of the cycle.
 
 If the column is empty: release the lock if you own it, print
 `Idle cycle — nothing in "<ready column>".`, send no e-mail, and stop.
@@ -264,7 +270,7 @@ Spawn one subagent per ticket via the Agent tool:
 - `prompt`: the filled-in brief from §8 — `brief-implement.md` or
   `brief-rework.md`, chosen in §4 — in full
 
-Launch in the §2 priority order, holding at most `maxConcurrent` in flight (3 by
+Launch in the §2 board order, holding at most `maxConcurrent` in flight (3 by
 default). Start the next as each one returns. The cap exists because concurrent
 Gradle builds contend on the shared caches and RAM — it is not a correctness
 constraint, so `--max 1` is always safe.
