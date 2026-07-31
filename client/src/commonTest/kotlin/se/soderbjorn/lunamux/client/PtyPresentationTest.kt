@@ -50,58 +50,58 @@ class PtyPresentationTest {
 
     @Test
     fun classifierTreatsMouseAndFocusReportsAsAmbient() {
-        assertTrue(PtyPresentation.isAmbientReport("$esc[<64;10;5M".toByteArray()))   // SGR wheel
-        assertTrue(PtyPresentation.isAmbientReport("$esc[<0;3;4m".toByteArray()))      // SGR release
-        assertTrue(PtyPresentation.isAmbientReport("$esc[I".toByteArray()))            // focus in
-        assertTrue(PtyPresentation.isAmbientReport("$esc[O".toByteArray()))            // focus out
-        assertTrue(PtyPresentation.isAmbientReport("$esc[M   ".toByteArray()))         // X10 mouse + 3 bytes
+        assertTrue(PtyPresentation.isAmbientReport("$esc[<64;10;5M".encodeToByteArray()))   // SGR wheel
+        assertTrue(PtyPresentation.isAmbientReport("$esc[<0;3;4m".encodeToByteArray()))      // SGR release
+        assertTrue(PtyPresentation.isAmbientReport("$esc[I".encodeToByteArray()))            // focus in
+        assertTrue(PtyPresentation.isAmbientReport("$esc[O".encodeToByteArray()))            // focus out
+        assertTrue(PtyPresentation.isAmbientReport("$esc[M   ".encodeToByteArray()))         // X10 mouse + 3 bytes
         // A burst of several ambient reports is still ambient.
-        assertTrue(PtyPresentation.isAmbientReport("$esc[<64;1;1M$esc[<64;1;2M".toByteArray()))
+        assertTrue(PtyPresentation.isAmbientReport("$esc[<64;1;1M$esc[<64;1;2M".encodeToByteArray()))
     }
 
     @Test
     fun classifierRecognisesDeviceReplies() {
         // Replies the emulator generates by itself when the remote program probes it.
-        assertTrue(PtyPresentation.isDeviceReply("$esc[24;80R".toByteArray()))          // cursor position
-        assertTrue(PtyPresentation.isDeviceReply("$esc[?62;c".toByteArray()))           // device attributes
-        assertTrue(PtyPresentation.isDeviceReply("$esc[>0;10;1c".toByteArray()))        // secondary DA
-        assertTrue(PtyPresentation.isDeviceReply("$esc[?2004;1\$y".toByteArray()))      // mode report
-        assertTrue(PtyPresentation.isDeviceReply("$esc]10;rgb:abab/cdcd/0000\u0007".toByteArray())) // OSC reply (BEL)
-        assertTrue(PtyPresentation.isDeviceReply("$esc]11;rgb:0/0/0$esc\\".toByteArray()))          // OSC reply (ST)
-        assertTrue(PtyPresentation.isDeviceReply("$esc[24;80R$esc[?62;c".toByteArray()))// a burst of them
+        assertTrue(PtyPresentation.isDeviceReply("$esc[24;80R".encodeToByteArray()))          // cursor position
+        assertTrue(PtyPresentation.isDeviceReply("$esc[?62;c".encodeToByteArray()))           // device attributes
+        assertTrue(PtyPresentation.isDeviceReply("$esc[>0;10;1c".encodeToByteArray()))        // secondary DA
+        assertTrue(PtyPresentation.isDeviceReply("$esc[?2004;1\$y".encodeToByteArray()))      // mode report
+        assertTrue(PtyPresentation.isDeviceReply("$esc]10;rgb:abab/cdcd/0000\u0007".encodeToByteArray())) // OSC reply (BEL)
+        assertTrue(PtyPresentation.isDeviceReply("$esc]11;rgb:0/0/0$esc\\".encodeToByteArray()))          // OSC reply (ST)
+        assertTrue(PtyPresentation.isDeviceReply("$esc[24;80R$esc[?62;c".encodeToByteArray()))// a burst of them
         // DSR-5 and the XTWINOPS window reports. Missing these was what made an idle mirror's
         // answers read as real typing: the mirror was promoted to size governor and the
         // resulting take-over produced a SIGWINCH repaint storm, caused by nothing but the
         // terminal answering a question it was asked.
-        assertTrue(PtyPresentation.isDeviceReply("$esc[0n".toByteArray()))               // DSR-5 "ok"
-        assertTrue(PtyPresentation.isDeviceReply("$esc[3n".toByteArray()))               // DSR-5 "not ok"
-        assertTrue(PtyPresentation.isDeviceReply("$esc[8;24;80t".toByteArray()))         // XTWINOPS text-area size
-        assertTrue(PtyPresentation.isDeviceReply("$esc[6;16;8t".toByteArray()))          // XTWINOPS cell size
-        assertTrue(PtyPresentation.isDeviceReply("$esc[4;384;640t".toByteArray()))       // XTWINOPS pixel size
-        assertTrue(PtyPresentation.isDeviceReply("$esc[0n$esc[8;24;80t".toByteArray()))  // a mixed burst
+        assertTrue(PtyPresentation.isDeviceReply("$esc[0n".encodeToByteArray()))               // DSR-5 "ok"
+        assertTrue(PtyPresentation.isDeviceReply("$esc[3n".encodeToByteArray()))               // DSR-5 "not ok"
+        assertTrue(PtyPresentation.isDeviceReply("$esc[8;24;80t".encodeToByteArray()))         // XTWINOPS text-area size
+        assertTrue(PtyPresentation.isDeviceReply("$esc[6;16;8t".encodeToByteArray()))          // XTWINOPS cell size
+        assertTrue(PtyPresentation.isDeviceReply("$esc[4;384;640t".encodeToByteArray()))       // XTWINOPS pixel size
+        assertTrue(PtyPresentation.isDeviceReply("$esc[0n$esc[8;24;80t".encodeToByteArray()))  // a mixed burst
     }
 
     @Test
     fun classifierDoesNotMistakeInputForADeviceReply() {
-        assertFalse(PtyPresentation.isDeviceReply("a".toByteArray()))            // printable
-        assertFalse(PtyPresentation.isDeviceReply("\r".toByteArray()))           // Enter
-        assertFalse(PtyPresentation.isDeviceReply("$esc[A".toByteArray()))       // up arrow
-        assertFalse(PtyPresentation.isDeviceReply("$esc[<64;10;5M".toByteArray()))// mouse report
-        assertFalse(PtyPresentation.isDeviceReply("$esc]10;rgb:0/0/0".toByteArray())) // unterminated OSC
+        assertFalse(PtyPresentation.isDeviceReply("a".encodeToByteArray()))            // printable
+        assertFalse(PtyPresentation.isDeviceReply("\r".encodeToByteArray()))           // Enter
+        assertFalse(PtyPresentation.isDeviceReply("$esc[A".encodeToByteArray()))       // up arrow
+        assertFalse(PtyPresentation.isDeviceReply("$esc[<64;10;5M".encodeToByteArray()))// mouse report
+        assertFalse(PtyPresentation.isDeviceReply("$esc]10;rgb:0/0/0".encodeToByteArray())) // unterminated OSC
         assertFalse(PtyPresentation.isDeviceReply(ByteArray(0)))
         // A reply followed by real typing is not purely a reply.
-        assertFalse(PtyPresentation.isDeviceReply("$esc[24;80Rls".toByteArray()))
+        assertFalse(PtyPresentation.isDeviceReply("$esc[24;80Rls".encodeToByteArray()))
     }
 
     @Test
     fun classifierTreatsRealInputAsNonAmbient() {
-        assertFalse(PtyPresentation.isAmbientReport("a".toByteArray()))                // printable
-        assertFalse(PtyPresentation.isAmbientReport("$esc[A".toByteArray()))           // up arrow (CSI)
-        assertFalse(PtyPresentation.isAmbientReport("${esc}OA".toByteArray()))         // up arrow (app-cursor SS3)
-        assertFalse(PtyPresentation.isAmbientReport("\r".toByteArray()))               // Enter
-        assertFalse(PtyPresentation.isAmbientReport("\u0003".toByteArray()))           // Ctrl-C
+        assertFalse(PtyPresentation.isAmbientReport("a".encodeToByteArray()))                // printable
+        assertFalse(PtyPresentation.isAmbientReport("$esc[A".encodeToByteArray()))           // up arrow (CSI)
+        assertFalse(PtyPresentation.isAmbientReport("${esc}OA".encodeToByteArray()))         // up arrow (app-cursor SS3)
+        assertFalse(PtyPresentation.isAmbientReport("\r".encodeToByteArray()))               // Enter
+        assertFalse(PtyPresentation.isAmbientReport("\u0003".encodeToByteArray()))           // Ctrl-C
         assertFalse(PtyPresentation.isAmbientReport(ByteArray(0)))                     // nothing
         // Mixed: an ambient report followed by a real keystroke is a take-over.
-        assertFalse(PtyPresentation.isAmbientReport("$esc[<64;1;1Ma".toByteArray()))
+        assertFalse(PtyPresentation.isAmbientReport("$esc[<64;1;1Ma".encodeToByteArray()))
     }
 }
