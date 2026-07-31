@@ -134,7 +134,10 @@ object GridSerializer {
             // Persist mode: no cursor epilogue follows (see the kdoc), so the flow
             // must not leave the cursor stranded below the content it painted, and
             // the live prompt line must not be committed to history.
-            persistCursorRow = e.cursorRow,
+            // The MAIN buffer's cursor row. While a TUI holds the alternate screen the live
+            // cursor is the TUI's; handing it to the drop-the-live-line rule below deleted
+            // whichever real scrollback line it happened to line up with.
+            persistCursorRow = e.mainBufferCursorRow,
             // The same rule [serialize] follows, and for the same reason: homing after
             // history has been emitted rewinds over it, and the row flow paints without
             // erasing, so every column the screen row does not reach leaves the history
@@ -168,7 +171,8 @@ object GridSerializer {
      * @return the row's styled runs, empty for a blank row.
      */
     fun rowRuns(row: TerminalRow, cols: Int, wrapped: Boolean): List<StyledRun> {
-        val lastCol = if (wrapped) cols - 1 else lastContentColumn(row, cols)
+        val width = safeCols(row, cols)
+        val lastCol = if (wrapped) width - 1 else lastContentColumn(row, width)
         if (lastCol < 0) return emptyList()
         val runs = mutableListOf<StyledRun>()
         val sb = StringBuilder()
@@ -181,7 +185,7 @@ object GridSerializer {
                 sb.setLength(0)
             }
             runStyle = style
-            col += emitCell(sb, row, col, cols)
+            col += emitCell(sb, row, col, width)
         }
         if (sb.isNotEmpty()) runs.add(StyledRun(sb.toString(), runStyle))
         return runs
@@ -247,7 +251,10 @@ object GridSerializer {
         val buffer = e.mainBuffer
         val transcript = buffer.activeTranscriptRows
         val lastContent = lastNonBlankRow(buffer, e.mColumns, e.mRows, transcript)
-        if (lastContent != e.cursorRow) return false
+        // The MAIN buffer's cursor, not the live one: while a TUI holds the alternate screen
+        // the live cursor is the TUI's, and comparing it against a main-buffer row is a
+        // coincidence test, not a live-line test.
+        if (lastContent != e.mainBufferCursorRow) return false
         var start = lastContent
         while (start > -transcript && buffer.getLineWrap(start - 1)) start--
         return start == -transcript
@@ -389,10 +396,11 @@ object GridSerializer {
     private fun emitRow(sb: StringBuilder, buffer: TerminalBuffer, y: Int, cols: Int): Boolean {
         val row = buffer.getLineOrNull(y)
         val wrapped = row != null && buffer.getLineWrap(y)
+        val width = if (row == null) cols else safeCols(row, cols)
         val lastCol = when {
             row == null -> -1
-            wrapped -> cols - 1            // wrapped: emit every column verbatim
-            else -> lastContentColumn(row, cols)
+            wrapped -> width - 1           // wrapped: emit every column verbatim
+            else -> lastContentColumn(row, width)
         }
         if (row == null || lastCol < 0) return wrapped
 
@@ -406,7 +414,7 @@ object GridSerializer {
                 curStyle = style
                 haveStyle = true
             }
-            col += emitCell(sb, row, col, cols)
+            col += emitCell(sb, row, col, width)
         }
         return wrapped
     }
@@ -432,9 +440,25 @@ object GridSerializer {
         return w
     }
 
+    /**
+     * The width to read [row] at: the caller's [cols], clamped to what the row actually has.
+     *
+     * The emulator's width is authoritative for the *active* screen only. A buffer whose
+     * reflow has not run yet holds rows narrower than that — the state LMX-145 crashed on —
+     * and while the eager reflow in `TerminalEmulator.reflowInactiveMainBuffer` means that
+     * should no longer be reachable, a serializer is a read-only observer and has no business
+     * throwing out of an attach if it becomes reachable again. A width disagreement degrades
+     * to a short row here instead of taking the session's every attach down with it.
+     *
+     * @param row the row about to be read.
+     * @param cols the width the caller believes the buffer has.
+     * @return the number of columns that are safe to index on [row].
+     */
+    private fun safeCols(row: TerminalRow, cols: Int): Int = minOf(cols, row.columnCount)
+
     /** Last column (0-based) that is not a default-styled space; -1 if the row is entirely blank. */
     private fun lastContentColumn(row: TerminalRow, cols: Int): Int {
-        var c = cols - 1
+        var c = safeCols(row, cols) - 1
         while (c >= 0) {
             val cp = Character.codePointAt(row.mText, row.findStartOfColumn(c))
             if (cp != ' '.code || !isDefaultStyle(row.getStyle(c))) return c

@@ -439,6 +439,86 @@ public final class TerminalEmulator {
         mScreen.resize(mColumns, mRows, newTotalRows, cursor, getStyle(), isAlternateBufferActive());
         mCursorCol = cursor[0];
         mCursorRow = cursor[1];
+        reflowInactiveMainBuffer();
+    }
+
+    /**
+     * LUNAMUX ADDITION. Bring the main buffer to the emulator's dimensions even while the
+     * alternate buffer is the active screen.
+     *
+     * Upstream reflows the inactive buffer lazily, when {@code ?1049h}/{@code ?1049l} swaps
+     * it back in, and for a renderer that is enough: nobody reads a buffer that is not on
+     * screen. Lunamux does read it. The server serializes the canonical grid on every attach
+     * and on every resync — main buffer *and* alt buffer, so a reconnecting client sees real
+     * scrollback behind a running TUI — and it reads both at {@code mColumns}, which is only
+     * the active buffer's width. Between a resize and the next buffer swap those disagree,
+     * and the stale rows are then indexed past their own {@code mText}/{@code mStyle} arrays:
+     * a widen threw {@code ArrayIndexOutOfBoundsException} out of the serializer and took
+     * every attach for that session down with it, and a narrow quietly dropped the tail of
+     * every row out of the redraw and out of persisted scrollback.
+     *
+     * Reflowing eagerly removes the disagreement rather than teaching each reader to tolerate
+     * it. Serializing each buffer at its own width was the alternative and was rejected: a
+     * wrapped row is emitted as all {@code cols} cells relying on the receiver's deferred
+     * autowrap, so soft wraps authored at the stale width land in the wrong places at the
+     * client's width — which is precisely the width-correctness the canonical grid exists to
+     * guarantee.
+     *
+     * Nothing writes to the main buffer while the alternate screen is up, so the rows this
+     * evicts into the external history are exactly the rows the lazy reflow would have
+     * evicted at the swap, in the same order. Only the timing moves — into the window that
+     * was previously unreadable.
+     *
+     * Two details are load-bearing:
+     * <ul>
+     * <li>The cursor handed to the reflow is {@link #mSavedStateMain}'s, not the live one.
+     * The live cursor belongs to the alternate screen; letting the reflow relocate it would
+     * write the alt buffer's position back over the main buffer's saved cursor, and
+     * {@code ?1049l} would restore the wrong place.</li>
+     * <li>{@code newTotalRows} is derived from the main buffer's own capacity, not from the
+     * active screen's. {@link #resizeScreen()} reports {@code screenOnly} for the alternate
+     * buffer, which would strip a client's transcript-ful main buffer of its scrollback.</li>
+     * </ul>
+     *
+     * After this runs the swap's own {@code resized} test is false, so {@code ?1049l} skips
+     * {@link #resizeScreen()} and its unclipped-cursor restore branch — correct, and the
+     * reason the saved cursor has to be right here rather than at the swap.
+     *
+     * @see #resizeScreen()
+     * @see TerminalBuffer#resize(int, int, int, int[], long, boolean)
+     */
+    private void reflowInactiveMainBuffer() {
+        if (mScreen == mMainBuffer) return;
+        if (mMainBuffer.mColumns == mColumns && mMainBuffer.mScreenRows == mRows) return;
+        final int[] savedCursor = {mSavedStateMain.mSavedCursorCol, mSavedStateMain.mSavedCursorRow};
+        final boolean screenOnly = mMainBuffer.mTotalRows <= mMainBuffer.mScreenRows;
+        final int newTotalRows = screenOnly ? mRows : mMainBuffer.mTotalRows;
+        // The main buffer's own pen, not the alternate screen's, fills the rows a grow opens.
+        final long mainStyle = TextStyle.encode(
+            mSavedStateMain.mSavedForeColor, mSavedStateMain.mSavedBackColor, mSavedStateMain.mSavedEffect);
+        mMainBuffer.resize(mColumns, mRows, newTotalRows, savedCursor, mainStyle, false);
+        mSavedStateMain.mSavedCursorCol = savedCursor[0];
+        mSavedStateMain.mSavedCursorRow = savedCursor[1];
+    }
+
+    /**
+     * LUNAMUX ADDITION. The row the cursor stands on <em>in the main buffer</em>, whichever
+     * screen is currently active.
+     *
+     * {@link #getCursorRow()} reports the live cursor, which belongs to the alternate screen
+     * while a TUI holds it. Anything reasoning about the main buffer's own layout needs this
+     * one instead — notably the persist serializer, which drops the cursor's logical line
+     * because the shell reprints its prompt on restore. Fed the live cursor while a TUI was
+     * up, that rule dropped whichever main-buffer line the alternate screen's cursor row
+     * happened to coincide with: real scrollback, deleted on save.
+     *
+     * @return the main buffer's cursor row — the live cursor when the main buffer is the
+     *   active screen, otherwise the row saved when the alternate screen was entered.
+     * @see #getCursorRow()
+     * @see #reflowInactiveMainBuffer()
+     */
+    public int getMainBufferCursorRow() {
+        return (mScreen == mMainBuffer) ? mCursorRow : mSavedStateMain.mSavedCursorRow;
     }
 
     public int getCursorRow() {

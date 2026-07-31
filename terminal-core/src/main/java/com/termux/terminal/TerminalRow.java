@@ -287,6 +287,21 @@ public final class TerminalRow {
     }
 
     /**
+     * LUNAMUX ADDITION. How many columns this row was allocated for.
+     * <p>
+     * A row is sized when it is created and only re-sized by a buffer reflow, so a reader
+     * holding a buffer whose reflow has not run yet — the inactive main buffer while a TUI
+     * owns the alternate screen — can otherwise index past {@link #mStyle} and
+     * {@link #mText}. Readers outside this package clamp against this rather than trusting
+     * the emulator's current width.
+     *
+     * @return this row's column count.
+     */
+    public int getColumnCount() {
+        return mStyle.length;
+    }
+
+    /**
      * LUNAMUX ADDITION. Whether this row soft-wraps into the next one, i.e. the logical line
      * continues rather than ending here.
      * <p>
