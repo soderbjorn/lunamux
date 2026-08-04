@@ -41,6 +41,6 @@ a Gradle composite build. Two consequences that matter to `/ai-dev`:
    the build at it with `-Plunula.toolkit.path=…`.
 2. **That path must be relative.** It is resolved with `File(rootDir, path)`, and
    Java re-relativises an absolute child — so an absolute path finds nothing,
-   resolution falls back silently to the committed `libs-repo`, and your toolkit
+   resolution falls back silently to the published artifacts, and your toolkit
    edits are simply not in the build. With a green build to say so. Always pass
    `-Plunula.toolkit.path=../../lunula/<slug>`.
