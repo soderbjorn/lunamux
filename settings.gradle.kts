@@ -33,20 +33,13 @@ dependencyResolutionManagement {
                 includeGroupAndSubgroups("org.jetbrains.jediterm")
             }
         }
-        // Committed file-Maven-repo holding lunula artifacts. Lets
-        // Lunamux build with no lunula checkout on disk. Refresh
-        // from the toolkit checkout with `./gradlew publishAllToLibsRepo`.
-        maven {
-            name = "lunulaLibsLocal"
-            url = uri("libs-repo")
-        }
     }
 }
 
 // Auto-detect a sibling lunula checkout. When present, switch to a
 // Gradle composite build so toolkit edits flow into Lunamux with no extra
 // steps. Pass -Plunula.toolkit.useArtifacts=true to force resolution from
-// the committed libs-repo even when sources are present (verifies published
+// Maven Central even when sources are present (verifies published
 // artifacts). Pass -Plunula.toolkit.path=… to point at an explicit checkout.
 val toolkitOverride: String? = settings.providers.gradleProperty("lunula.toolkit.path").orNull
 val useArtifacts: Boolean = settings.providers.gradleProperty("lunula.toolkit.useArtifacts").orNull == "true"
