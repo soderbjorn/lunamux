@@ -1,6 +1,6 @@
 ---
 name: ai-dev
-description: One cycle of autonomous ticket work. Snapshots the Lunicle "ready for agent development" column, claims every ticket in it immediately, and drives each to a reviewed pull request in its own sibling worktree via its own subagent. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
+description: One cycle of autonomous ticket work. Snapshots the "ready for agent development" column of every Lunicle board named in config.json, claims every ticket in them immediately, and drives each to a reviewed pull request in its own sibling worktree via its own subagent. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
 ---
 
 Arguments: $ARGUMENTS
@@ -102,8 +102,16 @@ you do not own is the one way this design fails open.
 
 ## 2. Snapshot the ready column
 
-`list_projects` → find the project named `config.project` → `get_board` with that
-id and `status: "<config.statuses.ready>"`.
+`config.project` is one project name or a list of them — a repo whose work is
+tracked on more than one board (a main board and a security board, say) names
+them all, in the order it wants them swept. Everything below treats the single
+name as a list of one; ticket keys carry their own prefix, so nothing downstream
+cares which board a ticket came from.
+
+`list_projects` → find each project named in `config.project` → `get_board` per
+project with that id and `status: "<config.statuses.ready>"`. A configured name
+that `list_projects` does not return is a configuration error: skip that board,
+sweep the ones that do exist, and name the miss in your final report.
 
 Two failure modes to expect, because the board being read is a **deployed** server
 that may be older than this checkout:
@@ -116,7 +124,9 @@ that may be older than this checkout:
   file and returns its path instead of the content. Do not retry the call — read
   and parse that file.
 
-From the result, take **every** issue whose `status` is `config.statuses.ready`.
+From each result, take **every** issue whose `status` is
+`config.statuses.ready`, and concatenate the boards' lists in `config.project`
+order into one snapshot.
 
 **This snapshot is frozen for the whole cycle.** Tickets that land in the column
 while you are working belong to the *next* cycle. Never re-query it mid-cycle.
@@ -128,13 +138,16 @@ last. Take the ready column's issues in the order they appear in that array and 
 not sort them yourself — the intra-group order is the maintainer's ranking, it is
 carried by array position alone, and every re-sort you can write throws it away.
 In particular, do not break ties by issue id: that reads a column somebody
-deliberately arranged as if it were unordered.
+deliberately arranged as if it were unordered. When more than one board was
+swept, the boards keep their `config.project` order and each board's issues keep
+their own array order — the combined snapshot is a concatenation, never a
+merge-sort across boards.
 
 That order is the claim order and the dispatch order, and it does not change for
 the rest of the cycle.
 
-If the column is empty: release the lock if you own it, print
-`Idle cycle — nothing in "<ready column>".`, send no e-mail, and stop.
+If the snapshot is empty across every board: release the lock if you own it,
+print `Idle cycle — nothing in "<ready column>".`, send no e-mail, and stop.
 
 ## 3. Claim every ticket, immediately
 
@@ -410,7 +423,8 @@ being hard-wrapped into a narrow column. Substituting a brief means pasting that
 file too, wherever the brief says so.
 
 Read the one you need, substitute every `<…>`, and pass the result as the
-subagent's entire prompt. Write the filled-in copy to
+subagent's entire prompt. Where a brief says `<config.project>`, substitute the
+name of the board that ticket came from. Write the filled-in copy to
 `<config.worktreeParent>/.ai-dev/<KEY>.md` (or `<KEY>-review.md`) so there is a
 record of exactly what was asked for.
 
