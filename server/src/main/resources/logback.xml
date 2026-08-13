@@ -19,10 +19,18 @@
             <pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
-    <root level="trace">
+    <!--
+        Third-party libraries log at INFO. At the previous root level of TRACE, Ktor emitted a
+        full routing-resolution trace plus two ContentNegotiation lines for every single request,
+        and Netty a complete stack trace per failed TLS handshake — tens of lines per request,
+        which grew the server log to ~90 MB and buried the entries worth reading.
+    -->
+    <root level="info">
         <appender-ref ref="STDOUT"/>
         <appender-ref ref="FILE"/>
     </root>
+    <!-- Our own code keeps DEBUG: it is low-volume and it is what we actually diagnose from. -->
+    <logger name="se.soderbjorn.lunamux" level="DEBUG"/>
     <logger name="org.eclipse.jetty" level="INFO"/>
     <logger name="io.netty" level="INFO"/>
     <logger name="com.jediterm" level="ERROR"/>

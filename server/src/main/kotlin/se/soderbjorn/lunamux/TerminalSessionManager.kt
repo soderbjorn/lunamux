@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -57,6 +58,7 @@ import se.soderbjorn.lunamux.pty.SessionGrid
 import se.soderbjorn.lunamux.pty.ShellInitFiles
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
@@ -450,6 +452,35 @@ object TerminalSessions {
     }
 }
 
+/** Numbers [ptyReadDispatcher]'s threads so a thread dump names the reader it belongs to. */
+private val ptyReadThreadCounter = AtomicLong(0)
+
+/**
+ * The dispatcher every PTY reader coroutine runs on — deliberately **not**
+ * [Dispatchers.IO].
+ *
+ * [TerminalSession.readJob] sits in a *blocking* `InputStream.read` for the entire life of its
+ * session. A blocking call never suspends, so it owns its thread outright instead of handing it
+ * back between chunks. On [Dispatchers.IO] that meant each live session permanently consumed one
+ * of that pool's 64 slots: at 64 concurrent sessions the pool was fully subscribed, every later
+ * coroutine dispatched to IO queued forever — including each session's own
+ * [TerminalSession.forwarderJob], the coroutine that pumps PTY output out to clients — and the
+ * server froze entirely, for old and new panes alike. Ktor's Netty event loops are separate and
+ * kept serving static files throughout, so from the outside it still looked healthy.
+ *
+ * A cached pool has no such ceiling: one thread per live session, created on demand and reclaimed
+ * 60 s after that session's PTY closes and its read returns EOF (see [TerminalSession.shutdown],
+ * which destroys the PTY *before* cancelling the scope precisely so the read unblocks). Threads
+ * are daemons, so a lingering reader can never hold up JVM exit.
+ *
+ * @see TerminalSession.readJob
+ */
+private val ptyReadDispatcher = Executors.newCachedThreadPool { runnable ->
+    Thread(runnable, "pty-reader-${ptyReadThreadCounter.incrementAndGet()}").apply {
+        isDaemon = true
+    }
+}.asCoroutineDispatcher()
+
 /**
  * A single PTY-backed session.
  *
@@ -595,7 +626,9 @@ class TerminalSession private constructor(
         }
     }
 
-    private val readJob: Job = scope.launch {
+    // Runs on [ptyReadDispatcher], not the scope's IO dispatcher: the read below blocks for the
+    // session's whole lifetime, and on IO that starved the shared pool at 64 sessions.
+    private val readJob: Job = scope.launch(ptyReadDispatcher) {
         val input = pty.inputStream
         val buf = ByteArray(4096)
         while (isActive) {
