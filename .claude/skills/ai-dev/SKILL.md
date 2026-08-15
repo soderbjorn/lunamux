@@ -1,6 +1,6 @@
 ---
 name: ai-dev
-description: One cycle of autonomous ticket work. Snapshots the "ready for agent development" column of every Lunicle board named in config.json, claims every ticket in them immediately, and drives each to a reviewed pull request in its own sibling worktree via its own subagent. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
+description: One cycle of autonomous ticket work. Snapshots the "ready for agent development" column of every Lunicle board named in config.json, claims every ticket in them immediately, and drives each to a pull request in its own sibling worktree via its own subagent. Pass --review to have each pull request code-reviewed too. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
 ---
 
 Arguments: $ARGUMENTS
@@ -22,8 +22,8 @@ reasoning.
 `$ARGUMENTS` may contain:
 
 - `--max <n>` — override `maxConcurrent` for this cycle.
-- `--no-review` — skip the code review in §7.1. Review is **on by default**; this
-  turns it off for the whole cycle.
+- `--review` — run the code review in §7.1. Review is **off by default**; this
+  turns it on for the whole cycle.
 - `--force` — run even though another cycle holds the lock. See §1; only ever
   meaningful when typed by a human, so a loop tick must never pass it.
 - One or more issue keys (`LNL-190 LNL-191`) — restrict the cycle to those tickets
@@ -356,11 +356,16 @@ the *more* urgent e-mail of the two: it is the one waiting on a human.
 🤖 Posted by [Claude Code](https://claude.com/claude-code) acting autonomously. The ticket stays in <claimed column> until this is resolved.
 ```
 
-## 7.1 Then review it
+## 7.1 Then review it, if asked
 
-**On by default.** Skipped for the whole cycle when `--no-review` was passed, and
-always skipped for **rework** and for **blocked** tickets — a reworked ticket is
+**Off by default.** Runs only when `--review` was passed, and even then always
+skipped for **rework** and for **blocked** tickets — a reworked ticket is
 answering a review that already happened, and a blocked one has no pull request.
+
+Without `--review` a `done` ticket is finished at §7: it sits in
+`config.statuses.review` with an unreviewed pull request, which is the normal
+outcome and needs no apology. Skip the rest of this section, send no second
+e-mail, and do not review it yourself.
 
 Once a `done` ticket is closed out, spawn a second subagent for it from
 `brief-review.md`:

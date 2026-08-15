@@ -4,8 +4,9 @@ Filled in and passed as a subagent's **entire prompt** by `/ai-dev` §7, after a
 ticket has been closed out. Substitute every `<…>`. It must stand alone — the
 subagent has none of the main agent's context and no MCP.
 
-Skipped entirely when the cycle ran with `--no-review`, and skipped on rework: a
-reworked ticket is addressing a review that already happened.
+Used only when the cycle ran with `--review` — review is off by default — and
+skipped even then on rework: a reworked ticket is addressing a review that
+already happened.
 
 ---
 
