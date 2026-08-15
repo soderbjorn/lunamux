@@ -49,7 +49,7 @@ android {
         applicationId = "se.soderbjorn.termtastic.android"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 12
+        versionCode = 13
         versionName = "1.9.0"
     }
 
