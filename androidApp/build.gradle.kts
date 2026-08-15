@@ -1,4 +1,3 @@
-import com.google.firebase.appdistribution.gradle.firebaseAppDistribution
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
@@ -8,7 +7,6 @@ plugins {
     alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.composeCompiler)
-    alias(libs.plugins.firebaseAppDistribution)
 }
 
 // Resolve the signing-credentials properties file, which lives OUTSIDE the
@@ -35,34 +33,10 @@ val keystoreProps = Properties().apply {
     keystorePropsFile?.inputStream()?.use { load(it) }
 }
 
-// Firebase App Distribution upload configuration. Like the signing
-// credentials, the Firebase App ID and the service-account key file live
-// OUTSIDE the repo and are read from the same external properties file as the
-// keystore (see above), or overridden via -P / env. Resolution order matches
-// the keystore's:
-//   1. -PlunamuxFirebaseAppId / -PlunamuxFirebaseCreds (command line)
-//   2. `lunamuxFirebaseAppId` / `lunamuxFirebaseCreds` in local.properties
-//   3. `firebaseAppId` / `firebaseServiceCredentials` in the keystore props file
-//   4. LUNAMUX_FIREBASE_APP_ID / LUNAMUX_FIREBASE_CREDS env vars
-// When unset, the plugin is still applied (so the upload task exists) but
-// normal builds are unaffected; the upload task only fails if actually invoked
-// without these values.
-val firebaseAppId: String? =
-    (findProperty("lunamuxFirebaseAppId") as String?)
-        ?: localProps.getProperty("lunamuxFirebaseAppId")
-        ?: keystoreProps.getProperty("firebaseAppId")
-        ?: System.getenv("LUNAMUX_FIREBASE_APP_ID")
-val firebaseCredsFile: File? =
-    ((findProperty("lunamuxFirebaseCreds") as String?)
-        ?: localProps.getProperty("lunamuxFirebaseCreds")
-        ?: keystoreProps.getProperty("firebaseServiceCredentials")
-        ?: System.getenv("LUNAMUX_FIREBASE_CREDS"))
-        ?.let { raw ->
-            // Like `storeFile`, a relative path resolves against the props
-            // file's own directory so the JSON can sit next to the keystore.
-            File(raw).takeIf { it.isAbsolute }
-                ?: keystorePropsFile?.parentFile?.resolve(raw)
-        }
+// NOTE: uploading to Firebase App Distribution is no longer wired into the
+// build. It moved to the `distribute-android` Claude skill, which assembles the
+// release here and then uploads with the `firebase` CLI under the developer's
+// own login — see .claude/skills/distribute-android/SKILL.md.
 
 android {
     namespace = "se.soderbjorn.lunamux.android"
@@ -131,15 +105,6 @@ android {
             lunamuxSigning?.let { signingConfig = it }
         }
     }
-}
-
-// Wire the externally-resolved Firebase values into the App Distribution
-// plugin. Only set properties that resolved, so an unconfigured checkout still
-// configures cleanly. Testers/groups and release notes are passed at invoke
-// time (e.g. `--groups testers`) to keep this block minimal.
-firebaseAppDistribution {
-    firebaseAppId?.let { appId = it }
-    firebaseCredsFile?.let { serviceCredentialsFile = it.absolutePath }
 }
 
 kotlin {

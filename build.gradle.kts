@@ -10,7 +10,6 @@ plugins {
     alias(libs.plugins.kotlinAndroid) apply false
     alias(libs.plugins.kotlinSerialization) apply false
     alias(libs.plugins.ktor) apply false
-    alias(libs.plugins.firebaseAppDistribution) apply false
 }
 
 // The lunula toolkit resolves from Maven Central (see gradle/libs.versions.toml

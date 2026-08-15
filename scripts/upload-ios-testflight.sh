@@ -12,8 +12,8 @@
 # is no Beta App Review for internal testing.
 #
 # The API key path, Key ID and Issuer ID are read from local.properties
-# (keys lunamuxAscKeyPath / lunamuxAscKeyId / lunamuxAscIssuerId),
-# mirroring how upload-android-appdistribution.sh reads its Firebase config.
+# (keys lunamuxAscKeyPath / lunamuxAscKeyId / lunamuxAscIssuerId), mirroring
+# how the build reads its signing config -- secrets stay outside the repo.
 #
 # Required local.properties entries:
 #   lunamuxAscKeyId=XXXXXXXXXX                 # 10-char Key ID
