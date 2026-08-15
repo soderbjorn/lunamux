@@ -1,6 +1,6 @@
 ---
 name: ai-dev
-description: One cycle of autonomous ticket work. Snapshots the "ready for agent development" column of every Lunicle board named in config.json, claims every ticket in them immediately, and drives each to a pull request in its own sibling worktree via its own subagent. Pass --review to have each pull request code-reviewed too. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
+description: One cycle of autonomous ticket work. Snapshots the "ready for agent development" column of every Lunicle board named in config.json, claims every ticket in them immediately, and drives each to a pull request in a sibling worktree via its own subagent. Tickets sharing an epic are one unit — one worktree, one branch, one pull request, children built one after another in the epic's order. Pass --review to have each pull request code-reviewed too. A ticket sent back with maintainer feedback is reworked on its existing PR rather than reimplemented. Project-agnostic — everything repo-specific lives in config.json.
 ---
 
 Arguments: $ARGUMENTS
@@ -185,6 +185,51 @@ subagent needs must be written down for it now.
 
 `get_issue(issue_id)` for each ticket in the snapshot. Then classify it.
 
+### Epics group into one unit
+
+`get_issue` reports a ticket's `parent`. **Tickets in the snapshot that share a
+parent are one unit of work**: one worktree, one branch, one pull request, and
+their subagents run *one at a time* rather than concurrently. A ticket with no
+parent is a unit of one, which is what every ticket used to be.
+
+This is the whole reason epics exist here. Children of an epic are the parts of a
+change that genuinely touch each other — the same files, the same schema, the same
+helpers — and giving each its own worktree means hand-authoring, in prose, every
+piece of coordination a shared directory would have given for free: which
+migration number is whose, who owns which half of a file, what must merge before
+what. In one tree the second child simply *sees* the first child's work and builds
+on it.
+
+**Serial execution is not optional.** Two subagents editing one file in one
+directory at the same time is last-write-wins: no merge, no conflict markers,
+nothing to resolve, and no way to tell it happened. Separate worktrees at least
+fail loudly. A shared worktree is only safe because the children take turns.
+
+**The epic card itself is never work.** It is a coordination sheet its children
+read. If an epic appears in the ready column, do not implement it and do not
+dispatch a subagent for it: move it back to the board's first column, say so in
+your report, and treat its children in the snapshot as the unit.
+
+**Order within a unit comes from the epic's own `children` array.** `get_issue` the
+parent: its `children` come back in the maintainer's deliberate order, which is a
+separate axis from where the cards sit on the board. Sort the unit's tickets by
+their position in that array and build them in that order — it is the ranking, not
+a coincidence of when each child was attached.
+
+Only some of an epic's children may be in your snapshot; the rest are not ready.
+Order the ones you have by that array and ignore the gaps. A ticket that names a
+parent absent from `children` — which should not happen — keeps the §2 snapshot
+order.
+
+Read the epic's description too, and pass it to every child. It carries the things
+the array cannot: what the whole change is for, which constants are defined by
+which child, what nobody is allowed to touch.
+
+Give every child the epic's description as context in its brief, in full, and tell
+each one which position it holds and which siblings ran before it. A child that
+does not know it is part of a chain will duplicate its predecessor's helpers,
+renumber its migration, or open a second pull request.
+
 ### Fresh, or rework?
 
 **A ticket is rework if one of your own earlier comments on it contains a pull
@@ -250,6 +295,15 @@ slug, and never append `-2`. Then:
 
 Everything below is for a fresh ticket.
 
+**One worktree per unit, not per ticket.** An epic's children share a single
+worktree and a single branch — see §4. Create it once, before the first child
+runs, and hand the same path to every child in the chain. Name it from the *epic*:
+its key and its title, not the first child's.
+
+A unit whose children are a mix of fresh and rework is a rework unit: take the
+branch from the existing pull request, per the rules above, and let the fresh
+children commit onto it.
+
 Slug: 3–5 kebab-case words from the title, feature-descriptive (not `fix`, not
 `update`). Branch and directory share the name `<key-lowercase>-<slug>`. If either
 already exists, append `-2`, `-3` until unique.
@@ -283,17 +337,40 @@ Spawn one subagent per ticket via the Agent tool:
 - `prompt`: the filled-in brief from §8 — `brief-implement.md` or
   `brief-rework.md`, chosen in §4 — in full
 
-Launch in the §2 board order, holding at most `maxConcurrent` in flight (3 by
-default). Start the next as each one returns. The cap exists because concurrent
-Gradle builds contend on the shared caches and RAM — it is not a correctness
-constraint, so `--max 1` is always safe.
+Launch in the §2 board order, holding at most `maxConcurrent` **units** in flight
+(3 by default). Start the next as each one returns. The cap exists because
+concurrent Gradle builds contend on the shared caches and RAM — it is not a
+correctness constraint, so `--max 1` is always safe.
 
-**Assign each ticket a port** before you write its brief: `config.basePort + i`,
-where `i` is the ticket's zero-based position in the dispatch order — or
+**An epic unit occupies one slot for the whole chain**, however many children it
+has. Inside the slot its children run strictly one after another in the §4 order:
+dispatch the first, wait for its four lines, then dispatch the next into the same
+worktree. Never hold two children of one epic in flight at once — §4 says why.
+
+**The first child of a unit opens the pull request; every child after it pushes to
+the same branch and must not open a second.** Say so in each brief, and give later
+children the pull request URL the earlier ones returned. One commit per child,
+with its ticket key in the message, so the epic's PR reads as the sequence of
+changes it is.
+
+**A blocked child stops its chain.** Do not dispatch the rest: their work was
+specified against a predecessor that did not land. Leave them in
+`config.statuses.claimed`, and close each out through §7's blocked path naming the
+child that stopped it. A partial epic still pushes what did land — the pull request
+is real work and the maintainer decides what to do with it.
+
+**Assign each unit a port** before you write its briefs: `config.basePort + i`,
+where `i` is the unit's zero-based position in the dispatch order — or
 `config.basePort + 20 + i` if §1 said you are running unlocked. Ports are
-assigned per ticket rather than per slot, so a ticket that outlives its neighbours
+assigned per unit rather than per slot, so a unit that outlives its neighbours
 can never collide with the one that replaced it. It is substituted for `{port}` in
 `config.runInstructions`.
+
+**Every child of a unit gets that one port and one data directory**, not one each.
+`config.runInstructions` may key a local data path by ticket (`{key}`); for an
+epic, key it by the epic instead. A child that starts from an empty database
+cannot see the migration its predecessor just added, and would report a working
+change as broken.
 
 Each subagent returns exactly four lines:
 
@@ -318,6 +395,13 @@ results into one digest that arrives only when the slowest ticket does.
 
 Other tickets are still running while you do this. Finish one ticket's three calls
 before starting the next one's, so a result can never be half-reported.
+
+**Every child of an epic closes out on its own**, as its own subagent returns —
+its own comment, its own column move, its own e-mail. Do not hold a child's result
+until its siblings finish, and do not collapse an epic into one report: the
+children are separate tickets and the maintainer tracks them separately. They will
+share a pull request URL, which is expected; say in each comment which epic it
+belongs to and which of its children the PR now contains.
 
 **`done`** →
 
