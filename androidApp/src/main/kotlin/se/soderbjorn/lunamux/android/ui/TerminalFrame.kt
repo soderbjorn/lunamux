@@ -133,6 +133,15 @@ data class TerminalFrame(
  *   than throwing (a read-only observer must never take the preview down).
  */
 internal fun snapshotFrame(emulator: TerminalEmulator, revision: Long): TerminalFrame {
+    // One builder for the whole frame: [rowRuns] used to allocate its own, so a
+    // 50-row grid threw away 50 of them per snapshot, ten times a second, per
+    // visible session. What remains is a ThumbRun and a String per style run — the
+    // bulk of the churn, and not removable without changing the DTO to carry a
+    // shared CharArray plus offsets (and the painter to Canvas.drawText(char[],…)),
+    // or dropping the neighbours' publish rate below the centred card's. Measure
+    // before doing either; the allocations are off the main thread and ART absorbs
+    // short-lived garbage cheaply.
+    val text = StringBuilder()
     val palette = emulator.mColors.mCurrentColors
     // DECSCNM (`ESC [ ?5h`, replayed by the server's attach epilogue) is a
     // whole-screen fg/bg swap. The vendored renderer applies it by filling the
@@ -148,7 +157,7 @@ internal fun snapshotFrame(emulator: TerminalEmulator, revision: Long): Terminal
     val lines = ArrayList<List<ThumbRun>>(rows)
     for (y in 0 until rows) {
         val row = runCatching { screen.getRow(y) }.getOrNull()
-        lines.add(if (row == null) emptyList() else rowRuns(row, cols, palette, reverseVideo))
+        lines.add(if (row == null) emptyList() else rowRuns(row, cols, palette, reverseVideo, text))
     }
     val cursorVisible = emulator.shouldCursorBeVisible()
     return TerminalFrame(
@@ -182,15 +191,22 @@ internal fun snapshotFrame(emulator: TerminalEmulator, revision: Long): Terminal
  *   (a mid-reflow row can be narrower; degrade to a short row, never throw).
  * @param palette      the emulator's current 256+3 color table.
  * @param reverseVideo whether DECSCNM is set, flipping every run's inverse bit.
+ * @param sb           scratch builder owned by [snapshotFrame], reset per row.
  * @return the row's runs, empty for a blank row.
  */
-private fun rowRuns(row: TerminalRow, cols: Int, palette: IntArray, reverseVideo: Boolean): List<ThumbRun> {
+private fun rowRuns(
+    row: TerminalRow,
+    cols: Int,
+    palette: IntArray,
+    reverseVideo: Boolean,
+    sb: StringBuilder,
+): List<ThumbRun> {
     val width = minOf(cols, row.columnCount)
     if (width <= 0) return emptyList()
     val text = row.mText
     val charLimit = row.spaceUsed
     val runs = ArrayList<ThumbRun>()
-    val sb = StringBuilder()
+    sb.setLength(0)
     var runStyle = row.getStyle(0)
     var runIsDefaultStyle = isDefaultStyle(runStyle)
     var runStartCol = 0
@@ -219,7 +235,9 @@ private fun rowRuns(row: TerminalRow, cols: Int, palette: IntArray, reverseVideo
         // (and a mark is never read as the next cell's content).
         val cellStart = charIndex
         val first = text[charIndex]
-        val isHighSurrogate = Character.isHighSurrogate(first)
+        // A high surrogate whose partner is past the row's used length would index
+        // out of bounds; treat the half on its own, which is what it renders as.
+        val isHighSurrogate = Character.isHighSurrogate(first) && charIndex + 1 < charLimit
         val cp = if (isHighSurrogate) Character.toCodePoint(first, text[charIndex + 1]) else first.code
         charIndex += if (isHighSurrogate) 2 else 1
         while (charIndex < charLimit && WcWidth.width(text, charIndex) <= 0) {

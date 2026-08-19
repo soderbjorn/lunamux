@@ -63,8 +63,12 @@ internal const val THUMBNAIL_FONT_FAMILY = "Menlo, Monaco, 'Courier New', monosp
 // --- Cross-platform consolidation opportunity --------------------------------
 // The terminal-thumbnail pipeline is currently reimplemented once per platform:
 //
-//   Android  MiniTerminalRegistry.extractRecentLines  (TerminalEmulator.transcriptText)
-//            + MiniTerminalPane  (reverseLayout LazyColumn; Compose Text auto-wraps)
+//   Android  NO LONGER PART OF THIS SHAPE. Android now snapshots the emulator's
+//            *screen* into a resolved colour grid (TerminalFrame/snapshotFrame) and
+//            paints that grid on a canvas (TerminalThumbnail), so it re-wraps no
+//            text at all and shares nothing with the transform below. Reconcile
+//            toward the grid approach when these previews are next touched, rather
+//            than hoisting a transform two platforms use and one has left.
 //   iOS      MiniTerminalRegistry.extractRecentLines  (SwiftTerm.getBufferAsData)
 //            + MiniTerminalPane  (bottom-aligned overlay; SwiftUI Text auto-wraps)
 //   Web      readLogicalLines + wrapLine + renderThumbnail  (xterm.js buffer → canvas)

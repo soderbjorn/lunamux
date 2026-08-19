@@ -75,6 +75,13 @@ import se.soderbjorn.lunula.core.ResolvedTheme
 private const val THUMB_FRAME_MIN_INTERVAL_MS = 100L
 
 /**
+ * How many sessions may hold a live socket + emulator at once. Comfortably above
+ * the handful of cards the switcher composes, so the cap only ever retires
+ * sessions the row has been flung past (see [MiniTerminalRegistry.trimToCap]).
+ */
+private const val MAX_LIVE_ENTRIES = 8
+
+/**
  * CompositionLocal exposing the active [MiniTerminalRegistry], or `null` when
  * not inside an overview that provides one.
  */
@@ -107,10 +114,29 @@ class MiniTerminalRegistry(
         val resubscribeJob: Job,
         val dirty: Channel<Unit>,
         val frame: MutableStateFlow<TerminalFrame?>,
-    )
+    ) {
+        /**
+         * Stop this entry for good: cancel its jobs, detach its socket (so the close
+         * reaches the server even as the overview's scope unwinds) and release its
+         * thread. Called by [close] and by [trimToCap].
+         */
+        fun shutdown() {
+            job.cancel()
+            publishJob.cancel()
+            resubscribeJob.cancel()
+            dirty.close()
+            socket.closeDetached()
+            runCatching { dispatcher.close() }
+        }
+    }
 
     private val lock = Any()
-    private val entries = HashMap<String, Entry>()
+
+    /**
+     * Live entries, in least-recently-requested order (a [LinkedHashMap] in access
+     * order), so [trimToCap] knows which to retire first.
+     */
+    private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
     private var closed = false
 
     /**
@@ -157,8 +183,44 @@ class MiniTerminalRegistry(
      * @return a hot [StateFlow] of resolved screen snapshots; `null` until the
      *   first frame is published after attach.
      */
-    fun frameFor(sessionId: String): StateFlow<TerminalFrame?> = synchronized(lock) {
-        entries.getOrPut(sessionId) { createEntry(sessionId) }.frame.asStateFlow()
+    fun frameFor(sessionId: String): StateFlow<TerminalFrame?> {
+        val entry = synchronized(lock) {
+            // After close() the scope is cancelled, so a new entry's collector and
+            // publisher would never run — it would only leak a socket the server
+            // never sees detached and a thread nothing closes. A pane composed
+            // during teardown gets the last known frame instead.
+            if (closed) return MutableStateFlow(lastFrames.get(sessionId)).asStateFlow()
+            entries.getOrPut(sessionId) { createEntry(sessionId) }
+        }
+        trimToCap()
+        return entry.frame.asStateFlow()
+    }
+
+    /**
+     * Retire entries beyond [MAX_LIVE_ENTRIES], oldest first, skipping any a
+     * thumbnail is still collecting.
+     *
+     * Entries used to live until the overview closed, and each one is a PTY socket,
+     * an OS thread and an emulator holding a screen. That was tolerable when a swipe
+     * reached one tab; the switcher's row is flung across many, so browsing a
+     * world's worth of tabs accumulated all of them. The cap is well above what is
+     * ever composed at once, so this only ever collects sessions the user has
+     * scrolled away from.
+     */
+    private fun trimToCap() {
+        val retire = synchronized(lock) {
+            if (entries.size <= MAX_LIVE_ENTRIES) return
+            val doomed = mutableListOf<Entry>()
+            val stale = entries.entries
+                .filter { it.value.frame.subscriptionCount.value == 0 }
+                .take(entries.size - MAX_LIVE_ENTRIES)
+            for (candidate in stale) {
+                entries.remove(candidate.key)
+                doomed += candidate.value
+            }
+            doomed
+        }
+        retire.forEach { it.shutdown() }
     }
 
     /**
@@ -368,13 +430,6 @@ class MiniTerminalRegistry(
             entries.clear()
             snapshot
         }
-        for (entry in toClose) {
-            entry.job.cancel()
-            entry.publishJob.cancel()
-            entry.resubscribeJob.cancel()
-            entry.dirty.close()
-            entry.socket.closeDetached()
-            runCatching { entry.dispatcher.close() }
-        }
+        toClose.forEach { it.shutdown() }
     }
 }

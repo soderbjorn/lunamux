@@ -138,8 +138,6 @@ import se.soderbjorn.lunamux.client.viewmodel.OverviewBackingViewModel.UnlistedT
  * the neighbours are reduced to a sliver at the edges. The row still snaps and
  * flings the same way.
  *
- * Also the horizontal end scale of the return gesture's flight when no card has
- * been measured yet (see `returnFlight`).
  */
 internal const val SWITCHER_CARD_FRACTION = 0.89f
 
@@ -154,7 +152,7 @@ internal const val SWITCHER_CARD_FRACTION = 0.89f
  */
 internal val SwitcherEdgeGap = 12.dp
 
-/** Corner radius of a switcher card, and of the return gesture's shrinking screen. */
+/** Corner radius of a switcher card. */
 internal val SwitcherCardCorner = 20.dp
 
 /**
@@ -272,6 +270,14 @@ fun OverviewContent(
     // While editing layout, Back leaves edit mode rather than the screen.
     BackHandler(enabled = editTabId != null) { vm.exitEdit() }
 
+    // A tab being edited can go away under us — closed or hidden from another
+    // client, or a world switch. Nothing would then render the banner or the edit
+    // surface, while Back kept being swallowed by the handler above, so the screen
+    // looked normal and refused to leave. Leaving edit mode is the only sane answer.
+    LaunchedEffect(editTabId, tabs) {
+        if (editTabId != null && tabs.none { it.id == editTabId }) vm.exitEdit()
+    }
+
     // Diving into a pane is the ONLY thing that commits a tab server-side:
     // activate the tab (browsing never did — see centeredIndex above), focus
     // the pane, and navigate immediately (openPane is synchronous, so the dive
@@ -280,12 +286,15 @@ fun OverviewContent(
     // Diving navigates, so it must happen once per gesture: while the row is
     // settling a tap is watched for at the card level as well as by the pane's own
     // handler (see SwitcherCardRow), and two navigations would stack two terminals
-    // on the back stack. Reset by leaving and re-entering the overview, which is
-    // exactly when a second dive becomes legitimate again.
-    var diveStarted by remember { mutableStateOf(false) }
+    // on the back stack. A short debounce rather than a latch, deliberately: a
+    // latch set before navigating stays set if that navigation is interrupted —
+    // Back pressed during the dive's fade leaves the tree composed — and then every
+    // later tap is swallowed with no way back.
+    var lastDiveNanos by remember { mutableStateOf(0L) }
     val divePane: (OverviewTab, OverviewPane) -> Unit = { tab, pane ->
-        if (!diveStarted) {
-            diveStarted = true
+        val now = System.nanoTime()
+        if (now - lastDiveNanos > DIVE_DEBOUNCE_NANOS) {
+            lastDiveNanos = now
             divePaneId = pane.leaf.id
             scope.launch {
                 if (!tab.isActive) vm.setActiveTab(tab.id)
@@ -364,6 +373,20 @@ fun OverviewContent(
                     centeredIndex = centeredIndex,
                     onCenter = { index -> scope.launch { rowListState.animateScrollToItem(index) } },
                     onDiveTab = diveIntoTab,
+                    onDiveAt = { tab, fractionX, fractionY ->
+                        // The exposé canvas lays panes out in fractions of its own
+                        // box, so a tap's fraction of the card lands in the same
+                        // space (the canvas' few dp of inset is far below a
+                        // fingertip). Whatever pane contains the point wins; a tap
+                        // on bare canvas falls back to the tab's own target.
+                        val touched = tab.panes
+                            .filter { pane ->
+                                fractionX >= pane.x && fractionX <= pane.x + pane.width &&
+                                    fractionY >= pane.y && fractionY <= pane.y + pane.height
+                            }
+                            .maxByOrNull { it.z }
+                        if (touched != null) divePane(tab, touched) else diveIntoTab(tab)
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -453,28 +476,6 @@ fun OverviewContent(
     }
 }
 
-/**
- * The app-switcher card row: one rounded card per tab, ~70% of the surface
- * width at the surface's own aspect ratio, in a snapping [LazyRow] with free
- * momentum flinging — so moving across many tabs is one gesture, not one
- * swipe per tab. Neighbors peek in from both sides and shrink/dim slightly
- * with distance from center, matching the OS app switcher this replicates.
- *
- * Browsing is passive: only the centered card is interactive; tapping (or
- * long-pressing) a peeking card centers it and nothing else, so a fling can
- * never accidentally dive into a pane or open its menu. Selection semantics
- * live in the caller ([OverviewContent]).
- *
- * @param tabs          the tabs to render, one card each.
- * @param rowListState  the hoisted row state ([OverviewContent] re-keys it per
- *   world and drives centering from server echoes).
- * @param centeredIndex index of the card snapped to (or nearest) center; only
- *   it passes touches through to its panes.
- * @param onCenter      center the card at the given index.
- * @param modifier      layout modifier from the caller.
- * @param cardContent   the card's content for a tab (the tab's exposé canvas).
- */
-@OptIn(ExperimentalFoundationApi::class)
 /**
  * Velocity, in dp/s, above which a release is a *flick* rather than a let-go.
  * Deliberately tiny: the OS switcher moves on with the smallest deliberate
@@ -579,11 +580,22 @@ private const val CARD_TAP_DIVE_FRACTION = 0.55f
 private const val CARD_TAP_MAX_HOLD_MS = 500L
 
 /**
- * How far the row may move between press and lift — in cards — for the gesture to
- * still count as a tap rather than a drag. A press stops the settle, so a real tap
- * moves the row barely at all.
+ * How long after a dive another one is ignored. Long enough that the two handlers
+ * which can see one mid-settle tap cannot both navigate, short enough that a dive
+ * interrupted by Back does not leave the switcher unable to open anything.
  */
-private const val CARD_TAP_SCROLL_TOLERANCE = 0.04f
+private const val DIVE_DEBOUNCE_NANOS = 400_000_000L
+
+/**
+ * How far the row may move between press and lift — in cards — for the gesture to
+ * still count as a tap rather than a drag.
+ *
+ * Generous on purpose: a press cannot stop the settle before the next frame is
+ * produced, and at a brisk settle speed the row still travels a few percent of a
+ * card in that frame. A drag moves it far more than this, because the row follows
+ * the finger.
+ */
+private const val CARD_TAP_SCROLL_TOLERANCE = 0.2f
 
 /**
  * How much of the card at [index] is inside the row's viewport, 0..1.
@@ -665,6 +677,33 @@ private fun roomToEdge(rowListState: LazyListState, forward: Boolean): Float? {
     return room.coerceAtLeast(0f)
 }
 
+/**
+ * The app-switcher card row: one rounded card per tab, nearly filling the surface,
+ * in a snapping [LazyRow] with free momentum flinging — so moving across many tabs
+ * is one gesture, not one swipe per tab. The neighbours are reduced to slivers at
+ * the edges, because a card here is a terminal to be read rather than an app
+ * screenshot to be recognised.
+ *
+ * Browsing is passive: it never activates a tab server-side. What a tap does
+ * depends on how much of the card is on screen — a sliver only centres it, a card
+ * you can actually read opens it — and while the row is moving each card watches
+ * the pointer itself, because a press that stops a settle can be cancelled before
+ * any clickable sees it. Selection semantics live in the caller
+ * ([OverviewContent]); the motion constants are documented where they are declared.
+ *
+ * @param tabs          the tabs to render, one card each.
+ * @param rowListState  the hoisted row state ([OverviewContent] re-keys it per
+ *   world and drives centering from server echoes).
+ * @param centeredIndex index of the card the row is on; its panes take their own
+ *   taps, every other card is covered by a gate.
+ * @param onCenter      center the card at the given index.
+ * @param onDiveTab     open a tab's own target pane (its focused, else topmost).
+ * @param onDiveAt      open whatever pane sits at the given fraction of a card,
+ *   used by the mid-settle tap watcher so a multi-pane card opens what was touched.
+ * @param modifier      layout modifier from the caller.
+ * @param cardContent   the card's content for a tab (the tab's exposé canvas).
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SwitcherCardRow(
     tabs: List<OverviewTab>,
@@ -672,6 +711,7 @@ private fun SwitcherCardRow(
     centeredIndex: Int,
     onCenter: (Int) -> Unit,
     onDiveTab: (OverviewTab) -> Unit,
+    onDiveAt: (OverviewTab, Float, Float) -> Unit,
     modifier: Modifier = Modifier,
     cardContent: @Composable (OverviewTab) -> Unit,
 ) {
@@ -682,9 +722,6 @@ private fun SwitcherCardRow(
         val cardHeight = maxHeight
         val sidePadding = (maxWidth - cardWidth) / 2
         val cardShape = RoundedCornerShape(SwitcherCardCorner)
-        // Whether the row is mid-drag, mid-fling or mid-settle. Changes twice per
-        // gesture, so reading it here costs nothing.
-        val scrolling = rowListState.isScrollInProgress
 
         LazyRow(
             state = rowListState,
@@ -719,61 +756,74 @@ private fun SwitcherCardRow(
                         ),
                 ) {
                     cardContent(tab)
-                    // While the row is moving, watch for a tap at the card level
-                    // too. A press during a settle is exactly the case that fell
-                    // through the cracks: it stops the scroll, and stopping the
+                    // A press that lands while the row is moving is the case that
+                    // fell through the cracks: it stops the scroll, and stopping the
                     // scroll can cancel the press before either the pane's
                     // combinedClickable or the gate below ever sees a click — so
                     // tapping the card that fills the screen did nothing at all.
                     //
-                    // This layer consumes nothing (a drag still scrolls the row);
-                    // it only decides, on lift, whether what happened was a tap:
-                    // quick, and with the row's position barely moved, which a drag
-                    // never is. Local pointer movement cannot be the test here — the
-                    // card moves under a stationary finger during a settle, and
-                    // follows the finger during a drag, so the two are the wrong way
-                    // round.
-                    if (scrolling) {
-                        Box(
-                            Modifier
-                                .matchParentSize()
-                                .pointerInput(index) {
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown(
-                                            requireUnconsumed = false,
-                                            pass = PointerEventPass.Initial,
-                                        )
-                                        val focusAtDown = switcherFocusIndex(rowListState)
-                                        var lift: PointerInputChange? = null
-                                        while (true) {
-                                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                                            val change = event.changes
-                                                .firstOrNull { it.id == down.id } ?: break
-                                            if (!change.pressed) {
-                                                lift = change
-                                                break
-                                            }
-                                        }
-                                        val up = lift ?: return@awaitEachGesture
-                                        val heldMs = up.uptimeMillis - down.uptimeMillis
-                                        val moved = abs(
-                                            switcherFocusIndex(rowListState) - focusAtDown,
-                                        )
-                                        if (heldMs <= CARD_TAP_MAX_HOLD_MS &&
-                                            moved <= CARD_TAP_SCROLL_TOLERANCE
-                                        ) {
-                                            if (visibleFraction(rowListState, index) >=
-                                                CARD_TAP_DIVE_FRACTION
-                                            ) {
-                                                onDiveTab(tab)
-                                            } else {
-                                                onCenter(index)
-                                            }
+                    // This layer consumes nothing (a drag still scrolls the row) and
+                    // is composed unconditionally: gating it on "is scrolling" meant
+                    // it left composition the moment the press stopped the scroll,
+                    // cancelling the very gesture it was watching. Whether it acts is
+                    // decided from the state at the PRESS instead, and only then, so
+                    // a tap on a resting row is left to the handlers below.
+                    //
+                    // On lift it asks whether what happened was a tap: quick, and
+                    // with the row's position barely moved. Local pointer movement
+                    // cannot be that test — the card moves under a stationary finger
+                    // during a settle and follows the finger during a drag, so the
+                    // two are the wrong way round.
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .pointerInput(index) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(
+                                        requireUnconsumed = false,
+                                        pass = PointerEventPass.Initial,
+                                    )
+                                    val movingAtPress = rowListState.isScrollInProgress
+                                    val focusAtDown = switcherFocusIndex(rowListState)
+                                    var lift: PointerInputChange? = null
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        val change = event.changes
+                                            .firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) {
+                                            lift = change
+                                            break
                                         }
                                     }
-                                },
-                        )
-                    }
+                                    val up = lift ?: return@awaitEachGesture
+                                    if (!movingAtPress) return@awaitEachGesture
+                                    val heldMs = up.uptimeMillis - down.uptimeMillis
+                                    val moved = abs(
+                                        switcherFocusIndex(rowListState) - focusAtDown,
+                                    )
+                                    if (heldMs > CARD_TAP_MAX_HOLD_MS ||
+                                        moved > CARD_TAP_SCROLL_TOLERANCE
+                                    ) {
+                                        return@awaitEachGesture
+                                    }
+                                    if (visibleFraction(rowListState, index) <
+                                        CARD_TAP_DIVE_FRACTION
+                                    ) {
+                                        onCenter(index)
+                                        return@awaitEachGesture
+                                    }
+                                    // Open what was actually touched. Diving "into
+                                    // the tab" picks its focused pane, which on a
+                                    // multi-pane card is the wrong terminal whenever
+                                    // the finger was on another one.
+                                    onDiveAt(
+                                        tab,
+                                        up.position.x / size.width.toFloat(),
+                                        up.position.y / size.height.toFloat(),
+                                    )
+                                }
+                            },
+                    )
 
                     if (index != centeredIndex) {
                         // A card that is not the centred one still gets a gate, so
@@ -1241,7 +1291,6 @@ private fun leafKindOf(leaf: LeafNode): LeafKind = when (leaf.content) {
  * @param pane            the projected pane.
  * @param raised          whether to lift the card (used for the pane being
  *   dragged).
- * @param modifier        outermost modifier on the card's root box.
  * @param contentModifier modifier on the miniature *inside* the chrome —
  *   [ExposeCanvas] attaches the dive transition's shared bounds here, because
  *   the far end of that flight is the terminal's content box and only this box
@@ -1251,7 +1300,6 @@ private fun leafKindOf(leaf: LeafNode): LeafKind = when (leaf.content) {
 private fun MiniPane(
     pane: OverviewPane,
     raised: Boolean,
-    modifier: Modifier = Modifier,
     contentModifier: Modifier = Modifier,
 ) {
     val focused = pane.isFocused
@@ -1260,7 +1308,7 @@ private fun MiniPane(
     val shape = RoundedCornerShape(6.dp)
 
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .then(if (raised) Modifier.shadow(10.dp, shape) else Modifier)
             .clip(shape)

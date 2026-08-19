@@ -81,6 +81,42 @@ internal const val DOCK_CHIP_GAP_DP = 6f
 internal const val DOCK_FALLOFF = 1f
 
 /**
+ * Scratch for the dock's scaled-width walk, memoised on the focus it was computed
+ * for.
+ *
+ * Every slot's `graphicsLayer` needs the whole centres array, and within one frame
+ * they all ask about the same focus, so the answer is computed once and handed out.
+ * Not thread-safe and does not need to be: it is only ever touched from the draw
+ * phase of one dock.
+ */
+private class DockWalk {
+    private var focus = Float.NaN
+    private var centres = FloatArray(0)
+
+    /**
+     * The visual centre of every slot when the row sits at [focus].
+     *
+     * @param focus  the row's fractional card index.
+     * @param widths each slot's measured width, in px.
+     * @param gapPx  the gap to leave between slots, in px.
+     * @return the centres, one per slot; the array is reused between calls and must
+     *   not be retained.
+     */
+    fun centresFor(focus: Float, widths: List<Float>, gapPx: Float): FloatArray {
+        if (focus == this.focus && centres.size == widths.size) return centres
+        if (centres.size != widths.size) centres = FloatArray(widths.size)
+        var left = 0f
+        for (i in widths.indices) {
+            val scaled = widths[i] * dockChipScale(i, focus)
+            centres[i] = left + scaled / 2f
+            left += scaled + gapPx
+        }
+        this.focus = focus
+        return centres
+    }
+}
+
+/**
  * How far out of focus the chip at [index] is when the row sits at [focus], as
  * 1 (fully focused) down to 0.
  *
@@ -167,19 +203,24 @@ fun TabDock(
     // The tab chip whose context menu is currently open (by tab id).
     var menuTabId by remember { mutableStateOf<String?>(null) }
 
-    // Each chip's measured width and the centre the Row placed it at, reported as
+    // Each slot's measured width and the centre the Row placed it at, reported as
     // they are placed. Both are needed because the chips are drawn somewhere else
     // than they are laid out: the widths drive the scaled-width walk that decides
     // where a chip *should* appear, and the layout centres say how far to slide it
     // from where it actually is.
-    val chipWidths = remember(tabs.size) { mutableStateListOf<Float>() }
-    val chipLayoutCentres = remember(tabs.size) { mutableStateListOf<Float>() }
-    if (chipWidths.size != tabs.size) {
-        chipWidths.clear()
-        chipLayoutCentres.clear()
-        repeat(tabs.size) {
-            chipWidths.add(0f)
-            chipLayoutCentres.add(0f)
+    // One slot per chip, plus a last one for the trailing `⋮`. The overflow menu
+    // has to travel with the strip like everything else: left at its raw layout
+    // position it sat past the dock's right edge, where clipToBounds erased it —
+    // and with it the only route back to a hidden tab.
+    val slotCount = tabs.size + 1
+    val slotWidths = remember(slotCount) { mutableStateListOf<Float>() }
+    val slotLayoutCentres = remember(slotCount) { mutableStateListOf<Float>() }
+    if (slotWidths.size != slotCount) {
+        slotWidths.clear()
+        slotLayoutCentres.clear()
+        repeat(slotCount) {
+            slotWidths.add(0f)
+            slotLayoutCentres.add(0f)
         }
     }
 
@@ -198,25 +239,56 @@ fun TabDock(
         // a hole on each side, and since the titles differ in length a wide chip
         // left a bigger hole than a narrow one — the gaps came out uneven. Walking
         // the scaled widths instead keeps every visible gap equal to [gapPx].
+        // Memoised per focus value, not per chip: every slot's layer needs the whole
+        // array, and they all read the same focus within one frame, so the first to
+        // draw computes it and the rest reuse it. Recomputing per slot made dock
+        // layout O(slots²) with an allocation each, every frame of every fling.
+        val walk = remember(slotCount) { DockWalk() }
         val visualCentres: () -> FloatArray = {
-            val focus = focusIndex()
-            val centres = FloatArray(tabs.size)
-            var left = 0f
-            for (i in tabs.indices) {
-                val scaled = chipWidths.getOrElse(i) { 0f } * dockChipScale(i, focus)
-                centres[i] = left + scaled / 2f
-                left += scaled + gapPx
-            }
-            centres
+            walk.centresFor(
+                focus = focusIndex(),
+                widths = slotWidths,
+                gapPx = gapPx,
+            )
         }
         // The point the dock centres on: one chip's visual centre, or a blend of
-        // two while the row is between cards.
+        // two while the row is between cards. Only the tab slots can be focused —
+        // the `⋮` is chrome that rides along at the end.
         val focusCentre: (FloatArray) -> Float = { centres ->
             val position = focusIndex().coerceIn(0f, (tabs.size - 1).toFloat())
             val low = floor(position).toInt().coerceIn(0, tabs.size - 1)
             val high = (low + 1).coerceAtMost(tabs.size - 1)
             val fraction = position - low
             centres[low] * (1f - fraction) + centres[high] * fraction
+        }
+        // What every slot does with that: report where it was placed, then slide
+        // from there to where the walk says it belongs, scaled and dimmed by how far
+        // out of focus it is.
+        val slotModifier: (Int) -> Modifier = { index ->
+            Modifier
+                .onPlaced { coords ->
+                    val width = coords.size.width.toFloat()
+                    val centre = coords.positionInParent().x + width / 2f
+                    if (index < slotWidths.size) {
+                        if (slotWidths[index] != width) slotWidths[index] = width
+                        if (slotLayoutCentres[index] != centre) {
+                            slotLayoutCentres[index] = centre
+                        }
+                    }
+                }
+                .graphicsLayer {
+                    val focus = focusIndex()
+                    val scale = dockChipScale(index, focus)
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = DOCK_SIBLING_ALPHA +
+                        (1f - DOCK_SIBLING_ALPHA) * dockChipEmphasis(index, focus)
+                    val centres = visualCentres()
+                    if (index < centres.size && index < slotLayoutCentres.size) {
+                        translationX = dockCentre - focusCentre(centres) + centres[index] -
+                            slotLayoutCentres[index]
+                    }
+                }
         }
 
     Row(
@@ -234,35 +306,7 @@ fun TabDock(
             // sits — smaller, dimmer, drawn in towards the focus. Nothing here
             // animates on its own; the motion *is* the row's, which is why it can
             // neither lag the drag nor fight the settle.
-            Box(
-                Modifier
-                    .onPlaced { coords ->
-                        val width = coords.size.width.toFloat()
-                        val centre = coords.positionInParent().x + width / 2f
-                        if (index < chipWidths.size) {
-                            if (chipWidths[index] != width) chipWidths[index] = width
-                            if (chipLayoutCentres[index] != centre) {
-                                chipLayoutCentres[index] = centre
-                            }
-                        }
-                    }
-                    .graphicsLayer {
-                        val focus = focusIndex()
-                        val scale = dockChipScale(index, focus)
-                        scaleX = scale
-                        scaleY = scale
-                        val siblingAlpha = DOCK_SIBLING_ALPHA
-                        alpha = siblingAlpha + (1f - siblingAlpha) * dockChipEmphasis(index, focus)
-                        // Slide from where the Row placed this chip to where the
-                        // scaled-width walk says it belongs, with the focus point
-                        // parked in the dock's middle.
-                        val centres = visualCentres()
-                        if (index < centres.size && index < chipLayoutCentres.size) {
-                            translationX = dockCentre - focusCentre(centres) + centres[index] -
-                                chipLayoutCentres[index]
-                        }
-                    },
-            ) {
+            Box(slotModifier(index)) {
                 CompositionLocalProvider(
                     LocalMinimumInteractiveComponentSize provides 0.dp,
                 ) {
@@ -334,7 +378,9 @@ fun TabDock(
         // OverviewBackingViewModel.project). Mirrors the web/Mac far-right
         // overflow menu. Only rendered when some tabs are unlisted.
         if (unlistedTabs.isNotEmpty()) {
-            UnlistedTabsMenu(unlistedTabs = unlistedTabs, onSelect = onActivateUnlisted)
+            Box(slotModifier(tabs.size)) {
+                UnlistedTabsMenu(unlistedTabs = unlistedTabs, onSelect = onActivateUnlisted)
+            }
         }
     }
     }

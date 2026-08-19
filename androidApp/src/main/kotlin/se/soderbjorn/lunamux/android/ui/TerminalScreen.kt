@@ -779,10 +779,14 @@ fun TerminalScreen(
     // price is waiting out at most one in-flight output chunk.
     val leaveFrameRevision = remember(sessionId) { AtomicLong(0) }
     val leaveTerminal: () -> Unit = {
-        val frame = synchronized(emulator) {
-            snapshotFrame(emulator, leaveFrameRevision.incrementAndGet())
-        }
-        MiniTerminalRegistry.putFrame(sessionId, frame)
+        // Best-effort: a snapshot is a read of live rows, and a card that is missing
+        // its last frame is a cosmetic loss. Turning a back-press into a crash over
+        // it would not be.
+        runCatching {
+            synchronized(emulator) {
+                snapshotFrame(emulator, leaveFrameRevision.incrementAndGet())
+            }
+        }.onSuccess { frame -> MiniTerminalRegistry.putFrame(sessionId, frame) }
         onBack()
     }
 
@@ -1061,7 +1065,7 @@ fun TerminalScreen(
                 // thumbnail shares the mirror's fit — fill the height, crop the
                 // overflow — so the live view takes over at nearly the same
                 // geometry, and the cache is fresh: the overview publishes while it
-                // is on screen, and the return gesture snapshots on the way out.
+                // is on screen, and leaving a terminal snapshots on the way out.
                 val divePlaceholder = remember(sessionId) {
                     MiniTerminalRegistry.lastFrameFor(sessionId)
                 }
