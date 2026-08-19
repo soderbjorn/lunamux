@@ -153,6 +153,15 @@ fun OverviewContent(
         onDispose { miniTerminals.close() }
     }
 
+    // Theme the headless thumbnail emulators: their default fg/bg/cursor slots
+    // are Termux stock until overridden (the full-screen terminal gets the same
+    // treatment via applyTerminalColors). Re-runs when the resolved theme
+    // changes so existing thumbnails repaint.
+    val thumbnailTheme = rememberTerminalPalette(client, "overview-thumbnails")
+    LaunchedEffect(miniTerminals, thumbnailTheme) {
+        miniTerminals.setDefaultColors(thumbnailTheme)
+    }
+
     // Rename / close dialog targets raised from a pane's context menu.
     var renameTarget by remember { mutableStateOf<LeafNode?>(null) }
     var closeTarget by remember { mutableStateOf<LeafNode?>(null) }

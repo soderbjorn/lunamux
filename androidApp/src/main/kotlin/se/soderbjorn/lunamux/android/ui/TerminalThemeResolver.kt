@@ -6,12 +6,16 @@
  * per-screen as a fallback) for the current system dark/light mode and
  * returns it.
  *
- * [applyTerminalColors] mutates a [TerminalEmulator]'s default colour
- * indices (what SGR 0 / "default" resolves to) so existing rows repaint
- * on the next `onScreenUpdated()`, and sets the [TerminalView]'s own
- * background so the letterbox around the text grid matches.
+ * [applyDefaultColors] mutates a [TerminalEmulator]'s default colour
+ * indices (what SGR 0 / "default" resolves to) so existing rows repaint on the
+ * next paint; [applyTerminalColors] adds the [TerminalView]'s own background so
+ * the letterbox around the full-screen text grid matches. The headless
+ * thumbnail emulators need the colour half without a view, so they call
+ * [applyDefaultColors] directly (see [MiniTerminalRegistry.setDefaultColors]) —
+ * one derivation of the theme trio, one mutation, three call sites.
  *
  * @see TerminalScreen
+ * @see MiniTerminalRegistry
  */
 package se.soderbjorn.lunamux.android.ui
 
@@ -60,21 +64,44 @@ internal fun rememberTerminalPalette(
 }
 
 /**
- * Paint the terminal with the resolved theme. Mutates the emulator's
- * default foreground/background and cursor colour indices so existing
- * rows repaint on the next onScreenUpdated(), and sets the view's own
- * background so the letterbox around the text grid matches.
+ * Write the resolved theme's default foreground/background/cursor into
+ * [emulator]'s colour table — the three slots SGR 0 and "default" resolve
+ * through, so existing rows repaint in the theme on the next paint.
+ *
+ * The single place that knows how a [ResolvedTheme] maps onto the emulator's
+ * palette. Called by [applyTerminalColors] for the full-screen view's emulator,
+ * and by [MiniTerminalRegistry] for each headless thumbnail emulator (which has
+ * no view, and which must re-apply after every RIS the server sends).
+ *
+ * Caller contract for the registry: run this on the emulator's own dispatcher
+ * while holding its lock.
+ *
+ * @param emulator the emulator whose colour table is themed.
+ * @param theme    the resolved theme to take text/bg/accent from.
+ */
+internal fun applyDefaultColors(
+    emulator: TerminalEmulator,
+    theme: ResolvedTheme,
+) {
+    emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND] = theme.text.toInt()
+    emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND] = theme.bg.toInt()
+    emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] = theme.accent.toInt()
+}
+
+/**
+ * Paint the full-screen terminal with the resolved theme: [applyDefaultColors]
+ * for the emulator's default colour indices, plus the view's own background so
+ * the letterbox around the text grid matches.
+ *
+ * @param view     the terminal view whose background is set.
+ * @param emulator the view's emulator, themed via [applyDefaultColors].
+ * @param theme    the resolved theme to apply.
  */
 internal fun applyTerminalColors(
     view: TerminalView,
     emulator: TerminalEmulator,
     theme: ResolvedTheme,
 ) {
-    val fg = theme.text.toInt()
-    val bg = theme.bg.toInt()
-    val cursor = theme.accent.toInt()
-    emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND] = fg
-    emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND] = bg
-    emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] = cursor
-    view.setBackgroundColor(bg)
+    applyDefaultColors(emulator, theme)
+    view.setBackgroundColor(theme.bg.toInt())
 }
