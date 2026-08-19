@@ -64,6 +64,8 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -91,6 +94,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import se.soderbjorn.lunamux.android.net.ConnectionHolder
 import se.soderbjorn.lunamux.client.MirrorFit
@@ -475,6 +479,19 @@ fun TerminalScreen(
         }
     }
 
+    // Whether the view has painted this session's own output yet. Until it has,
+    // the last known screen is painted over it (see the dive placeholder below).
+    var firstOutputPainted by remember(sessionId) { mutableStateOf(false) }
+
+    // Safety net for the placeholder: a session that sends nothing at all after
+    // attach — or whose attach never completes — must not keep a stale screen on
+    // top of the live one for ever.
+    var placeholderExpired by remember(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(sessionId) {
+        delay(1500)
+        placeholderExpired = true
+    }
+
     // Scroll-pause: whether the user has scrolled up off the bottom (drives the
     // floating "jump to bottom" pill) and whether fresh output arrived while
     // they were scrolled up (switches the pill to a "New output" hint).
@@ -658,6 +675,10 @@ fun TerminalScreen(
                 } else {
                     view.onScreenUpdated()
                 }
+                // The view has this session's content now, so the placeholder can
+                // go. Released from inside the post (not from the collector) so it
+                // never uncovers a view that has not drawn yet.
+                firstOutputPainted = true
             }
             // Debounce a resume-restore: re-armed on every chunk, it fires once
             // output goes quiet so we land after the whole replay has been fed.
@@ -746,13 +767,32 @@ fun TerminalScreen(
         terminalViewRef.value?.requestLayout()
     }
 
-    BackHandler { onBack() }
+    // Leaving the terminal snapshots its screen into the shared frame cache. The
+    // overview seeds every card from that cache, so this is what makes the
+    // reverse flight land on the screen the user was just looking at instead of
+    // the one from before the dive — the registry is closed the whole time a
+    // terminal is on screen, so nothing else can publish it.
+    //
+    // Deliberately synchronous, on the caller's thread: the flight starts in the
+    // same frame, so a snapshot dispatched onto the emulator's own thread could
+    // not land in time. The lock is held for one pass over the screen grid — the
+    // price is waiting out at most one in-flight output chunk.
+    val leaveFrameRevision = remember(sessionId) { AtomicLong(0) }
+    val leaveTerminal: () -> Unit = {
+        val frame = synchronized(emulator) {
+            snapshotFrame(emulator, leaveFrameRevision.incrementAndGet())
+        }
+        MiniTerminalRegistry.putFrame(sessionId, frame)
+        onBack()
+    }
+
+    BackHandler { leaveTerminal() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = leaveTerminal) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -830,7 +870,13 @@ fun TerminalScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    // Terminal end of the dive: the overview card's bounds morph
+                    // into this box. ScaleToBounds (the helper's default) means
+                    // the AndroidView below is measured once at final bounds —
+                    // the flight only scales the layer, so the layout listener
+                    // (and its size vote) fires exactly as often as today.
+                    .diveSharedBounds(diveKey(sessionId)),
             ) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -1005,6 +1051,113 @@ fun TerminalScreen(
                         if (view.topRow < 0) view.invalidate() else view.onScreenUpdated()
                     },
                 )
+
+                // The session's last known screen, painted OVER the still-empty
+                // TerminalView until its own output lands. Two things needed it:
+                // the dive transition grew an empty box (the card's thumbnail fades
+                // out while the destination has nothing to show yet, so the text
+                // only appeared once the flight was over), and a terminal opened
+                // cold showed a blank screen for the whole attach round trip. The
+                // thumbnail shares the mirror's fit — fill the height, crop the
+                // overflow — so the live view takes over at nearly the same
+                // geometry, and the cache is fresh: the overview publishes while it
+                // is on screen, and the return gesture snapshots on the way out.
+                val divePlaceholder = remember(sessionId) {
+                    MiniTerminalRegistry.lastFrameFor(sessionId)
+                }
+                // Pin the placeholder to the geometry the live view will draw at.
+                // Both fill the height, but the view's font size is an integer px
+                // with up to a line of slack centred around it, while a fitted
+                // thumbnail scales continuously — and those couple of percent were
+                // exactly what shifted and resized at the handoff.
+                //
+                // Until the server's Size frame lands there is no mirror window to
+                // read, so the fit is predicted from the cached frame's own grid:
+                // a session's width almost never changes between leaving it and
+                // coming back, so the prediction is the answer the real window
+                // gives moments later. A grid this phone's own width is not
+                // mirrored at all and keeps the user's font.
+                val placeholderGeometry: ThumbViewGeometry? = remember(
+                    divePlaceholder,
+                    viewBox,
+                    mirrorWindow,
+                    localGrid,
+                    userFontSize,
+                ) {
+                    val frame = divePlaceholder
+                    val box = viewBox
+                    if (frame == null || box == null) {
+                        null
+                    } else {
+                        val metricsFor = cellMetricsProvider(TerminalFont.typeface(ctx))
+                        val window = mirrorWindow
+                        val predictedPassive = PtyPresentation.isPassive(
+                            naturalCols = localGrid?.cols ?: 0,
+                            serverCols = frame.cols,
+                        )
+                        val fontPx = when {
+                            window != null -> window.fontPx
+                            predictedPassive -> MirrorFit.solveFillHeightFont(
+                                viewHeightPx = box.second,
+                                serverRows = frame.rows,
+                                minPx = MIRROR_FONT_MIN_PX,
+                                maxPx = MIRROR_FONT_MAX_PX,
+                                metrics = metricsFor,
+                            )
+                            else -> userFontSize
+                        }
+                        val cell = metricsFor(fontPx)
+                        val offsetY = when {
+                            window != null -> window.offsetY
+                            predictedPassive -> MirrorFit.centreOffsetY(box.second, frame.rows, cell)
+                            else -> 0f
+                        }
+                        if (cell.lineSpacingPx <= 0) {
+                            null
+                        } else {
+                            ThumbViewGeometry(
+                                fontPx = fontPx,
+                                cellWidthPx = cell.cellWidthPx,
+                                lineSpacingPx = cell.lineSpacingPx,
+                                lineSpacingAndAscentPx = cell.lineSpacingAndAscentPx,
+                                contentOffsetY = offsetY,
+                                // A terminal is always freshly opened while its
+                                // placeholder is up, so the view has not panned.
+                                panX = 0f,
+                            )
+                        }
+                    }
+                }
+                // Held until the view has content AND is showing its final font,
+                // then faded out rather than cut. The mirror's fitted size arrives
+                // one recomposition after the server's Size frame, so releasing on
+                // content alone could uncover a frame or two at the user's own
+                // (larger) font — a rescale at exactly the end of the dive.
+                val placeholderPredictedPassive = divePlaceholder?.let { frame ->
+                    PtyPresentation.isPassive(
+                        naturalCols = localGrid?.cols ?: 0,
+                        serverCols = frame.cols,
+                    )
+                } ?: false
+                val viewFontSettled = mirrorWindow != null || !placeholderPredictedPassive
+                val placeholderVisible = divePlaceholder != null &&
+                    !placeholderExpired &&
+                    !(firstOutputPainted && viewFontSettled)
+                val placeholderAlpha by animateFloatAsState(
+                    targetValue = if (placeholderVisible) 1f else 0f,
+                    animationSpec = tween(durationMillis = 120),
+                    label = "divePlaceholder",
+                )
+                if (divePlaceholder != null && placeholderAlpha > 0f) {
+                    TerminalThumbnail(
+                        frame = divePlaceholder,
+                        fallbackBackground = bgComposeColor,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .graphicsLayer { alpha = placeholderAlpha },
+                        pinnedTo = placeholderGeometry,
+                    )
+                }
 
                 // Take-over badge: shown while another device drives the PTY (this
                 // phone is passive). Tapping it is an explicit, input-free take-over

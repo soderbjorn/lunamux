@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -161,6 +162,14 @@ fun OverviewContent(
     LaunchedEffect(miniTerminals, thumbnailTheme) {
         miniTerminals.setDefaultColors(thumbnailTheme)
     }
+
+    // The single pane whose card anchors the dive transition (see
+    // DiveTransition.kt). Set at tap time, before navigation, so the shared
+    // bounds are registered when the flight starts; saveable so the restored
+    // overview re-attaches the same anchor for the reverse flight on pop.
+    // Keyed by leaf id, not session id: linked panes share a session, and two
+    // cards registering one shared-bounds key would clash.
+    var divePaneId by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Rename / close dialog targets raised from a pane's context menu.
     var renameTarget by remember { mutableStateOf<LeafNode?>(null) }
@@ -247,7 +256,11 @@ fun OverviewContent(
                         tab = tab,
                         editing = editTabId == tab.id,
                         drag = drag?.takeIf { it.tabId == tab.id },
+                        divePaneId = divePaneId,
                         onOpenPane = { pane ->
+                            // Anchor the dive before navigating (openPane fires
+                            // synchronously; the focus round-trip stays async).
+                            divePaneId = pane.leaf.id
                             scope.launch { vm.focusPane(tab.id, pane.leaf.id) }
                             openPane(pane.leaf, onOpenTerminal, onOpenFileBrowser, onOpenGit)
                         },
@@ -350,6 +363,8 @@ private fun openPane(
  * @param tab              the tab to render.
  * @param editing          whether this tab is in edit-layout mode.
  * @param drag             the live drag iff it targets a pane in this tab.
+ * @param divePaneId       leaf id of the pane anchoring the dive transition
+ *   (the last-tapped card); only that card attaches [diveSharedBounds].
  * @param onOpenPane       focus + drill into a pane.
  * @param onToggleMaximize maximize/restore a pane.
  * @param onMinimize       dock a pane.
@@ -367,6 +382,7 @@ private fun ExposeCanvas(
     tab: OverviewTab,
     editing: Boolean,
     drag: Drag?,
+    divePaneId: String?,
     onOpenPane: (OverviewPane) -> Unit,
     onToggleMaximize: (OverviewPane) -> Unit,
     onMinimize: (OverviewPane) -> Unit,
@@ -411,7 +427,29 @@ private fun ExposeCanvas(
                                 .then(if (draggingThis) Modifier.zIndex(1f) else Modifier)
                                 .padding(3.dp),
                         ) {
-                            MiniPane(pane = pane, raised = draggingThis)
+                            // Only the tapped terminal-like pane carries the
+                            // shared-bounds anchor: unique key per flight, and
+                            // git/files panes navigate to non-terminal routes
+                            // where the other end never exists.
+                            val diveModifier =
+                                if (pane.leaf.id == divePaneId && leafKindOf(pane.leaf) == LeafKind.TERMINAL) {
+                                    Modifier.diveSharedBounds(diveKey(pane.leaf.sessionId))
+                                } else {
+                                    Modifier
+                                }
+                            // The anchor goes on the pane's CONTENT, not the whole
+                            // card: the other end of the flight is the terminal's
+                            // content box, and a card rect that also contains a
+                            // title bar and a border is a different rectangle. Fly
+                            // the whole card and the text lands a title-bar's height
+                            // off and a few percent small, which is exactly the jump
+                            // the transition looked broken for. The card's chrome
+                            // stays behind and fades with the route.
+                            MiniPane(
+                                pane = pane,
+                                raised = draggingThis,
+                                contentModifier = diveModifier,
+                            )
 
                             if (editing) {
                                 // Whole-pane move drag.
@@ -731,13 +769,21 @@ private fun leafKindOf(leaf: LeafNode): LeafKind = when (leaf.content) {
  * type-specific live miniature, and the focused/accent outline. Purely visual —
  * input is layered on by [ExposeCanvas].
  *
- * @param pane   the projected pane.
- * @param raised whether to lift the card (used for the pane being dragged).
+ * @param pane            the projected pane.
+ * @param raised          whether to lift the card (used for the pane being
+ *   dragged).
+ * @param modifier        outermost modifier on the card's root box.
+ * @param contentModifier modifier on the miniature *inside* the chrome —
+ *   [ExposeCanvas] attaches the dive transition's shared bounds here, because
+ *   the far end of that flight is the terminal's content box and only this box
+ *   is the same rectangle.
  */
 @Composable
 private fun MiniPane(
     pane: OverviewPane,
     raised: Boolean,
+    modifier: Modifier = Modifier,
+    contentModifier: Modifier = Modifier,
 ) {
     val focused = pane.isFocused
     val borderColor = if (focused || raised) SidebarAccent else SidebarTextSecondary.copy(alpha = 0.35f)
@@ -745,7 +791,7 @@ private fun MiniPane(
     val shape = RoundedCornerShape(6.dp)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .then(if (raised) Modifier.shadow(10.dp, shape) else Modifier)
             .clip(shape)
@@ -779,7 +825,7 @@ private fun MiniPane(
             }
             HorizontalDivider(thickness = 1.dp, color = SidebarBorder)
             Box(
-                modifier = Modifier
+                modifier = contentModifier
                     .weight(1f)
                     .fillMaxWidth()
                     .clipToBounds(),

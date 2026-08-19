@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import se.soderbjorn.lunamux.HostPort
 import se.soderbjorn.lunamux.android.BuildConfig
+import se.soderbjorn.lunamux.android.ui.MiniTerminalRegistry
 import se.soderbjorn.lunamux.client.CandidateConnection
 import se.soderbjorn.lunamux.client.CandidateConnector
 import se.soderbjorn.lunamux.client.ClientIdentity
@@ -259,6 +260,11 @@ object ConnectionHolder {
         currentWindowSocket = null
         currentClient?.close()
         currentClient = null
+        // The thumbnail frame cache outlives any registry (it is process-wide,
+        // so returning to the overview paints instantly), which means leaving a
+        // host would otherwise keep its rendered screens in memory and seed the
+        // next host's overview from them.
+        MiniTerminalRegistry.clearFrameCache()
     }
 
     /**

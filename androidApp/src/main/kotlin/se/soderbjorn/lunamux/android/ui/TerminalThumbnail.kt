@@ -48,12 +48,18 @@ import androidx.compose.ui.platform.LocalContext
  */
 private const val THUMB_REF_FONT_PX = 16f
 
-/** Immutable per-typeface glyph metrics for the reference layout. */
-private class ThumbMetrics(typeface: Typeface) {
+/**
+ * Paints plus the cell geometry they imply, at one font size.
+ *
+ * Built at [THUMB_REF_FONT_PX] for the scale-to-fit path, and at the terminal
+ * view's own font size for the pinned path (see [ThumbViewGeometry]), where the
+ * cell numbers are overridden with the view's rather than derived here.
+ */
+private class ThumbMetrics(typeface: Typeface, textSizePx: Float = THUMB_REF_FONT_PX) {
     /** Paint used for glyphs (color/flags mutated per run while drawing). */
     val textPaint = Paint().apply {
         this.typeface = typeface
-        textSize = THUMB_REF_FONT_PX
+        textSize = textSizePx
         isAntiAlias = true
     }
 
@@ -77,9 +83,38 @@ private class ThumbMetrics(typeface: Typeface) {
 }
 
 /**
- * Draw [frame] as the terminal's exact colored cell grid, uniformly scaled to
- * fit this composable's box and letterboxed with the frame's default
- * background.
+ * The exact geometry a live [com.termux.view.TerminalView] draws its grid at, so
+ * a thumbnail can be pinned to it instead of fitting the frame itself.
+ *
+ * Used for the terminal screen's own placeholder. Both renderings fill the
+ * height, but not identically: the view's font size is an *integer* px chosen by
+ * `MirrorFit.solveFillHeightFont`, which leaves up to a line of slack that
+ * `MirrorFit.centreOffsetY` then centres, while a fitted thumbnail scales
+ * continuously and fills the box exactly. The couple of percent between them is
+ * what made the placeholder visibly shift and resize as it handed over to the
+ * live view at the end of a dive. Pinned, the two are the same pixels.
+ *
+ * @property fontPx                 the view's applied font size in px.
+ * @property cellWidthPx            `TerminalRenderer.fontWidth` at that size.
+ * @property lineSpacingPx          `TerminalRenderer.fontLineSpacing` — one row's height.
+ * @property lineSpacingAndAscentPx `TerminalRenderer.fontLineSpacingAndAscent` —
+ *   the grid's top inset, and the offset that turns a row into a text baseline.
+ * @property contentOffsetY         the view's `setContentOffsetY` (the centring slack).
+ * @property panX                   the view's horizontal pan; 0 for a freshly
+ *   opened terminal, which is the only time a placeholder is on screen.
+ */
+data class ThumbViewGeometry(
+    val fontPx: Int,
+    val cellWidthPx: Float,
+    val lineSpacingPx: Int,
+    val lineSpacingAndAscentPx: Int,
+    val contentOffsetY: Float,
+    val panX: Float,
+)
+
+/**
+ * Draw [frame] as the terminal's exact colored cell grid — scaled to fill this
+ * composable's box, or pinned to a live view's geometry when [pinnedTo] is given.
  *
  * Composed by [MiniTerminalPane] (and by any future card surface that needs a
  * truthful terminal snapshot). Render-only: no gesture handling, no state.
@@ -91,15 +126,27 @@ private class ThumbMetrics(typeface: Typeface) {
  *   normally the resolved theme background so the placeholder matches the
  *   frame that replaces it.
  * @param modifier           layout modifier from the enclosing pane.
+ * @param pinnedTo           when non-null, draw at exactly this view geometry
+ *   (same font size, cell grid and centring) instead of fitting the box — the
+ *   terminal screen's placeholder does this so its handoff to the live view moves
+ *   nothing.
  */
 @Composable
 fun TerminalThumbnail(
     frame: TerminalFrame?,
     fallbackBackground: Color,
     modifier: Modifier = Modifier,
+    pinnedTo: ThumbViewGeometry? = null,
 ) {
     val context = LocalContext.current
-    val metrics = remember(context) { ThumbMetrics(TerminalFont.typeface(context)) }
+    val metrics = remember(context, pinnedTo?.fontPx) {
+        val typeface = TerminalFont.typeface(context)
+        if (pinnedTo == null) {
+            ThumbMetrics(typeface)
+        } else {
+            ThumbMetrics(typeface, pinnedTo.fontPx.toFloat())
+        }
+    }
     val fallbackArgb = fallbackBackground.toArgb()
     Box(
         modifier.drawBehind {
@@ -109,21 +156,42 @@ fun TerminalThumbnail(
             canvas.drawRect(0f, 0f, size.width, size.height, metrics.rectPaint)
             if (frame == null || frame.cols <= 0 || frame.rows <= 0) return@drawBehind
 
-            val gridW = frame.cols * metrics.cellW
-            val gridH = frame.rows * metrics.cellH
-            // Every row, filling the height — the full-screen mirror's own fit.
-            val scale = size.height / gridH
-            val scaledW = gridW * scale
-            // Wider than the box: keep the left edge, crop the overflow, which is
-            // the window the mirror's pan opens on. Narrower (a session at this
-            // phone's own width): center it, so the letterbox is symmetric.
-            val dx = if (scaledW <= size.width) (size.width - scaledW) / 2f else 0f
             val save = canvas.save()
             try {
                 canvas.clipRect(0f, 0f, size.width, size.height)
-                canvas.translate(dx, 0f)
-                canvas.scale(scale, scale)
-                drawFrame(canvas, frame, metrics)
+                if (pinnedTo != null) {
+                    // The view's own origin: pan, centring slack, and the grid's
+                    // top inset. Row r's cell then starts at r * lineSpacing, and
+                    // its baseline sits (lineSpacing - lineSpacingAndAscent) —
+                    // i.e. -ascent — below the cell top, exactly as
+                    // TerminalRenderer walks its rows.
+                    canvas.translate(
+                        -pinnedTo.panX,
+                        pinnedTo.contentOffsetY + pinnedTo.lineSpacingAndAscentPx,
+                    )
+                    drawFrame(
+                        canvas = canvas,
+                        frame = frame,
+                        metrics = metrics,
+                        cellW = pinnedTo.cellWidthPx,
+                        cellH = pinnedTo.lineSpacingPx.toFloat(),
+                        baseline = (pinnedTo.lineSpacingPx - pinnedTo.lineSpacingAndAscentPx).toFloat(),
+                    )
+                } else {
+                    val gridW = frame.cols * metrics.cellW
+                    val gridH = frame.rows * metrics.cellH
+                    // Every row, filling the height — the full-screen mirror's own fit.
+                    val scale = size.height / gridH
+                    val scaledW = gridW * scale
+                    // Wider than the box: keep the left edge, crop the overflow,
+                    // which is the window the mirror's pan opens on. Narrower (a
+                    // session at this phone's own width): center it, so the
+                    // letterbox is symmetric.
+                    val dx = if (scaledW <= size.width) (size.width - scaledW) / 2f else 0f
+                    canvas.translate(dx, 0f)
+                    canvas.scale(scale, scale)
+                    drawFrame(canvas, frame, metrics, metrics.cellW, metrics.cellH, metrics.baseline)
+                }
             } finally {
                 canvas.restoreToCount(save)
             }
@@ -132,17 +200,25 @@ fun TerminalThumbnail(
 }
 
 /**
- * Paint [frame] onto [canvas] in reference units (the caller has already
- * applied the fit transform): non-default background rects, the cursor block,
- * then glyph runs.
+ * Paint [frame] onto [canvas] in cell units (the caller has already applied the
+ * fit or pin transform): non-default background rects, the cursor block, then
+ * glyph runs.
  *
- * @param canvas  the transformed native canvas.
- * @param frame   the snapshot to paint.
- * @param metrics the reference glyph metrics + paints.
+ * @param canvas   the transformed native canvas.
+ * @param frame    the snapshot to paint.
+ * @param metrics  the paints to draw with.
+ * @param cellW    one cell's width in the canvas' current units.
+ * @param cellH    one cell's height.
+ * @param baseline distance from a cell's top edge to its text baseline.
  */
-private fun drawFrame(canvas: android.graphics.Canvas, frame: TerminalFrame, metrics: ThumbMetrics) {
-    val cellW = metrics.cellW
-    val cellH = metrics.cellH
+private fun drawFrame(
+    canvas: android.graphics.Canvas,
+    frame: TerminalFrame,
+    metrics: ThumbMetrics,
+    cellW: Float,
+    cellH: Float,
+    baseline: Float,
+) {
     val rectPaint = metrics.rectPaint
     val textPaint = metrics.textPaint
 
@@ -173,7 +249,7 @@ private fun drawFrame(canvas: android.graphics.Canvas, frame: TerminalFrame, met
 
     // Glyph runs, column-anchored so grid alignment survives advance drift.
     frame.lines.forEachIndexed { rowIdx, runs ->
-        val y = rowIdx * cellH + metrics.baseline
+        val y = rowIdx * cellH + baseline
         for (run in runs) {
             if (run.text.isEmpty()) continue
             textPaint.color = run.fg
