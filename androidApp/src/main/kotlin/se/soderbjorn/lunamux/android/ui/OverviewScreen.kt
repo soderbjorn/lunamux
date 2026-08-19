@@ -1,11 +1,13 @@
 /**
  * Overview mode content for the Lunamux Android app.
  *
- * Renders a miniaturised, *interactive* replica of the web/Electron tabs-and-
- * panes experience (issues #42, #58): a "scaled exposé" of the active tab's
- * pane layout in the content area, with a horizontally-scrollable strip of tab
- * chips above it. Selecting a tab activates it server-side; tapping any pane
- * focuses it and drills into that pane's full-screen route.
+ * Renders the tabs-and-panes model in the **app-switcher idiom**: one rounded
+ * card per tab (each card a "scaled exposé" of that tab's pane layout) in a
+ * free-flinging, center-snapping row — moving across many tabs is one gesture
+ * — with a labelled tab dock at the bottom for orientation and direct jumps
+ * (see [TabDock]). Browsing the row never changes server state; diving into a
+ * pane (tap on the centered card) activates the tab, focuses the pane, and
+ * drills into that pane's full-screen route.
  *
  * Window management (issue #58):
  *  - Tapping a pane also makes it the tab's active/focused pane.
@@ -29,26 +31,37 @@ package se.soderbjorn.lunamux.android.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.rememberSplineBasedDecay
+import androidx.compose.foundation.gestures.TargetedFlingBehavior
+import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.snapFlingBehavior
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -64,12 +77,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -80,11 +89,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,6 +101,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -100,6 +110,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import se.soderbjorn.lunamux.FileBrowserContent
@@ -118,7 +130,36 @@ import se.soderbjorn.lunamux.client.viewmodel.OverviewBackingViewModel.OverviewT
 import se.soderbjorn.lunamux.client.viewmodel.OverviewBackingViewModel.UnlistedTab
 
 /**
- * The overview content: tab strip + exposé canvas (+ dock) + window-management
+ * Fraction of the switcher row's width one card occupies.
+ *
+ * Nearly all of it. The OS switcher spends a fifth of its width on peeking
+ * neighbours because its cards are app screenshots you recognise at a glance; a
+ * card here is a terminal you have to *read*, so the screen goes to the text and
+ * the neighbours are reduced to a sliver at the edges. The row still snaps and
+ * flings the same way.
+ *
+ * Also the horizontal end scale of the return gesture's flight when no card has
+ * been measured yet (see `returnFlight`).
+ */
+internal const val SWITCHER_CARD_FRACTION = 0.89f
+
+/**
+ * The switcher's vertical rhythm: the gap above the cards, between the cards and
+ * the dock, and below the dock, all the same.
+ *
+ * The dock used to sit flush against the bottom edge with the card row's leftover
+ * slack above it, so it read as stuck to the bottom of the screen rather than as
+ * one of three evenly spaced bands. Cards now fill their row exactly and this is
+ * the only vertical spacing in the switcher.
+ */
+internal val SwitcherEdgeGap = 12.dp
+
+/** Corner radius of a switcher card, and of the return gesture's shrinking screen. */
+internal val SwitcherCardCorner = 20.dp
+
+/**
+ * The overview content: the switcher card row + bottom tab dock (or, while
+ * editing a layout, that tab's full-surface exposé canvas) + window-management
  * affordances.
  *
  * @param vm                the shared overview model (hoisted from [TreeScreen]
@@ -135,6 +176,7 @@ fun OverviewContent(
     onOpenFileBrowser: (String) -> Unit,
     onOpenGit: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onBrowsedTabChanged: (String?) -> Unit = {},
 ) {
     val client = ConnectionHolder.client()
     if (client == null) {
@@ -180,59 +222,120 @@ fun OverviewContent(
 
     val tabs = state.tabs
     val activeIndex = tabs.indexOfFirst { it.isActive }.coerceAtLeast(0)
-    // Re-key the pager on the active world. Each world shows a disjoint tab
-    // list, so a world switch must give the pager a *fresh* state seeded to the
-    // new world's active index. Without this the pager retains the previous
-    // world's settled page; on switching back, that stale index reports through
-    // the pager→server effect below (line ~174) as a spurious `setActiveTab`,
-    // which then ping-pongs with the server→pager effect — the "active tab
-    // flips back and forth every few seconds after a world round-trip" bug.
-    val pagerState = key(state.worldId) {
-        rememberPagerState(initialPage = activeIndex, pageCount = { tabs.size })
+    // Re-key the card row on the active world. Each world shows a disjoint tab
+    // list, so a world switch must give the row a *fresh* state seeded to the
+    // new world's active index (the old pager's stale-settled-page ping-pong
+    // bug, avoided the same way).
+    val rowListState = key(state.worldId) {
+        rememberLazyListState(initialFirstVisibleItemIndex = activeIndex)
     }
 
-    LaunchedEffect(activeIndex) {
-        if (activeIndex in tabs.indices && activeIndex != pagerState.currentPage) {
-            pagerState.animateScrollToPage(activeIndex)
+    // The card the row is on. Browsing is centering, not committing: unlike the old
+    // pager, scrolling the row NEVER sends setActiveTab — only diving into a pane
+    // commits the tab (see divePane below), matching the app-switcher idiom this
+    // row replicates.
+    //
+    // Follows the row *while it moves*, changing as each card takes over most of
+    // the screen, so a card can be tapped the moment it is the one on screen rather
+    // than only after the settle finishes. Quantised on purpose: a snapshotFlow of
+    // the rounded position emits once per card crossed, where the continuously
+    // derived value it replaces recomposed on every frame of a fling — this screen
+    // holds every card's canvas and live thumbnails, so that difference is the
+    // difference between one hitch per card and a stutter throughout.
+    var centeredIndex by remember(rowListState) { mutableStateOf(0) }
+    LaunchedEffect(rowListState) {
+        snapshotFlow { switcherFocusIndex(rowListState).roundToInt() }
+            .collect { index -> centeredIndex = index }
+    }
+
+    // One-way server→row sync: an external active-tab change (desktop, another
+    // phone) re-centers the row, but never mid-gesture — a fling in progress
+    // wins over a remote echo. Keyed on WHICH tab is active, not on its index:
+    // closing a tab ahead of the active one shifts that index without changing
+    // what is active, and re-centering then would yank the row away from the
+    // card the user had browsed to.
+    val activeTabId = tabs.firstOrNull { it.isActive }?.id
+    LaunchedEffect(activeTabId) {
+        val index = tabs.indexOfFirst { it.id == activeTabId }
+        if (index >= 0 && !rowListState.isScrollInProgress && centeredIndex != index) {
+            rowListState.animateScrollToItem(index)
         }
     }
-    val latestTabs = rememberUpdatedState(tabs)
-    val latestActive = rememberUpdatedState(activeIndex)
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { page ->
-            val t = latestTabs.value
-            if (page in t.indices && page != latestActive.value) {
-                vm.setActiveTab(t[page].id)
-            }
-        }
-    }
+
+    // Publish the browsed card so the screen's toolbar actions (new pane,
+    // layout preset) target what the user is looking at. Browsing deliberately
+    // never activates a tab server-side, so the active tab is NOT that target.
+    val browsedTabId = tabs.getOrNull(centeredIndex)?.id
+    LaunchedEffect(browsedTabId) { onBrowsedTabChanged(browsedTabId) }
+    DisposableEffect(Unit) { onDispose { onBrowsedTabChanged(null) } }
 
     // While editing layout, Back leaves edit mode rather than the screen.
     BackHandler(enabled = editTabId != null) { vm.exitEdit() }
 
+    // Diving into a pane is the ONLY thing that commits a tab server-side:
+    // activate the tab (browsing never did — see centeredIndex above), focus
+    // the pane, and navigate immediately (openPane is synchronous, so the dive
+    // transition starts this frame; the server round-trip stays async and
+    // non-blocking). One launch keeps the two commands' send order.
+    // Diving navigates, so it must happen once per gesture: while the row is
+    // settling a tap is watched for at the card level as well as by the pane's own
+    // handler (see SwitcherCardRow), and two navigations would stack two terminals
+    // on the back stack. Reset by leaving and re-entering the overview, which is
+    // exactly when a second dive becomes legitimate again.
+    var diveStarted by remember { mutableStateOf(false) }
+    val divePane: (OverviewTab, OverviewPane) -> Unit = { tab, pane ->
+        if (!diveStarted) {
+            diveStarted = true
+            divePaneId = pane.leaf.id
+            scope.launch {
+                if (!tab.isActive) vm.setActiveTab(tab.id)
+                vm.focusPane(tab.id, pane.leaf.id)
+            }
+            openPane(pane.leaf, onOpenTerminal, onOpenFileBrowser, onOpenGit)
+        }
+    }
+
+    // Diving into a tab rather than a specific pane: its focused pane, or the
+    // topmost one. Shared by the dock's centred chip and by a tap on a card the
+    // row has not finished settling on — both mean "open the tab I can see".
+    val diveIntoTab: (OverviewTab) -> Unit = { tab ->
+        val target = tab.panes.firstOrNull { it.isFocused } ?: tab.panes.maxByOrNull { it.z }
+        if (target != null) {
+            divePane(tab, target)
+        } else if (!tab.isActive) {
+            // Every pane is docked, so there is nothing to dive into — activate
+            // the tab instead, or the tap reads as a dead button. Restoring a
+            // pane is one tap away on the card's dock strip.
+            scope.launch { vm.setActiveTab(tab.id) }
+        }
+    }
+
+    // One canvas parameterization shared by the two hosts below (a switcher
+    // card, or the full-screen edit surface), so the 12 callbacks stay in sync.
+    val canvasFor: @Composable (OverviewTab, Boolean) -> Unit = { tab, editing ->
+        ExposeCanvas(
+            tab = tab,
+            editing = editing,
+            drag = drag?.takeIf { it.tabId == tab.id },
+            divePaneId = divePaneId,
+            onOpenPane = { pane -> divePane(tab, pane) },
+            onToggleMaximize = { pane -> scope.launch { vm.toggleMaximize(tab.id, pane.leaf.id) } },
+            onMinimize = { pane -> scope.launch { vm.minimize(tab.id, pane.leaf.id) } },
+            onEnterEdit = { vm.enterEdit(tab.id) },
+            onRename = { leaf -> renameTarget = leaf },
+            onClose = { leaf -> closeTarget = leaf },
+            onBeginDrag = { pane -> vm.beginDrag(tab.id, pane.leaf.id) },
+            onDragMove = { dx, dy -> vm.dragMoveBy(dx, dy) },
+            onDragResize = { dw, dh -> vm.dragResizeBy(dw, dh) },
+            onDragEnd = { scope.launch { vm.endDrag() } },
+            onRestoreDock = { docked -> scope.launch { vm.restore(tab.id, docked.leaf.id) } },
+        )
+    }
+
     CompositionLocalProvider(LocalMiniTerminalRegistry provides miniTerminals) {
         Column(modifier) {
-            // Hide the tab strip while editing layout: the move/resize gestures
-            // own the screen, and the strip's chips would compete for taps.
-            if (editTabId == null) {
-                OverviewTabStrip(
-                    tabs = tabs,
-                    unlistedTabs = state.unlistedTabs,
-                    activeIndex = activeIndex,
-                    closeEnabled = tabs.size > 1,
-                    onSelect = { id -> scope.launch { vm.setActiveTab(id) } },
-                    onRename = { tab -> renameTabTarget = tab },
-                    onToggleHidden = { tab ->
-                        scope.launch { vm.setTabHidden(tab.id, !tab.isHidden) }
-                    },
-                    onToggleSidebarHidden = { tab ->
-                        scope.launch {
-                            vm.setTabHiddenFromSidebar(tab.id, !tab.isHiddenFromSidebar)
-                        }
-                    },
-                    onClose = { tab -> closeTabTarget = tab },
-                )
-            } else {
+            val editingTab = tabs.firstOrNull { it.id == editTabId }
+            if (editingTab != null) {
                 // Edit-mode banner: names the mode and offers an unambiguous exit.
                 EditBanner(onDone = { vm.exitEdit() })
             }
@@ -244,38 +347,52 @@ fun OverviewContent(
                 ) {
                     Text("No tabs", color = SidebarTextSecondary)
                 }
-            } else {
-                HorizontalPager(
-                    state = pagerState,
-                    // Don't steal horizontal drags from an edit-mode gesture.
-                    userScrollEnabled = editTabId == null,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                ) { page ->
-                    val tab = tabs[page]
-                    ExposeCanvas(
-                        tab = tab,
-                        editing = editTabId == tab.id,
-                        drag = drag?.takeIf { it.tabId == tab.id },
-                        divePaneId = divePaneId,
-                        onOpenPane = { pane ->
-                            // Anchor the dive before navigating (openPane fires
-                            // synchronously; the focus round-trip stays async).
-                            divePaneId = pane.leaf.id
-                            scope.launch { vm.focusPane(tab.id, pane.leaf.id) }
-                            openPane(pane.leaf, onOpenTerminal, onOpenFileBrowser, onOpenGit)
-                        },
-                        onToggleMaximize = { pane -> scope.launch { vm.toggleMaximize(tab.id, pane.leaf.id) } },
-                        onMinimize = { pane -> scope.launch { vm.minimize(tab.id, pane.leaf.id) } },
-                        onEnterEdit = { vm.enterEdit(tab.id) },
-                        onRename = { leaf -> renameTarget = leaf },
-                        onClose = { leaf -> closeTarget = leaf },
-                        onBeginDrag = { pane -> vm.beginDrag(tab.id, pane.leaf.id) },
-                        onDragMove = { dx, dy -> vm.dragMoveBy(dx, dy) },
-                        onDragResize = { dw, dh -> vm.dragResizeBy(dw, dh) },
-                        onDragEnd = { scope.launch { vm.endDrag() } },
-                        onRestoreDock = { docked -> scope.launch { vm.restore(tab.id, docked.leaf.id) } },
-                    )
+            } else if (editingTab != null) {
+                // Editing expands the tab to the full surface (the pre-switcher
+                // full-width layout), so move/resize keep today's precision; the
+                // dock is hidden because its chips would compete for taps.
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    canvasFor(editingTab, true)
                 }
+            } else {
+                // App-switcher card row: one card per tab at ~70% width in the
+                // screen's aspect, free momentum flinging with center snap,
+                // neighbors peeking in from both sides.
+                SwitcherCardRow(
+                    tabs = tabs,
+                    rowListState = rowListState,
+                    centeredIndex = centeredIndex,
+                    onCenter = { index -> scope.launch { rowListState.animateScrollToItem(index) } },
+                    onDiveTab = diveIntoTab,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(top = SwitcherEdgeGap),
+                ) { tab -> canvasFor(tab, false) }
+
+                // The bottom tab dock — the switcher's app-icon-row analog:
+                // one labelled chip per tab for orientation and direct jumps.
+                TabDock(
+                    tabs = tabs,
+                    unlistedTabs = state.unlistedTabs,
+                    focusIndex = { switcherFocusIndex(rowListState) },
+                    centeredIndex = centeredIndex,
+                    closeEnabled = tabs.size > 1,
+                    onCenter = { index -> scope.launch { rowListState.animateScrollToItem(index) } },
+                    onDive = diveIntoTab,
+                    onActivateUnlisted = { id -> scope.launch { vm.setActiveTab(id) } },
+                    onRename = { tab -> renameTabTarget = tab },
+                    onToggleHidden = { tab ->
+                        scope.launch { vm.setTabHidden(tab.id, !tab.isHidden) }
+                    },
+                    onToggleSidebarHidden = { tab ->
+                        scope.launch {
+                            vm.setTabHiddenFromSidebar(tab.id, !tab.isHiddenFromSidebar)
+                        }
+                    },
+                    onClose = { tab -> closeTabTarget = tab },
+                    modifier = Modifier.padding(vertical = SwitcherEdgeGap),
+                )
             }
         }
     }
@@ -333,6 +450,358 @@ fun OverviewContent(
                 scope.launch { closeTab(socket, tab.id) }
             },
         )
+    }
+}
+
+/**
+ * The app-switcher card row: one rounded card per tab, ~70% of the surface
+ * width at the surface's own aspect ratio, in a snapping [LazyRow] with free
+ * momentum flinging — so moving across many tabs is one gesture, not one
+ * swipe per tab. Neighbors peek in from both sides and shrink/dim slightly
+ * with distance from center, matching the OS app switcher this replicates.
+ *
+ * Browsing is passive: only the centered card is interactive; tapping (or
+ * long-pressing) a peeking card centers it and nothing else, so a fling can
+ * never accidentally dive into a pane or open its menu. Selection semantics
+ * live in the caller ([OverviewContent]).
+ *
+ * @param tabs          the tabs to render, one card each.
+ * @param rowListState  the hoisted row state ([OverviewContent] re-keys it per
+ *   world and drives centering from server echoes).
+ * @param centeredIndex index of the card snapped to (or nearest) center; only
+ *   it passes touches through to its panes.
+ * @param onCenter      center the card at the given index.
+ * @param modifier      layout modifier from the caller.
+ * @param cardContent   the card's content for a tab (the tab's exposé canvas).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+/**
+ * Velocity, in dp/s, above which a release is a *flick* rather than a let-go.
+ * Deliberately tiny: the OS switcher moves on with the smallest deliberate
+ * push, and a row that instead rubber-banded back to where you started felt
+ * like it was refusing the gesture.
+ */
+internal const val SWITCHER_FLICK_INTENT_DP = 80f
+
+/**
+ * The velocity a flick is reported as when it clears [SWITCHER_FLICK_INTENT_DP]
+ * but falls under Foundation's own "advance a card" threshold (400 dp/s). Raising
+ * it to exactly that line is what turns every deliberate flick into one card
+ * forward instead of a bounce back.
+ */
+private const val SWITCHER_ADVANCE_VELOCITY_DP = 400f
+
+/**
+ * Stiffness of the settle, and its damping ratio. Chosen on the device with the
+ * tuning sliders: a very soft spring, but *overdamped*, so it eases to a stop
+ * without ever looking pulled into place. Foundation's default (400, damping 1)
+ * arrived before the gesture felt finished, and the same softness at damping 1
+ * felt weightless.
+ */
+internal const val SWITCHER_SNAP_STIFFNESS = 50f
+
+/** Damping ratio of the settle; above 1 approaches the target without overshoot. */
+internal const val SWITCHER_SNAP_DAMPING = 1.2f
+
+/**
+ * The card row's fling: the platform's own momentum, an edge-aware approach, and a
+ * soft overdamped settle.
+ *
+ * The decay is the platform spline — the same friction every Android scroller
+ * uses, which is what the OS switcher is being compared against; a lower-friction
+ * decay tried earlier coasted further than any of them. What is *not* borrowed is
+ * the ending: Foundation's snap would let the decay target a position past the
+ * first or last card and leave the scroll container to clamp it, which arrives as
+ * a wall. [calculateApproachOffset] instead never proposes more than the distance
+ * that actually remains, so a fling toward either end decays into the edge card
+ * and the spring lands it.
+ *
+ * The two decisions stay separate: how *far* a fling travels is the decay's job,
+ * while whether a release advances at all is the snap's — and any deliberate flick
+ * advances (see [SWITCHER_FLICK_INTENT_DP]). Only a release with essentially no
+ * velocity falls back to "whichever card is nearest", which is what a slow drag
+ * deserves.
+ *
+ * @param rowListState the row's list state, whose centred snap positions the
+ *   behaviour snaps to and whose layout tells it how much room is left.
+ * @return the fling behaviour to hand [LazyRow].
+ */
+@Composable
+private fun rememberSwitcherFlingBehavior(rowListState: LazyListState): TargetedFlingBehavior {
+    val density = LocalDensity.current
+    val splineDecay = rememberSplineBasedDecay<Float>()
+    return remember(rowListState, density, splineDecay) {
+        val base = SnapLayoutInfoProvider(rowListState, SnapPosition.Center)
+        val intentPx = with(density) { SWITCHER_FLICK_INTENT_DP.dp.toPx() }
+        val advancePx = with(density) { SWITCHER_ADVANCE_VELOCITY_DP.dp.toPx() }
+        val provider = object : SnapLayoutInfoProvider {
+            override fun calculateSnapOffset(velocity: Float): Float {
+                // A flick keeps its direction and is reported as at least fast
+                // enough to count; only a genuine let-go reports nothing and lets
+                // position decide.
+                val reported = when {
+                    velocity > intentPx -> maxOf(velocity, advancePx)
+                    velocity < -intentPx -> minOf(velocity, -advancePx)
+                    else -> 0f
+                }
+                return base.calculateSnapOffset(reported)
+            }
+
+            override fun calculateApproachOffset(velocity: Float, decayOffset: Float): Float {
+                val proposed = base.calculateApproachOffset(velocity, decayOffset)
+                val room = roomToEdge(rowListState, forward = proposed >= 0f)
+                    ?: return proposed
+                // Cards are uniform, so "how far can the row still scroll" is
+                // exact rather than estimated. Never propose more than that: the
+                // decay then eases into the first or last card instead of running
+                // at speed into the scroll container's clamp.
+                return if (proposed >= 0f) proposed.coerceAtMost(room) else proposed.coerceAtLeast(-room)
+            }
+        }
+        snapFlingBehavior(
+            snapLayoutInfoProvider = provider,
+            decayAnimationSpec = splineDecay,
+            snapAnimationSpec = spring(
+                dampingRatio = SWITCHER_SNAP_DAMPING,
+                stiffness = SWITCHER_SNAP_STIFFNESS,
+            ),
+        )
+    }
+}
+
+/**
+ * How much of a card has to be on screen for a tap on it to open it rather than
+ * merely centre it. Above half, it is the card the user is looking at.
+ */
+private const val CARD_TAP_DIVE_FRACTION = 0.55f
+
+/** Longest press still treated as a tap by the row's mid-settle tap watcher, in ms. */
+private const val CARD_TAP_MAX_HOLD_MS = 500L
+
+/**
+ * How far the row may move between press and lift — in cards — for the gesture to
+ * still count as a tap rather than a drag. A press stops the settle, so a real tap
+ * moves the row barely at all.
+ */
+private const val CARD_TAP_SCROLL_TOLERANCE = 0.04f
+
+/**
+ * How much of the card at [index] is inside the row's viewport, 0..1.
+ *
+ * Measured at tap time rather than tracked, because it only matters then: it is
+ * what tells a deliberate tap on the incoming card of a settle apart from a tap on
+ * a sliver peeking at the edge.
+ *
+ * @param rowListState the row's list state.
+ * @param index the card's index.
+ * @return the visible fraction, or 0 when the card is not laid out.
+ */
+private fun visibleFraction(rowListState: LazyListState, index: Int): Float {
+    val info = rowListState.layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return 0f
+    if (item.size <= 0) return 0f
+    val start = maxOf(item.offset, info.viewportStartOffset)
+    val end = minOf(item.offset + item.size, info.viewportEndOffset)
+    return ((end - start).toFloat() / item.size).coerceIn(0f, 1f)
+}
+
+/**
+ * The row's position as a *fractional* card index — 1.4 meaning "40% of the way
+ * from card 1 to card 2".
+ *
+ * The cards are uniform, so this is just the scroll position over the stride. Read
+ * at draw time by [TabDock], whose chips follow the row continuously rather than
+ * animating when the centred card changes.
+ *
+ * @param rowListState the row's list state.
+ * @return the fractional index, or 0 while the row has no layout yet.
+ */
+private fun switcherFocusIndex(rowListState: LazyListState): Float {
+    val stride = switcherStride(rowListState) ?: return 0f
+    return rowListState.firstVisibleItemIndex + rowListState.firstVisibleItemScrollOffset / stride
+}
+
+/**
+ * The distance from one card's start to the next, in px, or `null` before the row
+ * has been laid out. Cards are all one width, so a single visible pair (or a
+ * single item) is enough to know it.
+ *
+ * @param rowListState the row's list state.
+ * @return the stride in px, or `null` when it cannot be known yet.
+ */
+private fun switcherStride(rowListState: LazyListState): Float? {
+    val visible = rowListState.layoutInfo.visibleItemsInfo
+    if (visible.isEmpty()) return null
+    val stride = if (visible.size >= 2) {
+        (visible[1].offset - visible[0].offset).toFloat()
+    } else {
+        visible[0].size.toFloat()
+    }
+    return stride.takeIf { it > 0f }
+}
+
+/**
+ * How much further the row can scroll before the first or last card is centred,
+ * in px.
+ *
+ * The cards are all one width, so the row's scrollable range is exactly
+ * `(count - 1) × stride` and its position `index × stride + offset` — no
+ * estimation, and no need to have the far end composed. Used by
+ * [rememberSwitcherFlingBehavior] to keep a fling from targeting past an end.
+ *
+ * @param rowListState the row's list state.
+ * @param forward whether to measure toward the last card (true) or the first.
+ * @return the remaining distance, or `null` while the row has no layout yet (in
+ *   which case a caller should not clamp anything).
+ */
+private fun roomToEdge(rowListState: LazyListState, forward: Boolean): Float? {
+    val info = rowListState.layoutInfo
+    if (info.totalItemsCount <= 1) return null
+    val stride = switcherStride(rowListState) ?: return null
+    val position = rowListState.firstVisibleItemIndex * stride +
+        rowListState.firstVisibleItemScrollOffset
+    val range = (info.totalItemsCount - 1) * stride
+    val room = if (forward) range - position else position
+    return room.coerceAtLeast(0f)
+}
+
+@Composable
+private fun SwitcherCardRow(
+    tabs: List<OverviewTab>,
+    rowListState: LazyListState,
+    centeredIndex: Int,
+    onCenter: (Int) -> Unit,
+    onDiveTab: (OverviewTab) -> Unit,
+    modifier: Modifier = Modifier,
+    cardContent: @Composable (OverviewTab) -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val cardWidth = maxWidth * SWITCHER_CARD_FRACTION
+        // The card fills the row it is given; the breathing room around the
+        // switcher is [SwitcherEdgeGap], applied once by the caller.
+        val cardHeight = maxHeight
+        val sidePadding = (maxWidth - cardWidth) / 2
+        val cardShape = RoundedCornerShape(SwitcherCardCorner)
+        // Whether the row is mid-drag, mid-fling or mid-settle. Changes twice per
+        // gesture, so reading it here costs nothing.
+        val scrolling = rowListState.isScrollInProgress
+
+        LazyRow(
+            state = rowListState,
+            flingBehavior = rememberSwitcherFlingBehavior(rowListState),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            // Symmetric padding of (viewport - card)/2 makes item offset 0 the
+            // centered position, so snap positions and scrollToItem(i) both
+            // land cards dead-center — including the first and last.
+            contentPadding = PaddingValues(horizontal = sidePadding),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
+                // No distance-from-centre scale or fade: the carousel effect was
+                // one more thing moving during a fling, and it read as the row
+                // fighting its own settle rather than as depth. Cards are flat and
+                // identical; the dock carries the depth cue instead.
+                Box(
+                    modifier = Modifier
+                        .width(cardWidth)
+                        .height(cardHeight)
+                        .clip(cardShape)
+                        .background(SidebarSurface.copy(alpha = 0.35f))
+                        // A hairline, never the accent: the panes inside draw
+                        // their own outline (accented when focused), so an
+                        // accent ring around the card read as a double border.
+                        // Which tab is server-active is said by its dock chip.
+                        .border(
+                            width = 1.dp,
+                            color = SidebarTextSecondary.copy(alpha = 0.22f),
+                            shape = cardShape,
+                        ),
+                ) {
+                    cardContent(tab)
+                    // While the row is moving, watch for a tap at the card level
+                    // too. A press during a settle is exactly the case that fell
+                    // through the cracks: it stops the scroll, and stopping the
+                    // scroll can cancel the press before either the pane's
+                    // combinedClickable or the gate below ever sees a click — so
+                    // tapping the card that fills the screen did nothing at all.
+                    //
+                    // This layer consumes nothing (a drag still scrolls the row);
+                    // it only decides, on lift, whether what happened was a tap:
+                    // quick, and with the row's position barely moved, which a drag
+                    // never is. Local pointer movement cannot be the test here — the
+                    // card moves under a stationary finger during a settle, and
+                    // follows the finger during a drag, so the two are the wrong way
+                    // round.
+                    if (scrolling) {
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .pointerInput(index) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(
+                                            requireUnconsumed = false,
+                                            pass = PointerEventPass.Initial,
+                                        )
+                                        val focusAtDown = switcherFocusIndex(rowListState)
+                                        var lift: PointerInputChange? = null
+                                        while (true) {
+                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                            val change = event.changes
+                                                .firstOrNull { it.id == down.id } ?: break
+                                            if (!change.pressed) {
+                                                lift = change
+                                                break
+                                            }
+                                        }
+                                        val up = lift ?: return@awaitEachGesture
+                                        val heldMs = up.uptimeMillis - down.uptimeMillis
+                                        val moved = abs(
+                                            switcherFocusIndex(rowListState) - focusAtDown,
+                                        )
+                                        if (heldMs <= CARD_TAP_MAX_HOLD_MS &&
+                                            moved <= CARD_TAP_SCROLL_TOLERANCE
+                                        ) {
+                                            if (visibleFraction(rowListState, index) >=
+                                                CARD_TAP_DIVE_FRACTION
+                                            ) {
+                                                onDiveTab(tab)
+                                            } else {
+                                                onCenter(index)
+                                            }
+                                        }
+                                    }
+                                },
+                        )
+                    }
+
+                    if (index != centeredIndex) {
+                        // A card that is not the centred one still gets a gate, so
+                        // a pane's own taps and long-press menu cannot fire on a
+                        // card the row is not on. What the gate DOES depends on how
+                        // much of that card you can see: a sliver at the edge only
+                        // centres, but a card already filling most of the screen —
+                        // which is what the incoming card looks like for the whole
+                        // length of a settle — opens, because tapping the thing you
+                        // are looking at should not have to wait for an animation.
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .combinedClickable(
+                                    onClick = {
+                                        if (visibleFraction(rowListState, index) >= CARD_TAP_DIVE_FRACTION) {
+                                            onDiveTab(tab)
+                                        } else {
+                                            onCenter(index)
+                                        }
+                                    },
+                                    onLongClick = { onCenter(index) },
+                                ),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -844,133 +1313,17 @@ private fun MiniPane(
 }
 
 /**
- * The top tab strip: a single horizontally-scrollable row of [FilterChip]s, the
- * active tab outlined in the accent colour with its aggregate status dot.
+ * The trailing `⋮` button at the end of the tab dock that opens a dropdown of
+ * the unlisted (hidden) tabs. Selecting one activates it, which surfaces it
+ * temporarily among the visible tabs.
  *
- * Tapping a chip selects the tab; long-pressing it opens a context menu to
- * rename or close the tab, mirroring a pane's long-press menu.
- *
- * @param tabs         the tab summaries to render.
- * @param unlistedTabs hidden tabs not in [tabs]; surfaced via a trailing `⋮`
- *   menu so they can be re-activated. Empty hides the menu.
- * @param activeIndex  index of the active tab, or -1.
- * @param closeEnabled whether "Close tab" is offered (false for the last tab).
- * @param onSelect     invoked with a tab id when a chip is tapped.
- * @param onRename     open the rename dialog for the long-pressed tab.
- * @param onToggleHidden flip the long-pressed tab's hidden-from-tab-strip
- *   ("unlisted") flag.
- * @param onToggleSidebarHidden flip the long-pressed tab's hidden-from-sidebar
- *   flag (also hides it from the sessions list, which mirrors the sidebar).
- * @param onClose      confirm + close the long-pressed tab.
- */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-private fun OverviewTabStrip(
-    tabs: List<OverviewTab>,
-    unlistedTabs: List<UnlistedTab>,
-    activeIndex: Int,
-    closeEnabled: Boolean,
-    onSelect: (String) -> Unit,
-    onRename: (OverviewTab) -> Unit,
-    onToggleHidden: (OverviewTab) -> Unit,
-    onToggleSidebarHidden: (OverviewTab) -> Unit,
-    onClose: (OverviewTab) -> Unit,
-) {
-    if (tabs.isEmpty()) return
-
-    val listState = rememberLazyListState()
-    LaunchedEffect(activeIndex, tabs.size) {
-        if (activeIndex >= 0) listState.animateScrollToItem(activeIndex)
-    }
-
-    // The tab chip whose context menu is currently open (by tab id).
-    var menuTabId by remember { mutableStateOf<String?>(null) }
-
-    LazyRow(
-        state = listState,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(SidebarBackground)
-            .padding(start = 8.dp, end = 8.dp, top = 0.dp, bottom = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(tabs, key = { it.id }) { tab ->
-            Box {
-                CompositionLocalProvider(
-                    LocalMinimumInteractiveComponentEnforcement provides false,
-                ) {
-                    FilterChip(
-                        selected = tab.isActive,
-                        onClick = { onSelect(tab.id) },
-                        label = {
-                            Text(tab.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        },
-                        leadingIcon = { StatusDot(state = tab.aggregateState, boxDp = 12) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = SidebarBackground,
-                            labelColor = SidebarTextSecondary,
-                            selectedContainerColor = SidebarAccent.copy(alpha = 0.18f),
-                            selectedLabelColor = SidebarAccent,
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = tab.isActive,
-                            borderColor = SidebarTextSecondary.copy(alpha = 0.4f),
-                            selectedBorderColor = SidebarAccent,
-                            borderWidth = 1.dp,
-                            selectedBorderWidth = 2.dp,
-                        ),
-                    )
-                }
-                // Transparent overlay that catches the tap (select) and the
-                // long-press (context menu), mirroring a pane's PaneTapOverlay.
-                // It sits above the chip so the chip's own click never fires.
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .clip(RoundedCornerShape(8.dp))
-                        .combinedClickable(
-                            onClick = { onSelect(tab.id) },
-                            onLongClick = { menuTabId = tab.id },
-                        ),
-                )
-                TabContextMenu(
-                    expanded = menuTabId == tab.id,
-                    isHidden = tab.isHidden,
-                    isHiddenFromSidebar = tab.isHiddenFromSidebar,
-                    closeEnabled = closeEnabled,
-                    onDismiss = { menuTabId = null },
-                    onRename = { menuTabId = null; onRename(tab) },
-                    onToggleHidden = { menuTabId = null; onToggleHidden(tab) },
-                    onToggleSidebarHidden = { menuTabId = null; onToggleSidebarHidden(tab) },
-                    onClose = { menuTabId = null; onClose(tab) },
-                )
-            }
-        }
-
-        // Trailing `⋮` menu listing the unlisted (hidden) tabs. Tapping a row
-        // activates that tab — it then surfaces temporarily in the strip
-        // (see OverviewBackingViewModel.project). Mirrors the web/Mac
-        // far-right overflow menu. Only rendered when some tabs are unlisted.
-        if (unlistedTabs.isNotEmpty()) {
-            item(key = "__unlisted__") {
-                UnlistedTabsMenu(unlistedTabs = unlistedTabs, onSelect = onSelect)
-            }
-        }
-    }
-}
-
-/**
- * The trailing `⋮` button at the end of the overview tab strip that opens a
- * dropdown of the unlisted (hidden) tabs. Selecting one activates it, which
- * surfaces it temporarily among the visible tabs.
+ * Internal so [TabDock] (the strip's switcher-era successor) can reuse it.
  *
  * @param unlistedTabs the hidden tabs to list.
  * @param onSelect     invoked with the chosen tab id.
  */
 @Composable
-private fun UnlistedTabsMenu(
+internal fun UnlistedTabsMenu(
     unlistedTabs: List<UnlistedTab>,
     onSelect: (String) -> Unit,
 ) {
@@ -1013,6 +1366,8 @@ private fun UnlistedTabsMenu(
  * sidebar — orthogonal flags, each labelled by its current state), and close
  * (the whole tab).
  *
+ * Internal so [TabDock] (the strip's switcher-era successor) can reuse it.
+ *
  * @param expanded     whether this tab's menu is open.
  * @param isHidden     whether the tab is currently hidden ("unlisted") from
  *   the tab strip; labels the strip toggle item.
@@ -1026,7 +1381,7 @@ private fun UnlistedTabsMenu(
  * @param onClose      confirm + close the tab.
  */
 @Composable
-private fun TabContextMenu(
+internal fun TabContextMenu(
     expanded: Boolean,
     isHidden: Boolean,
     isHiddenFromSidebar: Boolean,
