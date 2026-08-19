@@ -81,38 +81,68 @@ internal const val DOCK_CHIP_GAP_DP = 6f
 internal const val DOCK_FALLOFF = 1f
 
 /**
- * Scratch for the dock's scaled-width walk, memoised on the focus it was computed
- * for.
+ * Scratch for the dock's scaled-width walk, memoised on the inputs it was computed
+ * from.
  *
  * Every slot's `graphicsLayer` needs the whole centres array, and within one frame
  * they all ask about the same focus, so the answer is computed once and handed out.
  * Not thread-safe and does not need to be: it is only ever touched from the draw
  * phase of one dock.
+ *
+ * The cache is keyed on the widths as well as the focus, and that is not
+ * belt-and-braces: the widths are zero until the strip has been placed, so the
+ * first draw of a freshly composed dock asks about a row of empty chips. Keyed on
+ * the focus alone, that answer stuck — every chip drawn at the dock's centre, in a
+ * heap, until the row was moved and the focus changed. Which is what starting the
+ * app, or coming back from a terminal, looks like.
  */
 private class DockWalk {
     private var focus = Float.NaN
+    private var gapPx = Float.NaN
+    private var widths = FloatArray(0)
     private var centres = FloatArray(0)
 
     /**
      * The visual centre of every slot when the row sits at [focus].
      *
-     * @param focus  the row's fractional card index.
-     * @param widths each slot's measured width, in px.
-     * @param gapPx  the gap to leave between slots, in px.
+     * @param focus      the row's fractional card index.
+     * @param slotWidths each slot's measured width, in px.
+     * @param gapPx      the gap to leave between slots, in px.
      * @return the centres, one per slot; the array is reused between calls and must
      *   not be retained.
      */
-    fun centresFor(focus: Float, widths: List<Float>, gapPx: Float): FloatArray {
-        if (focus == this.focus && centres.size == widths.size) return centres
-        if (centres.size != widths.size) centres = FloatArray(widths.size)
+    fun centresFor(focus: Float, slotWidths: List<Float>, gapPx: Float): FloatArray {
+        if (isCurrent(focus, slotWidths, gapPx)) return centres
+        if (widths.size != slotWidths.size) {
+            widths = FloatArray(slotWidths.size)
+            centres = FloatArray(slotWidths.size)
+        }
         var left = 0f
-        for (i in widths.indices) {
-            val scaled = widths[i] * dockChipScale(i, focus)
+        for (i in slotWidths.indices) {
+            val width = slotWidths[i]
+            widths[i] = width
+            val scaled = width * dockChipScale(i, focus)
             centres[i] = left + scaled / 2f
             left += scaled + gapPx
         }
         this.focus = focus
+        this.gapPx = gapPx
         return centres
+    }
+
+    /**
+     * Whether the cached centres were computed from exactly these inputs.
+     *
+     * @param focus      the row's fractional card index.
+     * @param slotWidths each slot's measured width, in px.
+     * @param gapPx      the gap between slots, in px.
+     * @return true when [centres] can be handed out as-is.
+     */
+    private fun isCurrent(focus: Float, slotWidths: List<Float>, gapPx: Float): Boolean {
+        if (focus != this.focus || gapPx != this.gapPx) return false
+        if (widths.size != slotWidths.size) return false
+        for (i in widths.indices) if (widths[i] != slotWidths[i]) return false
+        return true
     }
 }
 
@@ -239,15 +269,15 @@ fun TabDock(
         // a hole on each side, and since the titles differ in length a wide chip
         // left a bigger hole than a narrow one — the gaps came out uneven. Walking
         // the scaled widths instead keeps every visible gap equal to [gapPx].
-        // Memoised per focus value, not per chip: every slot's layer needs the whole
-        // array, and they all read the same focus within one frame, so the first to
-        // draw computes it and the rest reuse it. Recomputing per slot made dock
-        // layout O(slots²) with an allocation each, every frame of every fling.
+        // Memoised per (focus, widths), not per chip: every slot's layer needs the
+        // whole array, and they all read the same focus within one frame, so the
+        // first to draw computes it and the rest reuse it. Recomputing per slot made
+        // dock layout O(slots²) with an allocation each, every frame of every fling.
         val walk = remember(slotCount) { DockWalk() }
         val visualCentres: () -> FloatArray = {
             walk.centresFor(
                 focus = focusIndex(),
-                widths = slotWidths,
+                slotWidths = slotWidths,
                 gapPx = gapPx,
             )
         }

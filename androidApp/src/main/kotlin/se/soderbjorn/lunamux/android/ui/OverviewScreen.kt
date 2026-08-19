@@ -104,6 +104,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -580,6 +581,13 @@ private const val CARD_TAP_DIVE_FRACTION = 0.55f
 private const val CARD_TAP_MAX_HOLD_MS = 500L
 
 /**
+ * How far the finger may travel, in multiples of the platform's touch slop, for a
+ * press during the row's motion to still be a tap. See [midSettleTapWatcher] for
+ * why this is a backstop rather than the test itself, and why it is generous.
+ */
+private const val CARD_TAP_TRAVEL_SLOPS = 3f
+
+/**
  * How long after a dive another one is ignored. Long enough that the two handlers
  * which can see one mid-settle tap cannot both navigate, short enough that a dive
  * interrupted by Back does not leave the switcher unable to open anything.
@@ -587,15 +595,90 @@ private const val CARD_TAP_MAX_HOLD_MS = 500L
 private const val DIVE_DEBOUNCE_NANOS = 400_000_000L
 
 /**
- * How far the row may move between press and lift — in cards — for the gesture to
- * still count as a tap rather than a drag.
+ * Watch a switcher card for a tap that lands while the row is still moving, and
+ * open (or centre) it without waiting for the settle to finish.
  *
- * Generous on purpose: a press cannot stop the settle before the next frame is
- * produced, and at a brisk settle speed the row still travels a few percent of a
- * card in that frame. A drag moves it far more than this, because the row follows
- * the finger.
+ * A press during a settle stops the scroll, and stopping the scroll can cancel the
+ * press before the card's own handlers ever see a click — so tapping the card
+ * filling the screen did nothing at all. This modifier is that missing handler.
+ *
+ * **It goes on the card, never over it.** A pointer modifier in an overlay is not
+ * hit-transparent: Compose hands a pointer to the topmost sibling that wants it and
+ * to nobody behind it, whether or not that sibling consumes anything. An overlay
+ * watcher therefore swallowed every gesture it decided *not* to act on, which is
+ * every tap on a resting row — the card at either end of the row settles instantly
+ * (there is no distance left to travel), so those were dead on arrival while the
+ * cards in the middle, with their long soft settle, mostly still worked. As part of
+ * the card's own modifier chain it is an ancestor of the panes instead: it sees
+ * every gesture in the [PointerEventPass.Initial] pass, consumes none of it, and
+ * leaves the panes' own taps, menus and the edge cards' gate untouched.
+ *
+ * What counts as a tap is the **finger's** travel, corrected for the card sliding
+ * out from under it. Neither raw signal works alone: local pointer movement calls a
+ * stationary finger a drag during a settle, and the row's own displacement calls a
+ * flick a tap — a light flick is a few dozen px of finger over ~100 ms, and all the
+ * row movement it causes happens *after* the lift. Undoing the row's displacement
+ * from the local movement leaves the finger's own path, which a tap keeps inside
+ * the touch slop. A drag the row acted on is also consumed by its scroll, seen here
+ * in the [PointerEventPass.Final] pass, which is the row itself saying the same
+ * thing — and that is the precise half of the test, because the row scrolls only
+ * from a gesture it took. The travel test is the backstop, and its threshold is
+ * deliberately several times the slop: the row's position is republished once per
+ * layout while pointer events arrive between them, so the correction can be one
+ * frame of settle out of date, which at speed is tens of px.
+ *
+ * @param index        the card's index in the row.
+ * @param rowListState the row's list state, read for its motion and geometry.
+ * @param onCenter     centre the card at the given index — what a tap on a sliver
+ *   peeking in at the edge means.
+ * @param onTapAt      open whatever sits at the given fraction of the card, so a
+ *   multi-pane card opens the pane that was actually touched.
+ * @return this modifier, with the watcher attached.
+ * @see SwitcherCardRow
+ * @see visibleFraction
  */
-private const val CARD_TAP_SCROLL_TOLERANCE = 0.2f
+private fun Modifier.midSettleTapWatcher(
+    index: Int,
+    rowListState: LazyListState,
+    onCenter: (Int) -> Unit,
+    onTapAt: (Float, Float) -> Unit,
+): Modifier = pointerInput(index) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        // Decided at the press and only there: a tap on a row already at rest is
+        // the panes' own business, and stealing it is what broke them.
+        val movingAtPress = rowListState.isScrollInProgress
+        val focusAtDown = switcherFocusIndex(rowListState)
+        val stride = switcherStride(rowListState) ?: 0f
+        val travelLimit = viewConfiguration.touchSlop * CARD_TAP_TRAVEL_SLOPS
+        var dragged = false
+        var lift: PointerInputChange? = null
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Final)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            // The card slides under a stationary finger while the row settles, which
+            // arrives as local movement; the row's own displacement over the same
+            // interval is exactly that much, so subtracting it leaves the finger.
+            val rowShift = (switcherFocusIndex(rowListState) - focusAtDown) * stride
+            val travelX = change.position.x - down.position.x - rowShift
+            val travelY = change.position.y - down.position.y
+            if (abs(travelX) > travelLimit || abs(travelY) > travelLimit) dragged = true
+            if (change.positionChange() != Offset.Zero && change.isConsumed) dragged = true
+            if (!change.pressed) {
+                lift = change
+                break
+            }
+        }
+        val up = lift ?: return@awaitEachGesture
+        if (!movingAtPress || dragged) return@awaitEachGesture
+        if (up.uptimeMillis - down.uptimeMillis > CARD_TAP_MAX_HOLD_MS) return@awaitEachGesture
+        if (visibleFraction(rowListState, index) < CARD_TAP_DIVE_FRACTION) {
+            onCenter(index)
+            return@awaitEachGesture
+        }
+        onTapAt(up.position.x / size.width.toFloat(), up.position.y / size.height.toFloat())
+    }
+}
 
 /**
  * How much of the card at [index] is inside the row's viewport, 0..1.
@@ -753,78 +836,16 @@ private fun SwitcherCardRow(
                             width = 1.dp,
                             color = SidebarTextSecondary.copy(alpha = 0.22f),
                             shape = cardShape,
-                        ),
+                        )
+                        // Watches for a tap that lands while the row is moving.
+                        // On the card, NOT laid over it — see the modifier's doc.
+                        .midSettleTapWatcher(
+                            index = index,
+                            rowListState = rowListState,
+                            onCenter = onCenter,
+                        ) { fractionX, fractionY -> onDiveAt(tab, fractionX, fractionY) },
                 ) {
                     cardContent(tab)
-                    // A press that lands while the row is moving is the case that
-                    // fell through the cracks: it stops the scroll, and stopping the
-                    // scroll can cancel the press before either the pane's
-                    // combinedClickable or the gate below ever sees a click — so
-                    // tapping the card that fills the screen did nothing at all.
-                    //
-                    // This layer consumes nothing (a drag still scrolls the row) and
-                    // is composed unconditionally: gating it on "is scrolling" meant
-                    // it left composition the moment the press stopped the scroll,
-                    // cancelling the very gesture it was watching. Whether it acts is
-                    // decided from the state at the PRESS instead, and only then, so
-                    // a tap on a resting row is left to the handlers below.
-                    //
-                    // On lift it asks whether what happened was a tap: quick, and
-                    // with the row's position barely moved. Local pointer movement
-                    // cannot be that test — the card moves under a stationary finger
-                    // during a settle and follows the finger during a drag, so the
-                    // two are the wrong way round.
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .pointerInput(index) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(
-                                        requireUnconsumed = false,
-                                        pass = PointerEventPass.Initial,
-                                    )
-                                    val movingAtPress = rowListState.isScrollInProgress
-                                    val focusAtDown = switcherFocusIndex(rowListState)
-                                    var lift: PointerInputChange? = null
-                                    while (true) {
-                                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                                        val change = event.changes
-                                            .firstOrNull { it.id == down.id } ?: break
-                                        if (!change.pressed) {
-                                            lift = change
-                                            break
-                                        }
-                                    }
-                                    val up = lift ?: return@awaitEachGesture
-                                    if (!movingAtPress) return@awaitEachGesture
-                                    val heldMs = up.uptimeMillis - down.uptimeMillis
-                                    val moved = abs(
-                                        switcherFocusIndex(rowListState) - focusAtDown,
-                                    )
-                                    if (heldMs > CARD_TAP_MAX_HOLD_MS ||
-                                        moved > CARD_TAP_SCROLL_TOLERANCE
-                                    ) {
-                                        return@awaitEachGesture
-                                    }
-                                    if (visibleFraction(rowListState, index) <
-                                        CARD_TAP_DIVE_FRACTION
-                                    ) {
-                                        onCenter(index)
-                                        return@awaitEachGesture
-                                    }
-                                    // Open what was actually touched. Diving "into
-                                    // the tab" picks its focused pane, which on a
-                                    // multi-pane card is the wrong terminal whenever
-                                    // the finger was on another one.
-                                    onDiveAt(
-                                        tab,
-                                        up.position.x / size.width.toFloat(),
-                                        up.position.y / size.height.toFloat(),
-                                    )
-                                }
-                            },
-                    )
-
                     if (index != centeredIndex) {
                         // A card that is not the centred one still gets a gate, so
                         // a pane's own taps and long-press menu cannot fire on a
