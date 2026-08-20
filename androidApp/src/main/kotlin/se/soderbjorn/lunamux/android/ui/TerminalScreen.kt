@@ -492,6 +492,7 @@ fun TerminalScreen(
             terminalViewRef = terminalViewRef,
             ptySocket = ptySocket,
             serverGridPin = serverGridPin,
+            appContext = ctx.applicationContext,
             handleInput = handleInput,
         )
     }

@@ -16,6 +16,7 @@
  */
 package se.soderbjorn.lunamux.android.ui
 
+import android.content.Context
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
@@ -71,6 +72,26 @@ import java.util.concurrent.atomic.AtomicReference
  * grid) before the bytes are sent; while driving, it just sends. Keeping that
  * policy in [TerminalScreen] (where the mode state lives) is why this indirects
  * through a callback rather than sending directly.
+ *
+ * **Clipboard.** The Termux view and emulator do not touch the system clipboard
+ * themselves — they call the session's `onCopyTextToClipboard` /
+ * `onPasteTextFromClipboard`, which is why the text-selection action bar's Copy
+ * and Paste (and a program's OSC 52) were dead for as long as this session
+ * stubbed them out. Both are implemented here against
+ * [TerminalClipboard]; paste deliberately goes through
+ * [TerminalEmulator.paste] rather than writing the bytes directly, so that
+ * bracketed-paste mode is honoured and the text lands on the same
+ * [handleInput] path as typing — meaning a paste into a mirrored pane takes
+ * the PTY over first, exactly as a keystroke would.
+ *
+ * @param appContext application context, used only to reach the system
+ *   clipboard service. Deliberately the *application* context: this session
+ *   outlives configuration changes. **Null means this session has no clipboard**
+ *   — which is what a headless mirror wants, not merely a convenience. A
+ *   thumbnail in [MiniTerminalRegistry] replays the same output stream as the
+ *   real pane, OSC 52 included; honouring it there would let simply opening the
+ *   overview overwrite the user's clipboard, once per thumbnail of the session.
+ *   It has no selection bar to paste from either.
  */
 internal fun createExternalTerminalSession(
     scope: CoroutineScope,
@@ -78,6 +99,7 @@ internal fun createExternalTerminalSession(
     terminalViewRef: MutableState<TerminalView?>,
     ptySocket: PtySocket,
     serverGridPin: AtomicReference<Pair<Int, Int>?>,
+    appContext: Context?,
     handleInput: suspend (ByteArray) -> Unit,
 ): TerminalSession {
     return object : TerminalSession(
@@ -139,10 +161,42 @@ internal fun createExternalTerminalSession(
         // but we passed null for that, so we must override all of them or
         // they'll NPE. Even reset() inside the emulator ctor calls onColorsChanged.
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
-        override fun onCopyTextToClipboard(text: String?) = Unit
-        override fun onPasteTextFromClipboard() = Unit
         override fun onBell() = Unit
         override fun onColorsChanged() = Unit
+
+        /**
+         * Copy [text] to the system clipboard.
+         *
+         * Called by the text-selection action bar's "Copy" (on the main thread)
+         * and by the emulator's OSC 52 handler when a remote program sets the
+         * selection (on the emulator dispatcher). [TerminalClipboard] absorbs
+         * that thread difference. A null [appContext] means this session is a
+         * headless mirror and must leave the clipboard alone.
+         */
+        override fun onCopyTextToClipboard(text: String?) {
+            val ctx = appContext ?: return
+            TerminalClipboard.copyToClipboard(ctx, text)
+        }
+
+        /**
+         * Paste the system clipboard into the terminal.
+         *
+         * Called by the text-selection action bar's "Paste". Routed through
+         * [TerminalEmulator.paste] so DECSET 2004 bracketed paste is applied and
+         * the resulting bytes travel the ordinary write path — i.e. through
+         * [handleInput], which takes the PTY over first when this phone is only
+         * mirroring.
+         */
+        override fun onPasteTextFromClipboard() {
+            val ctx = appContext ?: return
+            TerminalClipboard.readFromClipboard(ctx) { text ->
+                val e = externalEmulator ?: return@readFromClipboard
+                // Same monitor the resize and append paths take: paste reads the
+                // emulator's DECSET bits, and a background append must not be
+                // rewriting them underneath the read.
+                synchronized(e) { runCatching { e.paste(text) } }
+            }
+        }
 
         override fun writeCodePoint(prependEscape: Boolean, codePoint: Int) {
             val out = java.io.ByteArrayOutputStream(5)
