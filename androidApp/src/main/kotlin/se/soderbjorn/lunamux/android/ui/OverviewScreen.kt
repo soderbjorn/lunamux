@@ -5,9 +5,11 @@
  * card per tab (each card a "scaled exposé" of that tab's pane layout) in a
  * free-flinging, center-snapping row — moving across many tabs is one gesture
  * — with a labelled tab dock at the bottom for orientation and direct jumps
- * (see [TabDock]). Browsing the row never changes server state; diving into a
- * pane (tap on the centered card) activates the tab, focuses the pane, and
- * drills into that pane's full-screen route.
+ * (see [TabDock]). Pinching the row zooms it between three card sizes
+ * ([SwitcherZoom]), from one card to read to a row to survey. Browsing the row
+ * never changes server state; diving into a pane (tap on the centered card)
+ * activates the tab, focuses the pane, and drills into that pane's full-screen
+ * route.
  *
  * Window management (issue #58):
  *  - Tapping a pane also makes it the tab's active/focused pane.
@@ -31,6 +33,8 @@ package se.soderbjorn.lunamux.android.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.gestures.TargetedFlingBehavior
@@ -42,6 +46,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +61,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -87,8 +94,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -100,11 +109,13 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,11 +125,13 @@ import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import se.soderbjorn.lunamux.FileBrowserContent
 import se.soderbjorn.lunamux.AgentContent
 import se.soderbjorn.lunamux.GitContent
 import se.soderbjorn.lunamux.LeafNode
+import se.soderbjorn.lunamux.android.data.AppLocalRepository
 import se.soderbjorn.lunamux.android.net.ConnectionHolder
 import se.soderbjorn.lunamux.client.closeTab
 import se.soderbjorn.lunamux.client.renamePane
@@ -131,16 +144,102 @@ import se.soderbjorn.lunamux.client.viewmodel.OverviewBackingViewModel.OverviewT
 import se.soderbjorn.lunamux.client.viewmodel.OverviewBackingViewModel.UnlistedTab
 
 /**
- * Fraction of the switcher row's width one card occupies.
+ * Fraction of the switcher row's width one card occupies at [SwitcherZoom.In] —
+ * the widest a card is ever drawn, and the reference every other level is a
+ * fraction of.
  *
- * Nearly all of it. The OS switcher spends a fifth of its width on peeking
- * neighbours because its cards are app screenshots you recognise at a glance; a
- * card here is a terminal you have to *read*, so the screen goes to the text and
- * the neighbours are reduced to a sliver at the edges. The row still snaps and
- * flings the same way.
- *
+ * This was once the only card size, on the reasoning that a card here is a
+ * terminal you have to read rather than an app screenshot you recognise at a
+ * glance. Reading one card is not what a switcher is for, though: at nearly the
+ * full width there is no seeing how many tabs there are or where you are among
+ * them, which is the whole point of the idiom. It is now the zoomed-*in*
+ * posture, and [SwitcherZoom.Default] — the OS switcher's own proportions — is
+ * what the row opens at.
  */
 internal const val SWITCHER_CARD_FRACTION = 0.89f
+
+/**
+ * The three postures the card row snaps between under a pinch, as the fraction
+ * of the row's width one card takes up **on screen**.
+ *
+ * Cards scale in BOTH dimensions, never width alone. A thumbnail fits its box by
+ * filling the height and cropping the columns that overflow the width (see
+ * [TerminalThumbnail]), so a card squeezed horizontally at full height would show
+ * *less of the terminal* the further you zoomed out — the exact opposite of what
+ * zooming out is for. Scaling uniformly keeps the same window of text in view at
+ * every level and only changes how large it is drawn.
+ *
+ * A level is a real layout — the cards are measured at its size, not drawn
+ * shrunken from a bigger one — and only the pinch that moves between two levels
+ * is a transform. [SwitcherCardRow] says why that distinction is load-bearing
+ * and what it costs to keep.
+ *
+ * What a level does change is the stride, and with it the scroll offset that
+ * centres a given card, so committing one re-centres the row. Everything else
+ * the row measures off its own geometry — the fling's edge maths, the dock's
+ * fractional focus, a tap's visible fraction — is expressed in strides and
+ * viewports and needs no adjusting at all.
+ *
+ * @property cardFraction the on-screen card width as a fraction of the row's.
+ */
+internal enum class SwitcherZoom(val cardFraction: Float) {
+    /**
+     * Both neighbours mostly in view either side of the centred card — a bit over
+     * two tabs on screen, read as shapes and colours (where the panes sit, which
+     * one is a wall of output) with their titles above them.
+     *
+     * Not smaller than this, however tempting three-across is. Cards keep their
+     * aspect, so the width you take off comes off the height too, and much below
+     * here the row is a thin band of postage stamps stranded in the middle of an
+     * empty screen.
+     */
+    Out(0.45f),
+
+    /**
+     * The OS switcher's own proportions, near enough: one card still large enough
+     * to read, with both neighbours showing at the edges — which is what says at
+     * a glance that there are more tabs and which way they lie.
+     */
+    Default(0.62f),
+
+    /** One card at nearly the full width — the reading posture. */
+    In(SWITCHER_CARD_FRACTION),
+    ;
+
+    /**
+     * How much of an [In] card this level's card measures, in **both**
+     * dimensions — the factor a card's height is taken down by, since its width
+     * is already [cardFraction] of a row whose height it no longer fills.
+     */
+    val cardScale: Float get() = cardFraction / SWITCHER_CARD_FRACTION
+
+    companion object {
+        /**
+         * The level [name] names, or [Default] for anything else.
+         *
+         * Deliberately total rather than throwing: the name comes off disk (see
+         * `LocalState.switcherZoom`), and a file written by a build with a
+         * different set of levels should land on the default, not crash the
+         * overview.
+         *
+         * @param name a persisted level name, or `null`/`""` when none was stored.
+         * @return the level to open at.
+         */
+        fun ofName(name: String?): SwitcherZoom =
+            entries.firstOrNull { it.name == name } ?: Default
+
+        /**
+         * The level whose [cardFraction] is nearest [fraction] — where a pinch
+         * lands when the fingers lift.
+         *
+         * @param fraction the card width the gesture ended on, as a fraction of
+         *   the row's.
+         * @return the level to settle to.
+         */
+        fun nearest(fraction: Float): SwitcherZoom =
+            entries.minByOrNull { abs(it.cardFraction - fraction) } ?: Default
+    }
+}
 
 /**
  * The switcher's vertical rhythm: the gap above the cards, between the cards and
@@ -148,13 +247,39 @@ internal const val SWITCHER_CARD_FRACTION = 0.89f
  *
  * The dock used to sit flush against the bottom edge with the card row's leftover
  * slack above it, so it read as stuck to the bottom of the screen rather than as
- * one of three evenly spaced bands. Cards now fill their row exactly and this is
- * the only vertical spacing in the switcher.
+ * one of three evenly spaced bands. This is now the only vertical spacing the
+ * switcher applies: the card row fills the band it is given, and the air around
+ * the cards inside it belongs to the zoom level (see [SwitcherZoom]).
  */
 internal val SwitcherEdgeGap = 12.dp
 
 /** Corner radius of a switcher card. */
 internal val SwitcherCardCorner = 20.dp
+
+/**
+ * Distance between two cards. Constant across the zoom levels rather than scaled
+ * with them: at [SwitcherZoom.Out] a proportional gap left the cards nearly
+ * touching, and what separates them there is a job for a fixed few dp.
+ */
+private val SwitcherCardGap = 16.dp
+
+/**
+ * Type size of the tab title drawn above a card.
+ *
+ * The title is what makes zooming out navigable: at [SwitcherZoom.Out] a card's
+ * text is closer to shape than to words, so its name is what says which tab you
+ * are looking at — the same job the app name does above a card in the OS
+ * switcher, and it goes in the same place.
+ * It has no room at [SwitcherZoom.In], where the card fills its row, and needs
+ * none: there is only the one card to be looking at.
+ */
+private val SwitcherLabelSize = 13.sp
+
+/** Gap between a card's top edge and its title. @see SwitcherLabelSize */
+private val SwitcherLabelGap = 7.dp
+
+/** Line height of a card's title. @see SwitcherLabelSize */
+private val SwitcherLabelHeight = 18.dp
 
 /**
  * The overview content: the switcher card row + bottom tab dock (or, while
@@ -218,6 +343,18 @@ fun OverviewContent(
     // Rename / close dialog targets raised from a tab chip's context menu.
     var renameTabTarget by remember { mutableStateOf<OverviewTab?>(null) }
     var closeTabTarget by remember { mutableStateOf<OverviewTab?>(null) }
+
+    // The zoom posture the switcher opens at, read from local state ONCE rather
+    // than observed: from here on the row owns the level (a pinch is the only
+    // thing that changes it), and a flow collected into the layout would fight
+    // the gesture that just wrote to it. Hydration is a file read started at
+    // process launch, long finished by the time there is a connection to show
+    // tabs from — and the fallback if it somehow is not is the default level the
+    // user would have been given anyway, so nothing can flash the wrong size.
+    val localRepository = remember { AppLocalRepository.instance }
+    val initialZoom = remember {
+        SwitcherZoom.ofName(localRepository.state.value?.switcherZoom)
+    }
 
     val tabs = state.tabs
     val activeIndex = tabs.indexOfFirst { it.isActive }.coerceAtLeast(0)
@@ -365,13 +502,18 @@ fun OverviewContent(
                     canvasFor(editingTab, true)
                 }
             } else {
-                // App-switcher card row: one card per tab at ~70% width in the
-                // screen's aspect, free momentum flinging with center snap,
-                // neighbors peeking in from both sides.
+                // App-switcher card row: one card per tab, at whichever of the
+                // three pinch levels the user last settled on, free momentum
+                // flinging with center snap, neighbours peeking in from both
+                // sides.
                 SwitcherCardRow(
                     tabs = tabs,
                     rowListState = rowListState,
                     centeredIndex = centeredIndex,
+                    initialZoom = initialZoom,
+                    onZoomChanged = { level ->
+                        scope.launch { localRepository.setSwitcherZoom(level.name) }
+                    },
                     onCenter = { index -> scope.launch { rowListState.animateScrollToItem(index) } },
                     onDiveTab = diveIntoTab,
                     onDiveAt = { tab, fractionX, fractionY ->
@@ -664,6 +806,12 @@ private fun Modifier.midSettleTapWatcher(
             val travelY = change.position.y - down.position.y
             if (abs(travelX) > travelLimit || abs(travelY) > travelLimit) dragged = true
             if (change.positionChange() != Offset.Zero && change.isConsumed) dragged = true
+            // A second finger means a pinch (see switcherPinch), never a tap. The
+            // consumption test above catches one that has already claimed the
+            // gesture, but a pinch still short of its slop has consumed nothing
+            // yet, and two fingers put down and lifted together would otherwise
+            // dive.
+            if (event.changes.count { it.pressed } > 1) dragged = true
             if (!change.pressed) {
                 lift = change
                 break
@@ -761,30 +909,72 @@ private fun roomToEdge(rowListState: LazyListState, forward: Boolean): Float? {
 }
 
 /**
- * The app-switcher card row: one rounded card per tab, nearly filling the surface,
- * in a snapping [LazyRow] with free momentum flinging — so moving across many tabs
- * is one gesture, not one swipe per tab. The neighbours are reduced to slivers at
- * the edges, because a card here is a terminal to be read rather than an app
- * screenshot to be recognised.
+ * Stiffness of the settle onto a zoom level when the fingers lift, and its
+ * damping ratio.
+ *
+ * Much firmer than the row's own settle ([SWITCHER_SNAP_STIFFNESS]): that spring
+ * is soft because it carries a card most of the way across the screen, while this
+ * one only closes the few percent of scale between where the pinch stopped and
+ * the nearest level. At the row's stiffness the cards went on creeping long after
+ * the fingers were gone.
+ */
+private const val SWITCHER_ZOOM_STIFFNESS = 400f
+
+/** Damping ratio of the zoom settle; 1 lands on the level without overshoot. */
+private const val SWITCHER_ZOOM_DAMPING = 1f
+
+/**
+ * The app-switcher card row: one rounded card per tab in a snapping [LazyRow]
+ * with free momentum flinging — so moving across many tabs is one gesture, not
+ * one swipe per tab — pinchable between the three [SwitcherZoom] levels.
+ *
+ * **A level is a real layout; only the gesture itself is a transform.** At rest
+ * the cards are *measured* at the level's size, so a thumbnail is drawn at that
+ * size rather than sampled down from a larger one, and — the reason it matters
+ * most — the dive's shared bounds are the card's true layout bounds. Shared
+ * elements take their bounds from the lookahead pass, which does not see an
+ * ancestor's [graphicsLayer], so a row left permanently scaled would fly the
+ * dive from a rect that is not the card you tapped.
+ *
+ * While a pinch is in flight the row instead previews the new size with exactly
+ * that transform, and lands the layout on it when the fingers lift. That keeps
+ * the gesture cheap — the cards' constraints never change during it, so no card
+ * is remeasured or recomposed while fingers are down, only re-placed — and the
+ * transform is gone (an exact identity) by the time anything can be tapped. The
+ * row is measured at the inverse of the preview so that the cards the transform
+ * is about to reveal are already composed, rather than sliding in from a blank
+ * margin at the commit.
+ *
+ * The commit changes the stride, which is the one thing zooming does that the
+ * row's own maths cannot absorb, so it re-centres in the same breath — with
+ * [LazyListState.requestScrollToItem], applied by the very measure pass the new
+ * size triggers, rather than by a scroll a frame later.
  *
  * Browsing is passive: it never activates a tab server-side. What a tap does
  * depends on how much of the card is on screen — a sliver only centres it, a card
- * you can actually read opens it — and while the row is moving each card watches
- * the pointer itself, because a press that stops a settle can be cancelled before
- * any clickable sees it. Selection semantics live in the caller
- * ([OverviewContent]); the motion constants are documented where they are declared.
+ * you can actually read opens it, which zoomed out is every card you can see, as
+ * in the OS switcher. While the row is moving each card watches the pointer
+ * itself, because a press that stops a settle can be cancelled before any
+ * clickable sees it. Selection semantics live in the caller ([OverviewContent]);
+ * the motion constants are documented where they are declared.
  *
  * @param tabs          the tabs to render, one card each.
  * @param rowListState  the hoisted row state ([OverviewContent] re-keys it per
  *   world and drives centering from server echoes).
  * @param centeredIndex index of the card the row is on; its panes take their own
- *   taps, every other card is covered by a gate.
+ *   taps, every other card is covered by a gate, and a zoom re-centres on it.
+ * @param initialZoom   the level to open at, read from local state by the caller.
+ *   The row owns the level from then on — a pinch is the only thing that moves it.
+ * @param onZoomChanged a pinch settled on a level other than the one it started
+ *   from; the caller persists it.
  * @param onCenter      center the card at the given index.
  * @param onDiveTab     open a tab's own target pane (its focused, else topmost).
  * @param onDiveAt      open whatever pane sits at the given fraction of a card,
  *   used by the mid-settle tap watcher so a multi-pane card opens what was touched.
  * @param modifier      layout modifier from the caller.
  * @param cardContent   the card's content for a tab (the tab's exposé canvas).
+ * @see SwitcherZoom
+ * @see switcherPinch
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -792,86 +982,258 @@ private fun SwitcherCardRow(
     tabs: List<OverviewTab>,
     rowListState: LazyListState,
     centeredIndex: Int,
+    initialZoom: SwitcherZoom,
+    onZoomChanged: (SwitcherZoom) -> Unit,
     onCenter: (Int) -> Unit,
     onDiveTab: (OverviewTab) -> Unit,
     onDiveAt: (OverviewTab, Float, Float) -> Unit,
     modifier: Modifier = Modifier,
     cardContent: @Composable (OverviewTab) -> Unit,
 ) {
+    // The level the row is laid out at, and the in-gesture preview of the next
+    // one as a multiple of it — exactly 1 whenever no pinch is in flight.
+    var zoom by remember { mutableStateOf(initialZoom) }
+    var preview by remember { mutableFloatStateOf(1f) }
+    val zoomScope = rememberCoroutineScope()
+    // The settle after a pinch, held so the next pinch can take the scale back
+    // off it mid-flight instead of the two writing over each other.
+    var settle by remember { mutableStateOf<Job?>(null) }
+
+    // The level the titles are dressed for. Set the moment a pinch is released
+    // rather than when the layout lands on it, so a title fades out over the
+    // settle instead of after it — at In there is no slack above a card, and a
+    // title still fading there would be doing it above the row entirely.
+    var titledZoom by remember { mutableStateOf(initialZoom) }
+
+    // Faded rather than popped, and held as a State read in the *draw* phase, so
+    // the fade costs no recomposition of the cards it is drawn over.
+    val labelAlpha = animateFloatAsState(
+        targetValue = if (titledZoom == SwitcherZoom.In) 0f else 1f,
+        label = "switcher-card-title",
+    )
+
     BoxWithConstraints(modifier) {
-        val cardWidth = maxWidth * SWITCHER_CARD_FRACTION
-        // The card fills the row it is given; the breathing room around the
-        // switcher is [SwitcherEdgeGap], applied once by the caller.
-        val cardHeight = maxHeight
-        val sidePadding = (maxWidth - cardWidth) / 2
+        val cardWidth = maxWidth * zoom.cardFraction
+        // Both dimensions, always: see SwitcherZoom for what happens to a
+        // thumbnail in a card narrowed at full height.
+        val cardHeight = maxHeight * zoom.cardScale
+        // Sized against the preview so the row composes what the preview reveals;
+        // at rest `preview` is 1 and these are the surface itself.
+        val rowWidth = maxWidth / preview
+        val rowHeight = maxHeight / preview
+        // Symmetric padding of (viewport - card)/2 makes item offset 0 the
+        // centered position, so snap positions and scrollToItem(i) both
+        // land cards dead-center — including the first and last.
+        val sidePadding = (rowWidth - cardWidth) / 2
         val cardShape = RoundedCornerShape(SwitcherCardCorner)
 
-        LazyRow(
-            state = rowListState,
-            flingBehavior = rememberSwitcherFlingBehavior(rowListState),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            // Symmetric padding of (viewport - card)/2 makes item offset 0 the
-            // centered position, so snap positions and scrollToItem(i) both
-            // land cards dead-center — including the first and last.
-            contentPadding = PaddingValues(horizontal = sidePadding),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
-                // No distance-from-centre scale or fade: the carousel effect was
-                // one more thing moving during a fling, and it read as the row
-                // fighting its own settle rather than as depth. Cards are flat and
-                // identical; the dock carries the depth cue instead.
-                Box(
-                    modifier = Modifier
-                        .width(cardWidth)
-                        .height(cardHeight)
-                        .clip(cardShape)
-                        .background(SidebarSurface.copy(alpha = 0.35f))
-                        // A hairline, never the accent: the panes inside draw
-                        // their own outline (accented when focused), so an
-                        // accent ring around the card read as a double border.
-                        // Which tab is server-active is said by its dock chip.
-                        .border(
-                            width = 1.dp,
-                            color = SidebarTextSecondary.copy(alpha = 0.22f),
-                            shape = cardShape,
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .requiredSize(rowWidth, rowHeight)
+                .graphicsLayer {
+                    scaleX = preview
+                    scaleY = preview
+                }
+                .switcherPinch(
+                    onPinch = { step ->
+                        settle?.cancel()
+                        // Clamped in the level's own terms: the preview may reach
+                        // the outermost and innermost levels and no further, so a
+                        // pinch pushed past one stops dead rather than banking up
+                        // travel it would have to give back before responding.
+                        preview = (preview * step).coerceIn(
+                            SwitcherZoom.Out.cardFraction / zoom.cardFraction,
+                            SwitcherZoom.In.cardFraction / zoom.cardFraction,
                         )
-                        // Watches for a tap that lands while the row is moving.
-                        // On the card, NOT laid over it — see the modifier's doc.
-                        .midSettleTapWatcher(
-                            index = index,
-                            rowListState = rowListState,
-                            onCenter = onCenter,
-                        ) { fractionX, fractionY -> onDiveAt(tab, fractionX, fractionY) },
-                ) {
-                    cardContent(tab)
-                    if (index != centeredIndex) {
-                        // A card that is not the centred one still gets a gate, so
-                        // a pane's own taps and long-press menu cannot fire on a
-                        // card the row is not on. What the gate DOES depends on how
-                        // much of that card you can see: a sliver at the edge only
-                        // centres, but a card already filling most of the screen —
-                        // which is what the incoming card looks like for the whole
-                        // length of a settle — opens, because tapping the thing you
-                        // are looking at should not have to wait for an animation.
-                        Box(
-                            Modifier
-                                .matchParentSize()
-                                .combinedClickable(
-                                    onClick = {
-                                        if (visibleFraction(rowListState, index) >= CARD_TAP_DIVE_FRACTION) {
-                                            onDiveTab(tab)
-                                        } else {
-                                            onCenter(index)
-                                        }
-                                    },
-                                    onLongClick = { onCenter(index) },
+                    },
+                    onPinchEnd = {
+                        val target = SwitcherZoom.nearest(zoom.cardFraction * preview)
+                        titledZoom = target
+                        settle = zoomScope.launch {
+                            animate(
+                                initialValue = preview,
+                                targetValue = target.cardFraction / zoom.cardFraction,
+                                animationSpec = spring(
+                                    dampingRatio = SWITCHER_ZOOM_DAMPING,
+                                    stiffness = SWITCHER_ZOOM_STIFFNESS,
                                 ),
+                            ) { value, _ -> preview = value }
+                            // Hand the preview over to the layout. Both writes land
+                            // before the next frame is composed, so the transform is
+                            // never seen off a size it no longer matches; the
+                            // re-centre rides the measure pass they trigger, because
+                            // a new card width is a new stride and the scroll offset
+                            // that centred this card is no longer the same number.
+                            val changed = target != zoom
+                            zoom = target
+                            preview = 1f
+                            rowListState.requestScrollToItem(centeredIndex)
+                            if (changed) onZoomChanged(target)
+                        }
+                    },
+                ),
+        ) {
+            LazyRow(
+                state = rowListState,
+                flingBehavior = rememberSwitcherFlingBehavior(rowListState),
+                horizontalArrangement = Arrangement.spacedBy(SwitcherCardGap),
+                verticalAlignment = Alignment.CenterVertically,
+                contentPadding = PaddingValues(horizontal = sidePadding),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                itemsIndexed(tabs, key = { _, tab -> tab.id }) { index, tab ->
+                    // No distance-from-centre scale or fade: the carousel effect was
+                    // one more thing moving during a fling, and it read as the row
+                    // fighting its own settle rather than as depth. Cards are flat and
+                    // identical; the dock carries the depth cue instead.
+                    Box(
+                        modifier = Modifier
+                            .width(cardWidth)
+                            .height(cardHeight),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(cardShape)
+                                .background(SidebarSurface.copy(alpha = 0.35f))
+                                // A hairline, never the accent: the panes inside draw
+                                // their own outline (accented when focused), so an
+                                // accent ring around the card read as a double border.
+                                // Which tab is server-active is said by its dock chip.
+                                .border(
+                                    width = 1.dp,
+                                    color = SidebarTextSecondary.copy(alpha = 0.22f),
+                                    shape = cardShape,
+                                )
+                                // Watches for a tap that lands while the row is moving.
+                                // On the card, NOT laid over it — see the modifier's doc.
+                                .midSettleTapWatcher(
+                                    index = index,
+                                    rowListState = rowListState,
+                                    onCenter = onCenter,
+                                ) { fractionX, fractionY -> onDiveAt(tab, fractionX, fractionY) },
+                        ) {
+                            cardContent(tab)
+                            if (index != centeredIndex) {
+                                // A card that is not the centred one still gets a gate, so
+                                // a pane's own taps and long-press menu cannot fire on a
+                                // card the row is not on. What the gate DOES depends on how
+                                // much of that card you can see: a sliver at the edge only
+                                // centres, but a card already filling most of the screen —
+                                // which is what the incoming card looks like for the whole
+                                // length of a settle, and what every neighbour looks like
+                                // once zoomed out — opens, because tapping the thing you
+                                // are looking at should not have to wait for an animation.
+                                Box(
+                                    Modifier
+                                        .matchParentSize()
+                                        .combinedClickable(
+                                            onClick = {
+                                                if (visibleFraction(rowListState, index) >= CARD_TAP_DIVE_FRACTION) {
+                                                    onDiveTab(tab)
+                                                } else {
+                                                    onCenter(index)
+                                                }
+                                            },
+                                            onLongClick = { onCenter(index) },
+                                        ),
+                                )
+                            }
+                        }
+
+                        // The tab's name, in the slack above the card that every
+                        // level but In leaves. Offset out of the card rather than
+                        // laid out above it, so the card's box stays exactly the
+                        // card — which is what a tap's fractions and the dive's
+                        // shared bounds are measured against.
+                        Text(
+                            text = tab.title,
+                            color = SidebarTextSecondary,
+                            fontSize = SwitcherLabelSize,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .offset(y = -(SwitcherLabelGap + SwitcherLabelHeight))
+                                .padding(horizontal = SwitcherCardCorner)
+                                .graphicsLayer { alpha = labelAlpha.value },
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Watch for a two-finger pinch and report it, taking the gesture off the row it
+ * is attached to for as long as one lasts.
+ *
+ * Sits on the row's container rather than over it: pointer events reach an
+ * ancestor in the [PointerEventPass.Initial] pass before the [LazyRow] inside
+ * ever sees them, so this can claim a gesture the row would otherwise scroll on
+ * without an overlay swallowing everything else (see [midSettleTapWatcher] for
+ * what an overlay costs here).
+ *
+ * A pinch has to earn the gesture. Until the fingers' separation has changed by
+ * more than the touch slop, relative to how far apart they are, nothing is
+ * consumed and the row scrolls as usual — two fingers dragging together are a
+ * scroll, and treating every second finger as a zoom made the row jitter whenever
+ * a thumb brushed it. Once it *is* a pinch it stays one until every finger is up,
+ * even while only one of them is left: handing the tail of the gesture back would
+ * fling the row out from under a zoom the user is still finishing.
+ *
+ * Reported as a per-event *step* rather than as a total, so a pinch picks up from
+ * wherever the row is drawn — mid-settle from the last one included — and so a
+ * pinch held past a limit has no travel banked up to undo before it responds
+ * again in the other direction.
+ *
+ * The callbacks are held through [rememberUpdatedState] rather than keyed into
+ * [pointerInput]: they close over the row's live state, and a key that changed
+ * with them would tear down the gesture loop mid-pinch, while a stale copy would
+ * settle the zoom against whatever the row looked like when the switcher opened.
+ *
+ * @param onPinch    a frame's scale change, as a multiplier of the current scale.
+ * @param onPinchEnd every finger is up and the scale should settle onto a level.
+ * @return this modifier, with the watcher attached.
+ * @see SwitcherCardRow
+ */
+@Composable
+private fun Modifier.switcherPinch(
+    onPinch: (Float) -> Unit,
+    onPinchEnd: () -> Unit,
+): Modifier {
+    val pinch by rememberUpdatedState(onPinch)
+    val pinchEnd by rememberUpdatedState(onPinchEnd)
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var ratio = 1f
+            var pinching = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.none { it.pressed }) break
+                if (event.changes.count { it.pressed } >= 2) {
+                    // Both helpers ignore a pointer that was not already down last
+                    // event, so the frame a second finger arrives reports no change
+                    // rather than a jump from a one-finger "distance" of zero.
+                    val step = event.calculateZoom()
+                    ratio *= step
+                    if (!pinching) {
+                        val span = event.calculateCentroidSize(useCurrent = false)
+                        if (span > 0f && abs(1f - ratio) * span > viewConfiguration.touchSlop) {
+                            pinching = true
+                        }
+                    } else if (step != 1f) {
+                        pinch(step)
+                    }
+                }
+                if (pinching) {
+                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                }
+            }
+            if (pinching) pinchEnd()
         }
     }
 }

@@ -77,6 +77,10 @@ const val LOCAL_STATE_FILE_NAME: String = "local_state.json"
  *   suppressed; cleared by [LocalRepository.clearDismissed].
  * @property lastCheckEpochMillis epoch-millis of the last completed news/update
  *   check, or `null` if none has completed.
+ * @property switcherZoom the overview switcher's zoom posture, by name (Android's
+ *   `SwitcherZoom`), or `""` for "never chosen". Stored as the name rather than a
+ *   number so the file stays readable and so a level added or renamed later
+ *   degrades to the default instead of to whatever else that number now means.
  * @see LocalRepository
  */
 @Serializable
@@ -86,6 +90,7 @@ data class LocalState(
     val dismissedNewsIds: Set<String> = emptySet(),
     val dismissedUpdateVersionCode: Long? = null,
     val lastCheckEpochMillis: Long? = null,
+    val switcherZoom: String = "",
 )
 
 /**
@@ -309,6 +314,20 @@ class LocalRepository(
     @Throws(CancellationException::class, Exception::class)
     suspend fun setOnboardingSeen(seen: Boolean) {
         mutate { it.copy(onboardingSeen = seen) }
+    }
+
+    /**
+     * Persist the overview switcher's zoom posture so it survives a restart.
+     *
+     * Called by the Android overview when a pinch settles on a new level; a
+     * posture the user has chosen is theirs until they change it, not something
+     * to relearn every launch.
+     *
+     * @param level the level's name, or `""` to forget the choice.
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setSwitcherZoom(level: String) {
+        mutate { it.copy(switcherZoom = level) }
     }
 
     /**
