@@ -57,8 +57,19 @@ private val log = LoggerFactory.getLogger("McpRoutes")
 /** Header carrying the MCP session id (per the streamable-HTTP spec). */
 private const val SESSION_HEADER = "Mcp-Session-Id"
 
-/** Keepalive cadence for SSE responses while a tool call blocks. */
-private const val SSE_KEEPALIVE_MS = 15_000L
+/**
+ * Keepalive cadence for SSE responses while a tool call blocks.
+ *
+ * **Must stay comfortably below Netty's `responseWriteTimeoutSeconds`
+ * (default 10s)** — that handler tears down any HTTP/1.1 connection whose
+ * response goes that long without producing bytes. HTTP/2 clients are
+ * exempt, so a too-slow cadence fails only for HTTP/1.1 callers: notably
+ * Node/undici, and therefore Claude Code, whose watch tools all died at
+ * exactly 10s until this was lowered from 15s.
+ *
+ * @see McpSseKeepaliveTest
+ */
+private const val SSE_KEEPALIVE_MS = 5_000L
 
 /**
  * Authorize an `/mcp` request. On failure the response has already been
@@ -122,6 +133,13 @@ fun Route.mcpRoutes(
             call.respondTextWriter(ContentType.Text.EventStream) {
                 coroutineScope {
                     val pending = async { McpServer.handleMessage(body, scope, session) }
+                    // Flush one keepalive up front so the response headers and
+                    // a first byte reach the client immediately. Without this
+                    // the whole SSE_KEEPALIVE_MS window elapses before anything
+                    // is written, which both starves Netty's write timeout and
+                    // leaves clients unsure the stream ever opened.
+                    write(": keepalive\n\n")
+                    flush()
                     while (true) {
                         val finished = withTimeoutOrNull(SSE_KEEPALIVE_MS) { pending.join() }
                         if (finished != null) break
