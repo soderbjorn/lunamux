@@ -1,7 +1,7 @@
 /**
  * The face terminal content is drawn with, shared by every view that shows PTY output:
  * the full-screen Termux [com.termux.view.TerminalView] in [TerminalScreen] and the
- * [MiniTerminalPane] miniatures in the overview/tiled grid.
+ * [TerminalThumbnail] miniatures in the overview/tiled grid.
  *
  * It lives in one place because the font is not just a look: it carries the per-glyph
  * fallback chain that keeps terminal symbols out of the colour emoji font (issue #141).
@@ -65,7 +65,7 @@ object TerminalFont {
      * rebuild the collection on every recomposition.
      *
      * Called by the [com.termux.view.TerminalView] factory in [TerminalScreen] and by
-     * [MiniTerminalPane].
+     * [TerminalThumbnail].
      *
      * @param context supplies the [android.content.res.AssetManager] the fonts are read from;
      *   only the application context is retained.

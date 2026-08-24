@@ -2,10 +2,12 @@
  * Main app composable and navigation graph for the Lunamux Android app.
  *
  * Defines the [LunamuxApp] composable which sets up a Jetpack Navigation
- * [NavHost] with horizontal-slide transitions. Routes include hosts selection,
- * tree overview, terminal sessions, file browser (list and content), and git
- * (list and diff). All destinations are driven by URI-style route parameters
- * for pane IDs, session IDs, and file paths.
+ * [NavHost] with horizontal-slide transitions, except tree↔terminal which
+ * cross-fades under a shared-element "dive" (the tapped overview card morphs
+ * into the terminal's content box — see [DiveTransition]). Routes include
+ * hosts selection, tree overview, terminal sessions, file browser (list and
+ * content), and git (list and diff). All destinations are driven by URI-style
+ * route parameters for pane IDs, session IDs, and file paths.
  *
  * On connection, fetches the user's theme config from the server, resolves it
  * to a flat [se.soderbjorn.lunula.core.ResolvedTheme], and provides it via
@@ -22,7 +24,11 @@ package se.soderbjorn.lunamux.android.ui
 
 import android.content.Context
 import android.net.Uri
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
@@ -80,6 +86,7 @@ import se.soderbjorn.lunamux.WindowConfig
  * @see se.soderbjorn.lunamux.android.MainActivity
  * @see LocalUiSettings
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun LunamuxApp(applicationContext: Context) {
     // First-launch onboarding gate, sourced from the shared LocalRepository.
@@ -240,6 +247,11 @@ fun LunamuxApp(applicationContext: Context) {
         colorScheme = colorScheme,
     ) {
       CompositionLocalProvider(LocalUiSettings provides theme) {
+       // The dive transition's shared-element overlay lives at this layout; the
+       // scope is published so the two ends (overview card, terminal box) can
+       // attach diveSharedBounds without threading receivers through screens.
+       SharedTransitionLayout {
+        CompositionLocalProvider(LocalSharedTransitionScope provides this) {
         NavHost(
             navController = navController,
             startDestination = "hosts",
@@ -278,7 +290,29 @@ fun LunamuxApp(applicationContext: Context) {
                     onOpenNews = { navController.navigate("news") },
                 )
             }
-            composable("tree") {
+            composable(
+                "tree",
+                // Toward/from the terminal the tree must not slide — a sliding
+                // source/target warps the shared-element flight path — so those
+                // legs cross-fade and the dive overlay carries the motion.
+                // Returning null falls back to the NavHost-level slides for
+                // every other neighbor (files/git/news).
+                exitTransition = {
+                    if (targetState.destination.route?.startsWith("terminal/") == true) {
+                        fadeOut(tween(durationMillis = 300))
+                    } else {
+                        null
+                    }
+                },
+                popEnterTransition = {
+                    if (initialState.destination.route?.startsWith("terminal/") == true) {
+                        fadeIn(tween(durationMillis = 300))
+                    } else {
+                        null
+                    }
+                },
+            ) {
+                CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
                 TreeScreen(
                     themeVm = themeVm,
                     onOpenTerminal = { sessionId ->
@@ -298,6 +332,7 @@ fun LunamuxApp(applicationContext: Context) {
                     },
                     onOpenNews = { navController.navigate("news") },
                 )
+                }
             }
             composable("news") {
                 NewsUpdatesScreen(onBack = { navController.popBackStack() })
@@ -305,12 +340,21 @@ fun LunamuxApp(applicationContext: Context) {
             composable(
                 route = "terminal/{sessionId}",
                 arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+                // Fades on every leg: the dive overlay (shared bounds between the
+                // overview card and the terminal box) carries the motion, and a
+                // slide underneath it would warp the flight path.
+                enterTransition = { fadeIn(tween(durationMillis = 300)) },
+                exitTransition = { fadeOut(tween(durationMillis = 300)) },
+                popEnterTransition = { fadeIn(tween(durationMillis = 300)) },
+                popExitTransition = { fadeOut(tween(durationMillis = 300)) },
             ) { backStackEntry ->
                 val sessionId = backStackEntry.arguments?.getString("sessionId") ?: return@composable
+                CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
                 TerminalScreen(
                     sessionId = sessionId,
                     onBack = { navController.popBackStack() },
                 )
+                }
             }
             composable(
                 route = "files/{paneId}",
@@ -394,6 +438,8 @@ fun LunamuxApp(applicationContext: Context) {
                 )
             }
         }
+        }
+       }
       }
     }
 }

@@ -451,10 +451,17 @@ fun TreeScreen(
     }
     LaunchedEffect(overviewVm) { overviewVm?.run() }
 
-    // The active (non-hidden) tab and its on-canvas pane count drive the
-    // overview toolbar actions (add pane → this tab; layout miniatures →
-    // this pane count). Derived from the already-collected config + minimized
-    // set so we don't need a second state subscription.
+    // The card the overview is browsing, reported by OverviewContent (null
+    // whenever the overview is not composed — list mode, or a dive in
+    // progress). Browsing the switcher row deliberately never activates a tab
+    // server-side, so this is what the toolbar must target: without it, "new
+    // pane" and the layout presets land on the off-screen active tab.
+    var browsedTabId by remember { mutableStateOf<String?>(null) }
+
+    // The tab the overview toolbar acts on, and its on-canvas pane count (add
+    // pane → this tab; layout miniatures → this pane count). Derived from the
+    // already-collected config + minimized set so we don't need a second state
+    // subscription.
     // Resolve the active world once (its tabs / activeTabId are the source of
     // truth for >=1.9 clients); fall back to the legacy flat fields when the
     // config carries no worlds.
@@ -465,8 +472,13 @@ fun TreeScreen(
         worldActiveTabId?.takeIf { id -> worldTabs.any { it.id == id && !it.isHidden } }
             ?: worldTabs.firstOrNull { !it.isHidden }?.id
     }
-    val overviewActivePaneCount = worldTabs
-        .firstOrNull { it.id == overviewActiveTabId }
+    // The browsed card wins over the server-active tab, but only while it is
+    // still a tab of this world (a close or a world switch falls back).
+    val overviewTargetTabId = browsedTabId
+        ?.takeIf { id -> worldTabs.any { it.id == id } }
+        ?: overviewActiveTabId
+    val overviewTargetPaneCount = worldTabs
+        .firstOrNull { it.id == overviewTargetTabId }
         ?.panes?.count { it.leaf.id !in minimizedPaneIds } ?: 0
 
     // The active tab's persisted layout preset, read from the toolkit-owned
@@ -476,7 +488,7 @@ fun TreeScreen(
     // re-applying; one-shot presets relax to "custom" on the next manual edit
     // (issue #59). Null when no preset is recorded for the tab.
     val rawLayout by client.windowState.rawLayoutState.collectAsStateWithLifecycle()
-    val overviewActivePreset = overviewActiveTabId?.let { tabId ->
+    val overviewTargetPreset = overviewTargetTabId?.let { tabId ->
         WindowLayoutState.parse(rawLayout).presetByTab[tabId]?.let { LayoutPreset.fromKey(it) }
     }
 
@@ -614,11 +626,11 @@ fun TreeScreen(
 
     if (showLayoutSheet) {
         LayoutSheet(
-            paneCount = overviewActivePaneCount,
-            activePreset = overviewActivePreset,
+            paneCount = overviewTargetPaneCount,
+            activePreset = overviewTargetPreset,
             onSelect = { preset ->
                 showLayoutSheet = false
-                val tabId = overviewActiveTabId ?: return@LayoutSheet
+                val tabId = overviewTargetTabId ?: return@LayoutSheet
                 scope.launch { overviewVm?.applyLayout(tabId, preset) }
             },
             onDismiss = { showLayoutSheet = false },
@@ -643,7 +655,7 @@ fun TreeScreen(
             },
             onNewPane = { kind ->
                 showCreateSheet = false
-                val tabId = overviewActiveTabId
+                val tabId = overviewTargetTabId
                 if (tabId != null) {
                     scope.launch { overviewVm?.addPane(tabId, kind) }
                 }
@@ -868,6 +880,7 @@ fun TreeScreen(
                         onOpenTerminal = onOpenTerminal,
                         onOpenFileBrowser = onOpenFileBrowser,
                         onOpenGit = onOpenGit,
+                        onBrowsedTabChanged = { id -> browsedTabId = id },
                     )
                 }
                 SessionsViewMode.LIST -> {
