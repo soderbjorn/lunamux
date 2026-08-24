@@ -244,6 +244,12 @@ class MiniTerminalRegistry(
             // thumbnail sizes its emulator directly in the Size collector below.
             // A thumbnail never takes input, so the input handler is a no-op.
             serverGridPin = java.util.concurrent.atomic.AtomicReference(null),
+            // No clipboard for a thumbnail. It replays the same output stream as the
+            // real pane, OSC 52 included, so honouring a program's clipboard request
+            // here would let merely opening the overview overwrite what the user
+            // copied — once per thumbnail of the session. There is no selection bar
+            // to paste from either.
+            appContext = null,
             handleInput = {},
         )
         val emulator = createSyncedEmulator(session)

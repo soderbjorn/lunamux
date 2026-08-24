@@ -2,7 +2,6 @@ package com.termux.view;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
-import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -21,7 +20,6 @@ import android.view.HapticFeedbackConstants;
 import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
-import android.view.Menu;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -35,7 +33,6 @@ import android.view.inputmethod.InputConnection;
 import android.widget.OverScroller;
 import android.widget.Scroller;
 
-import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
 import com.termux.terminal.KeyHandler;
@@ -592,14 +589,6 @@ public final class TerminalView extends View {
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
 
-    /** This must be called by the hosting activity in {@link Activity#onContextMenuClosed(Menu)}
-     * when context menu for the {@link TerminalView} is started by
-     * {@link TextSelectionCursorController#ACTION_MORE} is closed. */
-    public void onContextMenuClosed(Menu menu) {
-        // Unset the stored text since it shouldn't be used anymore and should be cleared from memory
-        unsetStoredSelectedText();
-    }
-
     /**
      * Sets the text size, which in turn sets the number of rows and columns.
      *
@@ -884,6 +873,11 @@ public final class TerminalView extends View {
             return true;
         } else if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             if (event.isButtonPressed(MotionEvent.BUTTON_SECONDARY)) {
+                // LUNAMUX: no-op in this app, and left as-is deliberately. showContextMenu()
+                // needs a host that overrides onCreateContextMenu, which a Compose activity does
+                // not provide -- the same reason the selection bar's "More…" was dead. This is
+                // the hardware-mouse path though, so there is nothing to see on a phone and no
+                // behaviour worth changing blind. Wire it up if a mouse ever matters here.
                 if (action == MotionEvent.ACTION_DOWN) showContextMenu();
                 return true;
             } else if (event.isButtonPressed(MotionEvent.BUTTON_TERTIARY)) {
@@ -1717,17 +1711,6 @@ public final class TerminalView extends View {
             return mTextSelectionCursorController.getSelectedText();
         else
             return null;
-    }
-
-    /** Get the selected text stored before "MORE" button was pressed on the context menu. */
-    @Nullable
-    public String getStoredSelectedText() {
-        return mTextSelectionCursorController != null ? mTextSelectionCursorController.getStoredSelectedText() : null;
-    }
-
-    /** Unset the selected text stored before "MORE" button was pressed on the context menu. */
-    public void unsetStoredSelectedText() {
-        if (mTextSelectionCursorController != null) mTextSelectionCursorController.unsetStoredSelectedText();
     }
 
     private ActionMode getTextSelectionActionMode() {
