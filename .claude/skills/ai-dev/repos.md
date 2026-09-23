@@ -10,6 +10,7 @@ per-repo details live in `config.json`, not here.
 | Lunicle (issue tracker) | `/Users/soderbjorn/repo-private/lunicle/main` | https://github.com/soderbjorn/lunicle |
 | Lunamux (terminal) | `/Users/soderbjorn/repo-private/lunamux/main` | https://github.com/soderbjorn/lunamux |
 | LunaPin (bookmark manager) | `/Users/soderbjorn/repo-private/lunapin/main` | https://github.com/soderbjorn/lunapin |
+| TreeFacts (outliner) | `/Users/soderbjorn/repo-private/treefacts/main` | https://github.com/soderbjorn/treefacts |
 | Lunula (UI toolkit) | `/Users/soderbjorn/repo-private/lunula/main` | https://github.com/soderbjorn/lunula |
 
 Worktrees are **siblings of the main checkout**, never nested inside it:
