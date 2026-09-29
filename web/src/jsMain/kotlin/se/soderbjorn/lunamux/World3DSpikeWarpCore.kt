@@ -192,6 +192,50 @@ private fun setWarpShadow(p: RingPane, shadow: String) {
 }
 
 /**
+ * Writes the core ring's pulsing **opacity + scale**, quantized to [WARP_GLOW_ALPHA_STEP] and
+ * skipped entirely when the snapped pair is unchanged ([RingPane.lastCoreKey]).
+ *
+ * The reactor breath is a slow sine, so at 60 Hz successive frames differ by a fraction of a
+ * percent — far below anything visible, but every write is a style recalc, and a *changed*
+ * transform is a fresh composite. Snapping both takes a charging pane from 60 writes/second to
+ * a handful and lets a settled one go completely quiet, which is what allows Chromium to hold
+ * the pane's raster instead of rebuilding it. Same trick, same reason, as [setWarpShadow].
+ *
+ * The two use **different** steps: opacity shares the halo's [WARP_GLOW_ALPHA_STEP], while scale
+ * gets the far finer [WARP_RING_SCALE_STEP] — see that constant for why a shared step would turn
+ * the breath into a visible stutter.
+ *
+ * @param p the pane. @param opacity the ring opacity (0..1). @param scale the ring scale factor.
+ * @see tickWarpCore @see WARP_GLOW_ALPHA_STEP @see WARP_RING_SCALE_STEP
+ */
+private fun setWarpCorePulse(p: RingPane, opacity: Double, scale: Double) {
+    val core = p.warpCore ?: return
+    val o = quantizeWarpAlpha(opacity)
+    val s = kotlin.math.round(scale / WARP_RING_SCALE_STEP) * WARP_RING_SCALE_STEP
+    val key = "$o/$s"
+    if (key != p.lastCoreKey) {
+        core.style.opacity = o.toString()
+        core.style.transform = "scale($s)"
+        p.lastCoreKey = key
+    }
+}
+
+/**
+ * Writes the inner heat veil's **opacity**, quantized and skipped when unchanged
+ * ([RingPane.lastHeatKey]) — the veil keeps its `mix-blend-mode`, so leaving its opacity alone
+ * on a steady reactor is what keeps that blend from costing anything. @see setWarpCorePulse
+ */
+private fun setWarpHeatOpacity(p: RingPane, opacity: Double) {
+    val heat = p.warpHeat ?: return
+    val o = quantizeWarpAlpha(opacity)
+    val key = o.toString()
+    if (key != p.lastHeatKey) {
+        heat.style.opacity = key
+        p.lastHeatKey = key
+    }
+}
+
+/**
  * Per-pane driver of the warp-core charge / awaiting HOLD, called from the render loop's
  * per-pane pass **only when [spikeStatusIndication]** — right after this pane's live
  * `working` / `waiting` state is resolved. It advances the pane's charge, drives its inner
@@ -213,13 +257,22 @@ internal fun tickWarpCore(p: RingPane, phaseIdx: Int, working: Boolean, waiting:
     // On a **light** theme the pane surface is bright, and a `screen`-blended ring lightens
     // toward white → invisible. Switch the ring + heat to `multiply` there (darkens toward
     // the reactor colour, so the ring reads as a bright coloured ring on the light pane).
-    val ringBlend = if (warpLightSurface()) "multiply" else "screen"
-    // PERF: mix-blend-mode changes only on a theme surface flip — apply it to both layers only
-    // then, instead of re-setting the same value on every pane every frame. @see RingPane.lastRingBlend
-    if (ringBlend != p.lastRingBlend) {
-        p.warpCore?.let { it.style.setProperty("mix-blend-mode", ringBlend) }
-        p.warpHeat?.let { it.style.setProperty("mix-blend-mode", ringBlend) }
-        p.lastRingBlend = ringBlend
+    //
+    // On a **dark** surface the ring now blends nothing at all ([WARP_RING_BLURLESS]): screening
+    // a bright glow over a near-black pane is within a hair of compositing it normally, and
+    // dropping the blend (with the filter, in [applyRingSurface]) is what lets the pane keep a
+    // cached tile instead of flashing transparent under tile-memory pressure. The **heat veil**
+    // keeps its blend on both surfaces — it lies directly over the terminal text, where `screen`
+    // preserves the glyphs and normal compositing would haze them — and is instead kept cheap by
+    // the quantized opacity write below, so a steady reactor stops touching it.
+    val lightSurface = warpLightSurface()
+    val heatBlend = if (lightSurface) "multiply" else "screen"
+    // PERF: these change only on a theme surface flip — apply them only then, instead of
+    // re-setting the same values on every pane every frame. @see RingPane.lastRingBlend
+    if (heatBlend != p.lastRingBlend) {
+        p.warpCore?.let { applyRingSurface(it, lightSurface) }
+        p.warpHeat?.let { it.style.setProperty("mix-blend-mode", heatBlend) }
+        p.lastRingBlend = heatBlend
     }
 
     // --- charge dynamics (per-60fps-frame rates scaled by spikeDtFrames) ---------------
@@ -272,13 +325,13 @@ internal fun tickWarpCore(p: RingPane, phaseIdx: Int, working: Boolean, waiting:
         p.warpCore?.let {
             // PERF: the ring gradient is constant — assign it only on change (a re-parse invalidates the layer).
             if (WARP_RING_AMBER_ACTIVE != p.lastRingBg) { it.style.background = WARP_RING_AMBER_ACTIVE; p.lastRingBg = WARP_RING_AMBER_ACTIVE }
-            it.style.opacity = inten.toString()
-            it.style.transform = "scale(${0.7 + inten * 0.42})"
         }
+        // PERF: quantized + skipped when unchanged, so a steadily-held reactor stops writing.
+        setWarpCorePulse(p, inten, 0.7 + inten * 0.42)
         p.warpHeat?.let {
             if (WARP_HEAT_AMBER_BG != p.lastHeatBg) { it.style.background = WARP_HEAT_AMBER_BG; p.lastHeatBg = WARP_HEAT_AMBER_BG }
-            it.style.opacity = (inten * 0.4).toString()
         }
+        setWarpHeatOpacity(p, inten * 0.4)
         setWarpBorder(p, WARP_AMBER_HEX)
         // PERF: pin the halo blur radius (charge reads through the pulsing alpha) instead of
         // growing it every frame — see [WARP_GLOW_BLUR_PINNED] for the revert switch.
@@ -313,13 +366,13 @@ internal fun tickWarpCore(p: RingPane, phaseIdx: Int, working: Boolean, waiting:
         p.warpCore?.let {
             // PERF: the ring gradient is constant — assign it only on change (a re-parse invalidates the layer).
             if (WARP_RING_BLUE_ACTIVE != p.lastRingBg) { it.style.background = WARP_RING_BLUE_ACTIVE; p.lastRingBg = WARP_RING_BLUE_ACTIVE }
-            it.style.opacity = minOf(1.0, intensity * 0.95).toString()
-            it.style.transform = "scale(${0.66 + intensity * 0.4})"
         }
+        // PERF: quantized + skipped when unchanged, so a fully-charged / idle reactor stops writing.
+        setWarpCorePulse(p, minOf(1.0, intensity * 0.95), 0.66 + intensity * 0.4)
         p.warpHeat?.let {
             if (WARP_HEAT_BLUE_BG != p.lastHeatBg) { it.style.background = WARP_HEAT_BLUE_BG; p.lastHeatBg = WARP_HEAT_BLUE_BG }
-            it.style.opacity = (intensity * WARP_HEAT_MAX).toString()
         }
+        setWarpHeatOpacity(p, intensity * WARP_HEAT_MAX)
         // Border tints from the resting edge toward reactor blue as it charges; the outward
         // halo is a box-shadow (not clipped by the wrapper's overflow:hidden).
         val bc = maxOf(intensity, if (p.dischargePhase >= 0.0) 0.5 else 0.0)
@@ -618,6 +671,8 @@ internal fun resetWarpCoreVisuals() {
         p.lastRingBg = null
         p.lastRingBlend = null
         p.lastHeatBg = null
+        p.lastCoreKey = null
+        p.lastHeatKey = null
         p.lastBorderCol = null
         p.lastShadowKey = null
         // chargeProg is eased back to rest by its own cooldown path, so it relaxes
@@ -668,24 +723,49 @@ private fun ensureWarpHeat(p: RingPane) {
 
 /**
  * Lazily builds this pane's **core ring** — the signature big glowing ring of light: a
- * screen-blended, heavily blurred radial-ellipse gradient ([WARP_RING_BLUE]) filling the pane
- * interior, transparent in the centre so the terminal reads through. Rides *inside* the
- * wrapper (so it tracks the pane's 3D transform), at z-index:1 — above the terminal + heat
- * veil, below the z-index:2 title bar. Its outer soft edge is clipped by the wrapper's
- * `overflow:hidden`, but the bright ring sits well inside the box and the outward bleed is
- * carried by the pane's box-shadow. [tickWarpCore] pulses its opacity, scale and colour each
- * frame. No-op once built. @see tickWarpCore
+ * radial-ellipse gradient ([WARP_RING_BLUE_ACTIVE]) filling the pane interior, transparent in
+ * the centre so the terminal reads through. Rides *inside* the wrapper (so it tracks the pane's
+ * 3D transform), at z-index:1 — above the terminal + heat veil, below the z-index:2 title bar.
+ * Its outer soft edge is clipped by the wrapper's `overflow:hidden`, but the bright ring sits
+ * well inside the box and the outward bleed is carried by the pane's box-shadow. [tickWarpCore]
+ * pulses its opacity, scale and colour. No-op once built.
+ *
+ * PERF: the ring is built **bare** — no `mix-blend-mode`, no `filter` — which is what lets
+ * `will-change:opacity,transform` actually earn the element its own composited layer, so the
+ * per-frame opacity/scale are re-composites rather than repaints. A blend mode would deny it a
+ * layer (blending must read its backdrop — the live terminal text right underneath), and a
+ * `filter` would re-run its whole Gaussian on every `scale` write, since a filter radius is
+ * authored in element-local px and so is not scale-invariant. Together those two were what
+ * pushed a big near-camera pane past the compositor's tile budget, where Chromium has no cached
+ * raster to fall back on and draws the plane **transparent** for a frame. [tickWarpCore] re-adds
+ * both, and only both, on a light pane surface — see there for why that path keeps them.
+ * @see tickWarpCore @see WARP_RING_BLURLESS
  */
 private fun ensureWarpCore(p: RingPane) {
     if (p.warpCore != null) return
     val core = document.createElement("div") as HTMLElement
-    // PERF: [WARP_RING_BLUR_ACTIVE] collapses to a small residual blur (with a pre-softened
-    // gradient) when [WARP_RING_LOWCOST] is on — see the constant for the revert switch.
     core.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;" +
-        "mix-blend-mode:screen;filter:blur(${WARP_RING_BLUR_ACTIVE}px);will-change:opacity,transform;" +
-        "background:$WARP_RING_BLUE_ACTIVE;"
+        "will-change:opacity,transform;background:$WARP_RING_BLUE_ACTIVE;"
     p.wrapper.appendChild(core)
     p.warpCore = core
+}
+
+/**
+ * Applies (or clears) the ring's surface-dependent `mix-blend-mode` + `filter`, called only when
+ * the surface actually flips. @see tickWarpCore @see WARP_RING_BLURLESS
+ */
+private fun applyRingSurface(core: HTMLElement, lightSurface: Boolean) {
+    // The **blend** is surface-dependent and cannot simply be dropped on a light pane: an
+    // unblended bright ring over a white surface reads as a pale wash rather than a ring, so
+    // `multiply` stays there. The **filter** is not surface-dependent at all — the
+    // [WARP_RING_BLUE_GLOW] stops carry their own softness on either surface — and it is the
+    // filter, not the blend, that couples the ring's per-frame `scale` to a full re-raster. So
+    // the blur goes on both surfaces, and only the blend is branched.
+    if (WARP_RING_BLURLESS) core.style.removeProperty("filter")
+    else core.style.setProperty("filter", "blur(${WARP_RING_BLUR_ACTIVE}px)")
+    if (lightSurface) core.style.setProperty("mix-blend-mode", "multiply")
+    else if (WARP_RING_BLURLESS) core.style.removeProperty("mix-blend-mode")
+    else core.style.setProperty("mix-blend-mode", "screen")
 }
 
 /** The inner-heat radial gradient for a reactor colour (bare `r,g,b`), concentrated low like the spec's `.heat`. */

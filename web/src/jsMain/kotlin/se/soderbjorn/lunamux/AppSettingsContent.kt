@@ -98,8 +98,10 @@ private const val KEY_EXPERIMENTAL_WEB_BROWSER = "experimentalWebBrowser"
  * [KEY_EXPERIMENTAL_WEB_BROWSER] user preference: BOTH must be true for
  * creation to be offered.
  *
- * When `false` (the current state — the feature is held back until we decide to
- * ship it):
+ * Currently `true`: the "Enable web browser" row is shown in App Settings and
+ * the "New Web Browser" entry is offered unless the user opts out.
+ *
+ * When `false` (the feature held back):
  *  - the "Enable web browser" row is **not rendered** in App Settings at all
  *    ([buildExperimentalSection]), so the user can't flip the preference, and
  *  - [isExperimentalWebBrowserEnabled] short-circuits to `false`, so the "New
@@ -115,7 +117,7 @@ private const val KEY_EXPERIMENTAL_WEB_BROWSER = "experimentalWebBrowser"
  * @see isExperimentalWebBrowserEnabled
  * @see buildExperimentalSection
  */
-internal const val WEB_BROWSER_PANE_CREATION_ENABLED = false
+internal const val WEB_BROWSER_PANE_CREATION_ENABLED = true
 
 /** Persistence key for the experimental 3D world mode flag. */
 private const val KEY_EXPERIMENTAL_WORLD3D = "experimentalWorld3d"

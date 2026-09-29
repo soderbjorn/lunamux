@@ -107,6 +107,19 @@ internal class RingPane(
     var baseFont: Int,
     var baseCw: Int,
     var baseCh: Int,
+    /**
+     * The font shrink factor currently applied to this pane to bound its **raster** footprint,
+     * 1.0 = native. See [applyPaneRasterFit]; inert unless [SPIKE_PANE_RASTER_FIT].
+     */
+    var rasterFit: Double = 1.0,
+    /**
+     * This pane's box at its *native* font ([baseFont]) — what [baseCw]/[baseCh] would be with
+     * [rasterFit] at 1.0. Captured by [presentPaneToGrid] whenever the pane is unshrunk, so the
+     * fit factor is always derived from the native size and cannot drift by being recomputed
+     * against its own previous output. 0 until first presented.
+     */
+    var natCw: Int = 0,
+    var natCh: Int = 0,
     var normScale: Double,
     var birth: Double = 1.0,
     var dying: Boolean = false,
@@ -280,6 +293,17 @@ internal class RingPane(
      * colour); skipped when unchanged, like [lastRingBg]. @see tickWarpCore
      */
     var lastHeatBg: String? = null,
+    /**
+     * PERF cache — the last (quantized) `opacity` + `transform:scale` pair written to [warpCore],
+     * and the last `opacity` written to [warpHeat]. The reactor breath is a slow sine, so at 60 Hz
+     * consecutive frames differ by far less than the eye can see; snapping both to
+     * [WARP_GLOW_ALPHA_STEP] and skipping the write when unchanged takes a steady reactor from 60
+     * DOM writes/second down to a handful, and lets a *settled* one stop touching the DOM at all —
+     * which is what allows the pane to hold a cached compositor tile instead of re-rasterizing.
+     * Reset to `null` by [resetWarpCoreVisuals]. @see tickWarpCore @see WARP_GLOW_ALPHA_STEP
+     */
+    var lastCoreKey: String? = null,
+    var lastHeatKey: String? = null,
     /**
      * PERF cache — the last `border-color` the reactor path wrote to [wrapper]. Constant while a
      * pane holds amber, so most frames skip the write; the blue charge tint still writes as it

@@ -45,6 +45,65 @@ import se.soderbjorn.lunamux.three.PerspectiveCamera
 import se.soderbjorn.lunamux.three.Scene
 
 /**
+ * Whether the world is currently **standing still** — nothing flying, nothing easing, the camera
+ * not being moved. Consulted once a frame by [tickBobIdle], which parks the idle bob when this
+ * has held for [BOB_IDLE_SETTLE_FRAMES].
+ *
+ * The camera is judged by comparing its *stored* pose against [spikeCamPosePrev] rather than by
+ * asking each thing that might be driving it — a tour, a cinematic return, free-flight velocity,
+ * a shelf pan all move the same nine numbers, so watching the numbers covers every driver
+ * (including any added later) with no list to keep in sync. Everything else defers to
+ * [cinematicInFlight], which already aggregates the intro, world transit, wormholes, the return,
+ * a stash chase, a phaser death, unparked bundles and panes mid-stash-flight; this adds only what
+ * it does not cover — carousel scroll, latch flexes, and spawn/despawn eases.
+ *
+ * Deliberately **not** consulted: pane opacity fades, reactor charge, terminal output. None of
+ * them move a plane, so none of them need the bob alive to look right.
+ *
+ * @param settled whether the tab / pane carousel scrolls have arrived (computed by the loop).
+ * @return true when no plane's world transform is being driven by anything this frame.
+ * @see tickBobIdle @see cinematicInFlight
+ */
+internal fun worldMotionless(settled: Boolean): Boolean {
+    if (!settled || cinematicInFlight() || spikeShelfPanTargetX != null) return false
+    val pose = doubleArrayOf(
+        spikeCamX, spikeCamY, spikeCamZ,
+        spikeCamFx, spikeCamFy, spikeCamFz,
+        spikeCamUx, spikeCamUy, spikeCamUz,
+    )
+    for (i in pose.indices) if (abs(pose[i] - spikeCamPosePrev[i]) > CAM_STILL_EPS) return false
+    if (spikePanes.any { it.flexPhase >= 0.0 }) return false
+    if (spikePanes.any { it.birth > 0.001 && it.birth < 0.999 }) return false
+    if (spikeEmptyTabs.any { it.birth > 0.001 && it.birth < 0.999 }) return false
+    return true
+}
+
+/**
+ * Eases [spikeBobLevel] toward 0 while the world reads motionless and back to 1 the instant it
+ * does not, and snapshots the camera pose for the next frame's comparison. Called once per frame
+ * from [startSpikeLoop], *before* the per-pane pass applies the bob.
+ *
+ * The level has to reach a hard zero ([BOB_IDLE_SNAP]) rather than merely approach it: the whole
+ * point is that every pane's `matrix3d` string stops changing, and a sub-pixel residual would
+ * keep it changing just as effectively as a visible one.
+ *
+ * @param settled whether the carousel scrolls have arrived. @see worldMotionless
+ */
+internal fun tickBobIdle(settled: Boolean) {
+    if (worldMotionless(settled)) spikeStillFrames += spikeDtFrames else spikeStillFrames = 0.0
+    val target = if (spikeStillFrames >= BOB_IDLE_SETTLE_FRAMES) 0.0 else 1.0
+    // Clamped because the ease is dt-scaled: one long frame (a backgrounded tab waking up) can
+    // otherwise step straight past the target and ring around it.
+    spikeBobLevel = (spikeBobLevel + (target - spikeBobLevel) * BOB_IDLE_EASE * spikeDtFrames)
+        .coerceIn(0.0, 1.0)
+    if (target == 0.0 && spikeBobLevel < BOB_IDLE_SNAP) spikeBobLevel = 0.0
+    if (target == 1.0 && spikeBobLevel > 1.0 - BOB_IDLE_SNAP) spikeBobLevel = 1.0
+    spikeCamPosePrev[0] = spikeCamX; spikeCamPosePrev[1] = spikeCamY; spikeCamPosePrev[2] = spikeCamZ
+    spikeCamPosePrev[3] = spikeCamFx; spikeCamPosePrev[4] = spikeCamFy; spikeCamPosePrev[5] = spikeCamFz
+    spikeCamPosePrev[6] = spikeCamUx; spikeCamPosePrev[7] = spikeCamUy; spikeCamPosePrev[8] = spikeCamUz
+}
+
+/**
  * Paints a pane's **focus / current-target outline** each frame:
  *  - a **thick solid** accent outline on the pane you're *engaged* in (typing) or, in
  *    command center, selecting — matched by identity ([spikeLastEngagedPane]) rather than
@@ -318,8 +377,12 @@ internal fun startSpikeLoop() {
             // would slide the whole screen up and down through the one beat where the promise is
             // "nothing moved". (It would stay 1:1 — the bob is a pure Y translation and doesn't
             // change the replica's camera-space depth — but it would visibly drift.)
+            //
+            // Scaled by [spikeBobLevel] so the float parks with the rest of the bob once the
+            // world stands still — the camera's transform is the CSS3D *container's*, so a
+            // camera that never stops moving re-transforms every plane beneath it at once.
             val camBob = if (spikeBobEnabled && !spikeCamReturning && spikeIntro == null)
-                sin(spikeBobPhase) * BOB_AMPLITUDE else 0.0
+                sin(spikeBobPhase) * BOB_AMPLITUDE * spikeBobLevel else 0.0
             val bx = spikeCamX
             val by = spikeCamY + camBob
             val bz = spikeCamZ
@@ -334,6 +397,11 @@ internal fun startSpikeLoop() {
         val curSel = (spikeTabSel.getOrNull(cur) ?: 0).toDouble()
         spikePaneScroll += (curSel - spikePaneScroll) * PANE_EASE
         val settled = abs(spikeTabScroll - cur) < SETTLE_EPS && abs(spikePaneScroll - curSel) < SETTLE_EPS
+        // PERF: decide how much idle bob to apply this frame, and snapshot the camera pose for
+        // the next frame's stillness test. Runs here — after the camera block has written this
+        // frame's pose and after `settled` is known — so `camBob` above rides one frame behind,
+        // which at [BOB_IDLE_EASE] is invisible. @see tickBobIdle
+        tickBobIdle(settled)
         val fi = frontIndex()
         // The **current** pane — the one an action (focus, glide, grid, reformat, zoom,
         // stash) would act on: the command center's selected pane, or, in free flight, the
@@ -385,7 +453,9 @@ internal fun startSpikeLoop() {
         // "Working" breath + idle bob: shared per-frame phases, and a snapshot of
         // the live session state map, computed once and applied to every pane.
         spikePulsePhase += WORKING_PULSE_SPEED
-        spikeBobPhase += BOB_SPEED
+        // Hold the bob phase while it is fully parked, so the float resumes from where it
+        // stopped rather than jumping to wherever the sine wandered while nobody was looking.
+        if (spikeBobLevel > 0.0) spikeBobPhase += BOB_SPEED
         spikeBorderDash -= WORKING_BORDER_SPEED // negative → dashes travel forward round the path
         spikeWaitPhase += WAITING_PULSE_SPEED
         // Warp-core wall-clock (seconds): the reactor breath / awaiting heartbeat / ping
@@ -595,7 +665,7 @@ internal fun startSpikeLoop() {
                 // in selection mode so a drag-select target isn't drifting), or when the
                 // pane is up on / heading to the shelf so it rests there; otherwise bob.
                 val holdStill = engagedThis || (i == fi && spikeSelectionMode) || onShelf
-                if (spikeBobEnabled && !holdStill) py += sin(spikeBobPhase + i * BOB_STAGGER) * BOB_AMPLITUDE
+                if (spikeBobEnabled && !holdStill) py += sin(spikeBobPhase + i * BOB_STAGGER) * BOB_AMPLITUDE * spikeBobLevel
                 if (i != fi) {
                     pz -= SIDE_Z_PUSH * ns
                     // Hard occlusion guarantee: the fixed push above is aesthetic and
@@ -627,7 +697,7 @@ internal fun startSpikeLoop() {
                     // slot so neighbours drift out of sync — the same gentle bob the ring
                     // panes have, now on the dock. @see BOB_AMPLITUDE
                     if (spikeBobEnabled) {
-                        py += sin(spikeBobPhase + p.stashSlot * BOB_STAGGER) * BOB_AMPLITUDE * stashE
+                        py += sin(spikeBobPhase + p.stashSlot * BOB_STAGGER) * BOB_AMPLITUDE * stashE * spikeBobLevel
                     }
                 }
                 p.obj.position.set(px, py, pz)
@@ -842,7 +912,16 @@ internal fun startSpikeLoop() {
                 if (parent != null && parent.lastElementChild !== front.wrapper) parent.appendChild(front.wrapper)
             }
 
+            val wasSettledAt = spikeSettledIndex
             spikeSettledIndex = if (settled) fi else -1
+            // PERF: re-fit every pane's raster footprint when the carousel arrives on a NEW front
+            // pane — the incoming front is restored to its native font (1:1 PTY truth) and the
+            // outgoing one is shrunk back to the ring's screen box. Keyed on the settle, not run
+            // per frame: assigning `fontSize` rebuilds xterm's renderer. Inert unless
+            // [SPIKE_PANE_RASTER_FIT]. @see applyPaneRasterFit
+            if (SPIKE_PANE_RASTER_FIT && settled && spikeSettledIndex != wasSettledAt) {
+                for ((j, q) in spikePanes.withIndex()) applyPaneRasterFit(q, isFront = j == fi)
+            }
             // A pane no longer auto-reformats when it settles at the front: that
             // reflow could blank some panes' content on arrival. The user now presses
             // `r` to reformat the front pane on demand. See [reformatFront].
@@ -860,7 +939,7 @@ internal fun startSpikeLoop() {
             c.obj.scale.set(bs, bs, bs)
             var py = -sin(phi) * RING_R
             val pz = cos(phi) * RING_R
-            if (spikeBobEnabled) py += sin(spikeBobPhase + c.tabOrd * BOB_STAGGER) * BOB_AMPLITUDE
+            if (spikeBobEnabled) py += sin(spikeBobPhase + c.tabOrd * BOB_STAGGER) * BOB_AMPLITUDE * spikeBobLevel
             c.obj.position.set(0.0, py, pz)
             c.obj.rotation.set(phi, 0.0, 0.0)
             // Same two-regime fade as the panes (see the pane loop above): latitude

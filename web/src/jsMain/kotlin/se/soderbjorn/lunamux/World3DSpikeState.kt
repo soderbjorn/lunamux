@@ -298,8 +298,36 @@ internal var spikeBorderDash = 0.0
 /** Advancing phase (radians) for the urgent "needs input" ([WAITING_GLOW_COLOR]) halo breath; ticked each frame. */
 internal var spikeWaitPhase = 0.0
 
-/** Advancing phase (radians) for the idle up/down **bob** of unfocused panes; ticked each frame. */
+/**
+ * Advancing phase (radians) for the idle up/down **bob** of unfocused panes. Ticked each frame
+ * *unless* the bob is fully parked ([spikeBobLevel] at 0), where holding the phase means the
+ * float resumes from where it stopped instead of jumping to wherever the sine had wandered.
+ */
 internal var spikeBobPhase = 0.0
+
+/**
+ * PERF — how much of the idle bob is currently applied, 0 (parked) to 1 (full). Multiplies
+ * every [BOB_AMPLITUDE] term: the pane bob, the docked-pane bob, the empty-tab-card bob, the
+ * parked-bundle bob and the camera's spaceship bob. Eased toward 0 once [worldMotionless] has
+ * held for [BOB_IDLE_SETTLE_FRAMES] and snapped back to 1 the moment anything moves, so a
+ * motionless world produces byte-identical `matrix3d` strings and `CSS3DRenderer` stops writing
+ * them — which is what lets Chromium keep a cached raster per pane.
+ * @see BOB_IDLE_SETTLE_FRAMES @see tickBobIdle
+ */
+internal var spikeBobLevel = 1.0
+
+/** Consecutive frames [worldMotionless] has read true; the bob parks past [BOB_IDLE_SETTLE_FRAMES]. @see tickBobIdle */
+internal var spikeStillFrames = 0.0
+
+/**
+ * The camera pose as it stood at the end of the previous frame — position, forward and up,
+ * **before** the bob is folded in — so [worldMotionless] can tell "the camera is being moved" from
+ * "the camera is merely floating". Compared component-wise against the live [spikeCamX] etc.
+ * Snapshotting the stored pose rather than enumerating the things that write it means every
+ * driver (a tour, a return, free-flight velocity, a shelf pan) is covered without naming any.
+ * @see worldMotionless
+ */
+internal var spikeCamPosePrev = DoubleArray(9)
 
 /**
  * The home beacon's inner **spin group** (its `rotation.y` is the spin about the

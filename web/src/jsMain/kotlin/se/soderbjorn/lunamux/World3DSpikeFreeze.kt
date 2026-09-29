@@ -96,6 +96,33 @@ internal fun paneInStashFlight(p: RingPane): Boolean {
 }
 
 /**
+ * Whether [p] is mid-flight in the **entry / exit cinematic** — launched from the 2D panel and not
+ * yet landed on the ring (or the reverse, on the way out).
+ *
+ * The intro is the single heaviest moment in the world's life: a full `cloneNode` replica of the
+ * 2D shell is on screen *at the same time* as every real pane, all of them under 3D transforms and
+ * all of them moving, so two complete copies of the app's DOM are being rasterized every frame.
+ * That is when panes are most likely to be drawn as a bare box with no terminal text in it — the
+ * cheap parts of the plane make the frame and the expensive live-DOM text does not.
+ *
+ * Deliberately gated on the pane having actually **launched** (`phase >= startFrame`) rather than
+ * merely being enrolled in [IntroTransit.flights]: every pane is enrolled the moment flights are
+ * planned, so freezing on enrolment would paint a dozen snapshot canvases in a single frame and
+ * buy a hitch at the exact moment the cinematic starts. Launches are staggered
+ * ([INTRO_FLY_STAGGER]), so keying on them spreads the snapshots over the take-off.
+ *
+ * @param p the pane to test.
+ * @return `true` while the pane is mid-cinematic-flight, `false` when no cinematic is playing,
+ *   when this pane has yet to launch, or once it has landed.
+ * @see tickPaneFreeze @see SPIKE_FREEZE_INTRO_ENABLED
+ */
+private fun paneInIntroFlight(p: RingPane): Boolean {
+    val intro = spikeIntro ?: return false
+    val f = intro.flights[p.paneId] ?: return false
+    return intro.phase >= f.startFrame
+}
+
+/**
  * Whether [p] is *sitting at rest at the stash site* — a member of a parked tab bundle
  * ([BundleState.PARKED]), or a lone pane that has finished flying up and rests on the shelf
  * (in [spikeStashed] with [RingPane.stashProg] at its clamped `1.0`). Distinct from at-rest
@@ -135,11 +162,14 @@ internal fun tickPaneFreeze() {
         return
     }
     for (p in spikePanes) {
-        // Always freeze the journey; freeze the destination (parked stack / shelf) only when
-        // the parked flag opts in — off by default, so every parked pane paints live.
-        val freeze = paneInStashFlight(p) ||
-            (SPIKE_FREEZE_PARKED_ENABLED && paneParkedAtStash(p))
-        if (freeze) freezePaneSnapshot(p) else thawPaneSnapshot(p)
+        // Always freeze the journey — the stash flight, and (when opted in) the entry/exit
+        // cinematic's flight; freeze the destination (parked stack / shelf) only when the parked
+        // flag opts in — off by default, so every parked pane paints live.
+        val stash = paneInStashFlight(p) || (SPIKE_FREEZE_PARKED_ENABLED && paneParkedAtStash(p))
+        val intro = SPIKE_FREEZE_INTRO_ENABLED && paneInIntroFlight(p)
+        // Only the stash flight takes a layer with its snapshot; the cinematic moves every pane
+        // at once, where the retained surfaces cost more than they save. @see freezePaneSnapshot
+        if (stash || intro) freezePaneSnapshot(p, promote = stash) else thawPaneSnapshot(p)
     }
 }
 
@@ -164,9 +194,14 @@ internal fun tickPaneFreeze() {
  *
  * @param p the pane to freeze; mutated ([RingPane.freezeCanvas], [container] visibility, and
  *   the wrapper's `will-change` hint).
+ * @param promote whether to also take the `will-change:transform` layer. True for a stash flight,
+ *   where one or a few sheets move and a retained surface each is a bargain. **False** for the
+ *   entry cinematic, where every pane flies at once: a dozen retained surfaces at device pixel
+ *   ratio is itself enough to blow the tile budget — measured, not assumed — and the snapshot
+ *   already removes the expensive half (the live text raster) without it.
  * @see tickPaneFreeze @see thawPaneSnapshot @see renderTerminalGrid
  */
-private fun freezePaneSnapshot(p: RingPane) {
+private fun freezePaneSnapshot(p: RingPane, promote: Boolean = true) {
     if (p.freezeCanvas != null) return
     if (p.kind != PaneKind.TERMINAL) return
     val term = p.term ?: return
@@ -195,7 +230,7 @@ private fun freezePaneSnapshot(p: RingPane) {
     // instead of repainting the sheet (blurred shadow / reactor halo included) every frame.
     // NB: NOT backface-visibility:hidden — the bundle reveal-spin turns a full 360° so each
     // sheet's (mirrored) back is meant to show mid-flight; hiding it would blink the pane out.
-    p.wrapper.style.setProperty("will-change", "transform")
+    if (promote) p.wrapper.style.setProperty("will-change", "transform")
 }
 
 /**

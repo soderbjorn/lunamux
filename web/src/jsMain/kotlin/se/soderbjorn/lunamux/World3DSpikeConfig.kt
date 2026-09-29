@@ -286,6 +286,71 @@ internal const val BOB_SPEED = 0.007 // slow, ~15s float — a drift, not a wobb
 internal const val BOB_STAGGER = 1.3
 
 /**
+ * PERF — **park the bob** once the world has been motionless for [BOB_IDLE_SETTLE_FRAMES].
+ *
+ * The bob is a lovely touch while you are moving through the world and a surprisingly expensive
+ * one while you are not. Being a sine, it never repeats a value: every frame it hands three.js a
+ * fresh Y for every pane (and, via [World3DSpikeRender] `camBob`, for the camera), so
+ * `CSS3DRenderer` — which otherwise skips objects whose `matrix3d` string is unchanged — rewrites
+ * the transform on **every plane, forever**, even on a world nobody is touching. Chromium can
+ * therefore never settle on a cached raster for a pane, and when one is large and near the camera
+ * the re-raster misses the frame budget and the plane is drawn **transparent** for a frame.
+ * Letting the scene go genuinely still is what puts a cached tile back under it.
+ *
+ * [spikeBobLevel] eases to 0 after the world reads motionless ([worldMotionless]) and snaps back
+ * to 1 the instant anything moves, so the float dissolves and returns rather than popping.
+ * Getting the verdict *wrong* is cheap in both directions: a false "still" only fades the bob out
+ * for a beat (whatever is actually easing keeps easing under its own state), and a false "moving"
+ * just leaves things as they are today.
+ *
+ * @see worldMotionless @see spikeBobLevel
+ */
+internal const val BOB_IDLE_SETTLE_FRAMES = 45.0
+
+/** Per-frame ease of [spikeBobLevel] toward its target — a ~0.5s dissolve either way. @see BOB_IDLE_SETTLE_FRAMES */
+internal const val BOB_IDLE_EASE = 0.08
+
+/**
+ * Below this, [spikeBobLevel] snaps to exactly 0. An asymptotic approach would leave a
+ * sub-pixel-but-nonzero offset changing every frame — which is precisely the `matrix3d` churn the
+ * park exists to stop — so it has to reach a hard zero to be worth anything.
+ * @see BOB_IDLE_SETTLE_FRAMES
+ */
+internal const val BOB_IDLE_SNAP = 0.004
+
+/**
+ * **Feature flag** for bounding each side pane's *raster* footprint by shrinking its font, so a
+ * plane that is only ever displayed small is not also rasterized huge. **Off by default** — it
+ * has not been measured on a real session yet, and everything it touches (cell metrics, the plane
+ * box, the front pane's 1:1 PTY truth) is load-bearing. Flip to `true` to try it.
+ *
+ * Motivation, from a real session's console: seventeen panes reporting boxes up to 2115×1110 px,
+ * 16.5 Mpx of layout between them — roughly 264 MB of texture at device pixel ratio 2, before the
+ * entry cinematic's cloned 2D shell is counted. [RingPane.normScale] makes those planes *look*
+ * the right size but leaves them that big to rasterize. @see applyPaneRasterFit
+ */
+internal const val SPIKE_PANE_RASTER_FIT = true
+
+/** Floor on the fit factor, so a pathologically wide PTY cannot shrink a pane to a smear. @see applyPaneRasterFit */
+internal const val PANE_RASTER_FIT_MIN = 0.34
+
+/** Floor on the shrunken font (px) — below this xterm's glyph measurement gets unreliable. @see applyPaneRasterFit */
+internal const val PANE_RASTER_FONT_MIN_PX = 4.0
+
+/** Dead-band on the fit factor; assigning `fontSize` rebuilds xterm's renderer, so small drifts must not trigger it. */
+internal const val PANE_RASTER_FIT_EPS = 0.02
+
+/**
+ * How far a stored camera component may drift between frames and still count as "not being
+ * moved" ([worldMotionless]). Position is in world units (the ring is [RING_R] across, so this is
+ * a whisker) and the forward/up vectors are unit-length, where it is a far tighter bound still —
+ * one threshold serves both because anything actually driving the camera moves it by orders more.
+ * @see BOB_IDLE_SETTLE_FRAMES
+ */
+internal const val CAM_STILL_EPS = 0.01
+
+
+/**
  * **Latch flex** — the one-shot spring a pane plays when you engage (Enter, outward)
  * or disengage (⌥⌘X / navigate away, inward) it, so the moment reads as a significant
  * event and not just a silent focus change. The render loop runs a decaying-sine
@@ -935,12 +1000,36 @@ internal const val SPIKE_COSMOS_ENABLED = false
  * flying to / from the stash shelf (a lone pane, or every sheet of a tab bundle including the
  * front sheet) has its live terminal body swapped for a one-shot `<canvas>` snapshot and its
  * wrapper promoted to a stable composited layer, so the moving CSS3D plane re-samples a cached
- * raster instead of re-rasterizing live DOM every frame. **Disabled for now** while we weigh
- * whether it meaningfully helps the take-off stutter; flip to `true` to re-enable. When
- * `false`, [tickPaneFreeze] thaws any in-flight snapshot each frame, so toggling it off mid-run
- * cleanly restores every pane to its live body. @see tickPaneFreeze @see freezePaneSnapshot
+ * raster instead of re-rasterizing live DOM every frame. When `false`, [tickPaneFreeze] thaws any
+ * in-flight snapshot each frame, so toggling it off mid-run cleanly restores every pane to its
+ * live body.
+ *
+ * **Re-enabled** as the master switch for [SPIKE_FREEZE_INTRO_ENABLED] — the flight snapshot turns
+ * out to be the only lever that reduces raster *work* rather than moving it around. Promoting
+ * panes to their own composited layers was tried first and made things measurably worse: a dozen
+ * retained GPU surfaces at device pixel ratio is itself tile-budget pressure, and panes started
+ * being drawn as bare boxes with no terminal text in them. Freezing spends nothing and removes
+ * the live-DOM text raster outright for exactly as long as nobody could read it anyway.
+ *
+ * Set back to `false` to restore fully-live flights (and, with it, everything below).
+ * @see tickPaneFreeze @see freezePaneSnapshot @see SPIKE_FREEZE_INTRO_ENABLED
  */
 internal const val SPIKE_FLIGHT_FREEZE_ENABLED = false
+
+/**
+ * **Feature flag** for extending [SPIKE_FLIGHT_FREEZE_ENABLED] to the **entry / exit cinematic** —
+ * every pane erupting from (or returning to) the 2D panel holds a snapshot for its flight.
+ *
+ * This is the phase the freeze is really for. During the cinematic a full `cloneNode` replica of
+ * the 2D shell shares the screen with every real pane, so two complete copies of the app's DOM are
+ * under 3D transforms and moving at once — comfortably the heaviest frame budget in the world's
+ * life, and where panes are most often seen as an empty box with the text missing. The flight is
+ * fast and the text unreadable while it lasts, so a one-shot low-resolution raster costs nothing
+ * anyone can see and removes the per-frame text raster entirely.
+ *
+ * Has no effect unless [SPIKE_FLIGHT_FREEZE_ENABLED] is also `true`. @see paneInIntroFlight
+ */
+internal const val SPIKE_FREEZE_INTRO_ENABLED = false
 
 /**
  * **Feature flag** for extending [SPIKE_FLIGHT_FREEZE_ENABLED] to panes *sitting* at the stash
@@ -1634,11 +1723,70 @@ internal const val WARP_RING_BLUR = 22.0
 /** The core-ring blur (px) actually applied: small residual when [WARP_RING_LOWCOST], else the original [WARP_RING_BLUR]. */
 internal val WARP_RING_BLUR_ACTIVE = if (WARP_RING_LOWCOST) WARP_RING_BLUR_LOWCOST else WARP_RING_BLUR
 
-/** The active blue "charge" core-ring gradient — pre-softened when [WARP_RING_LOWCOST]. @see tickWarpCore */
-internal val WARP_RING_BLUE_ACTIVE = if (WARP_RING_LOWCOST) WARP_RING_BLUE_SOFT else WARP_RING_BLUE
+/**
+ * PERF (revertible) — **blur-free** core-ring gradients, the next step past
+ * [WARP_RING_BLUE_SOFT]. Where the SOFT pair still leans on [WARP_RING_BLUR_LOWCOST] to hide
+ * the seam at the bright band, these carry enough intermediate stops to ramp up and back down
+ * on their own, so the ring needs **no CSS `filter` at all** on a dark pane. Losing the filter
+ * is what lets the ring div become an ordinary composited layer: its per-frame `opacity` and
+ * `transform:scale` then cost nothing but a re-composite, instead of re-running a Gaussian
+ * over the whole pane (and dragging the live terminal text through the raster with it).
+ *
+ * The stops trace the same ring as [WARP_RING_BLUE_SOFT] — transparent centre, bright band
+ * around 76–80%, fading out by the edge — just sampled more finely through the shoulders.
+ * @see WARP_RING_BLURLESS @see ensureWarpCore
+ */
+internal const val WARP_RING_BLUE_GLOW =
+    "radial-gradient(closest-side, transparent 34%, #4fb8ff11 50%, #4fb8ff33 62%, " +
+        "#4fb8ff77 72%, #4fb8ffaa 79%, #3f9ee688 86%, #2a86d844 93%, transparent 100%)"
+internal const val WARP_RING_AMBER_GLOW =
+    "radial-gradient(closest-side, transparent 32%, #f0b64911 50%, #f0b64933 62%, " +
+        "#f0b64977 72%, #f0b649aa 79%, #d9992e88 86%, #c8871f44 93%, transparent 100%)"
 
-/** The active amber "hold" core-ring gradient — pre-softened when [WARP_RING_LOWCOST]. @see tickWarpCore */
-internal val WARP_RING_AMBER_ACTIVE = if (WARP_RING_LOWCOST) WARP_RING_AMBER_SOFT else WARP_RING_AMBER
+/**
+ * PERF (revertible) — drop the core ring's CSS `filter:blur` **entirely** on a dark pane
+ * surface, using the self-softening [WARP_RING_BLUE_GLOW]/[WARP_RING_AMBER_GLOW] stops instead.
+ *
+ * [WARP_RING_LOWCOST] cut the blur from [WARP_RING_BLUR] to [WARP_RING_BLUR_LOWCOST]; this
+ * removes the last of it. A `filter` is not scale-invariant — its radius is authored in
+ * element-local px — so every per-frame `transform:scale` write on the ring forced the whole
+ * filter to re-run and could never reuse the previous raster. With no filter the ring is a
+ * plain promotable layer and the scale is a compositor no-op.
+ *
+ * A **light** surface still gets [WARP_RING_BLUR_LOWCOST] alongside its `multiply` blend
+ * ([tickWarpCore]), since that path was tuned with the residual softness and is not what
+ * blows the tile budget. Set to `false` to restore the blurred ring on every surface.
+ * @see ensureWarpCore @see tickWarpCore
+ */
+internal const val WARP_RING_BLURLESS = true
+
+/**
+ * Quantization step for the core ring's pulsing `transform:scale`, used by `setWarpCorePulse` to
+ * skip writes that would not be visible.
+ *
+ * Deliberately **much** finer than [WARP_GLOW_ALPHA_STEP], which the ring's *opacity* shares with
+ * the halo alpha. The halo alpha swings across most of 0..1, so 0.02 there is a small fraction of
+ * the range; the ring's scale swings only `2·[WARP_BREATH_AMP]·0.4 ≈ 0.048` end to end, so the
+ * same step would carve the whole breath into two or three jumps and read as a stutter. At 0.001
+ * the breath gets ~48 steps — about 1.2 px on a [PANE_W]-wide ring, and on a gradient that fades
+ * to transparent with no hard edge, invisible — while still cutting the write rate ~5×.
+ * @see WARP_BREATH_AMP
+ */
+internal const val WARP_RING_SCALE_STEP = 0.001
+
+/** The active blue "charge" core-ring gradient — self-softening when [WARP_RING_BLURLESS], else pre-softened when [WARP_RING_LOWCOST]. @see tickWarpCore */
+internal val WARP_RING_BLUE_ACTIVE = when {
+    WARP_RING_BLURLESS -> WARP_RING_BLUE_GLOW
+    WARP_RING_LOWCOST -> WARP_RING_BLUE_SOFT
+    else -> WARP_RING_BLUE
+}
+
+/** The active amber "hold" core-ring gradient — self-softening when [WARP_RING_BLURLESS], else pre-softened when [WARP_RING_LOWCOST]. @see tickWarpCore */
+internal val WARP_RING_AMBER_ACTIVE = when {
+    WARP_RING_BLURLESS -> WARP_RING_AMBER_GLOW
+    WARP_RING_LOWCOST -> WARP_RING_AMBER_SOFT
+    else -> WARP_RING_AMBER
+}
 
 /**
  * Awaiting-input (HOLD) heartbeat: a **slow, calm** breathing, NOT a fast strobe (this was

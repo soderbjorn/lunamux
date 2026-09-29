@@ -610,7 +610,7 @@ internal fun tickBundles(camera: PerspectiveCamera, selectedBundleId: String? = 
             val tx = anchor.first + ox
             val tz = anchor.third + oz
             if (spikeBobEnabled && b.state == BundleState.PARKED) {
-                ty += sin(spikeBobPhase + p.mergeOrd * BOB_STAGGER) * BOB_AMPLITUDE
+                ty += sin(spikeBobPhase + p.mergeOrd * BOB_STAGGER) * BOB_AMPLITUDE * spikeBobLevel
             }
             // The lerp **source** is where the pane flies out of / back to: the captured start
             // during MERGING (the committed pane has no loop-computed slot), else its live

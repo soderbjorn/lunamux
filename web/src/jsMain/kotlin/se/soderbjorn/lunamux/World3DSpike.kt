@@ -247,6 +247,10 @@ internal fun openWorld3dSpike() {
     spikeFlyKeys.clear()
     spikeCamFlown = false
     spikeFlyReveal = 0.0
+    // Open with the idle bob live, however a prior session left it parked. @see tickBobIdle
+    spikeBobLevel = 1.0
+    spikeStillFrames = 0.0
+    spikeCamPosePrev = DoubleArray(9)
     spikeCamReturning = false
     spikeCamTourThen = null // no chained door-leg leaking in from a prior open
     spikeStashChase = null // no chase leaking in from a prior open

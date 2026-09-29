@@ -125,6 +125,17 @@ internal fun postOpenLayout() {
                     t.asDynamic().refresh(0, t.rows - 1)
                 }
             }
+            // PERF: bound every pane's raster footprint as soon as it has a native box, so the
+            // panes fly the entry cinematic already shrunk. Waiting for the first carousel settle
+            // (the render loop's other call site) would leave the heaviest moment in the world's
+            // life — every pane airborne beside the cloned 2D shell — running at full size.
+            // Inert unless [SPIKE_PANE_RASTER_FIT]. @see applyPaneRasterFit
+            if (SPIKE_PANE_RASTER_FIT) {
+                val front = frontIndex()
+                for ((i, p) in spikePanes.withIndex()) {
+                    runCatching { applyPaneRasterFit(p, isFront = i == front) }
+                }
+            }
         }, delay)
     }
 }
@@ -251,6 +262,12 @@ internal fun presentPaneToGrid(p: RingPane, animate: Boolean = false) {
     val gh = ceil(term.rows * ch + chromeH + contPadH).toInt()
     p.baseCw = gw
     p.baseCh = gh
+    // Remember the native-font box while the pane is unshrunk, so [applyPaneRasterFit] always
+    // sizes from the native box rather than from its own previous output (which would drift).
+    if (p.rasterFit >= 0.999) {
+        p.natCw = gw
+        p.natCh = gh
+    }
     // Side-pane normalization. Under PTY truth a plane is exactly as big as its
     // real grid — a fullscreen-sized PTY yields a plane several times the ring's
     // slot spacing. Such a giant, yawed neighbour geometrically *intersects* the
@@ -274,6 +291,67 @@ internal fun presentPaneToGrid(p: RingPane, animate: Boolean = false) {
     resizeWorkingBorder(p.border, gw, gh + TITLE_H)
     p.entry?.oobOverlayRight?.style?.display = "none"
     p.entry?.oobOverlayBottom?.style?.display = "none"
+}
+
+/**
+ * Bounds a pane's **raster footprint** by shrinking its font, so a plane that is only ever
+ * *displayed* small is not also *rasterized* huge.
+ *
+ * ## The problem
+ * A pane's wrapper is sized to its true PTY grid ([presentPaneToGrid]) — a 267×74 terminal is a
+ * 2115×1110 px element. As a side pane it is then scaled down to the ring's screen box, but that
+ * happens via [RingPane.normScale] applied as a **CSS3D object scale** — a transform. The element
+ * keeps its layout size, and Chromium rasterizes 3D-transformed content at layout size rather
+ * than at the size it ends up occupying on screen. So the plane costs full price while looking
+ * like a third of it. Summed over a busy ring that is hundreds of MB of texture, comfortably past
+ * the compositor's tile budget, and panes past the budget are drawn as a bare box with the live
+ * terminal text missing — the flicker.
+ *
+ * ## The fix
+ * Shrink the **font** by the same factor instead of shrinking the transform by it. Cell metrics
+ * shrink, so the box shrinks with them, and [presentPaneToGrid] then computes a [normScale] of
+ * 1.0 — the plane already fits. The pane looks identical and rasters `fit²` cheaper.
+ *
+ * Crucially `cols`/`rows` are **not** touched, so this is purely local: no reformat, no
+ * `ForceResize`, nothing sent to the PTY. It is the same lever [STATION_TEX_SCALE] pulls for the
+ * station hull, whose comment already records that an oversized plane "flickers and, past the cap,
+ * fails to paint at all".
+ *
+ * The **front** pane is always restored to its native font: PTY truth is preserved exactly where
+ * you read and type, which is the invariant [presentPaneToGrid] is written around. That is why
+ * this is driven off the settle hook rather than per frame — a pane is re-fitted when it takes or
+ * gives up the front, not while the carousel is mid-swing.
+ *
+ * No-op unless [SPIKE_PANE_RASTER_FIT], for non-terminal panes, before the pane has been presented
+ * once, or when the factor has not meaningfully moved — assigning `fontSize` rebuilds xterm's
+ * renderer and remeasures every glyph, so it must fire only on a real change.
+ *
+ * @param p the pane to fit. @param isFront whether it currently holds the front slot.
+ * @see presentPaneToGrid @see SPIKE_PANE_RASTER_FIT @see RingPane.rasterFit
+ */
+internal fun applyPaneRasterFit(p: RingPane, isFront: Boolean) {
+    if (!SPIKE_PANE_RASTER_FIT) return
+    if (p.kind != PaneKind.TERMINAL) return
+    val term = p.term ?: return
+    if (p.natCw <= 0 || p.natCh <= 0) return
+
+    val want = if (isFront) 1.0 else minOf(
+        1.0,
+        spikeScreenW.toDouble() / p.natCw.toDouble(),
+        spikeScreenH.toDouble() / p.natCh.toDouble(),
+    ).coerceAtLeast(PANE_RASTER_FIT_MIN)
+    if (abs(want - p.rasterFit) < PANE_RASTER_FIT_EPS) return
+
+    val target = (p.baseFont.toDouble() * want).coerceAtLeast(PANE_RASTER_FONT_MIN_PX)
+    // NB: `Terminal.options` is declared `dynamic` — address it directly, never via
+    // `.asDynamic()`, which emits a real call on the JS object and throws.
+    val current = (term.options.fontSize as? Number)?.toDouble()
+    if (current == null || abs(current - target) > 0.01) {
+        runCatching { term.options.fontSize = target } .onFailure { return }
+    }
+    p.rasterFit = want
+    // Re-derive the box from the new cell metrics. Sends nothing to the PTY.
+    presentPaneToGrid(p, animate = true)
 }
 
 /**
