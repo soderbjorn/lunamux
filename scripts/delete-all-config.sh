@@ -29,7 +29,7 @@
 #     "<file>.bak.<timestamp>" before removal; NSUserDefaults are backed up then
 #     cleared via `defaults delete`. The one exception is the demo scratch dir,
 #     which is throwaway (the app wipes it on every launch anyway).
-#   - Other Darkness apps are left untouched: Notegrow/, TreeFacts/,
+#   - Other Darkness apps are left untouched: Notegrow/, Lunarbor/,
 #     LunulaDemo/ (formerly DarknessDemo/) userData dirs, their *.json in the
 #     shared Darkness dir, and
 #     their plists are all out of scope.
@@ -120,7 +120,7 @@ shopt -u nullglob
 
 # ── 2. Shared Darkness dir: only this app's files (per-app UI settings + the
 #       cross-app theme definitions + the legacy pre-split file). Other apps'
-#       files (notegrow.json, treefacts.json, lunula-demo.json and its old
+#       files (notegrow.json, lunarbor.json, lunula-demo.json and its old
 #       darkness-demo.json) are left. ─────
 echo
 echo "Shared Darkness UI-settings files:"
