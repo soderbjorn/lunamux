@@ -113,6 +113,15 @@ class AppBackingViewModel(
         /** How selection is painted, or `null` for [SelectionStyle.Tint]. */
         val selectionStyle: SelectionStyle? = null,
         /**
+         * Whether surfaces carry depth (shadows, sheen, glow, ambient wash) or
+         * stay flat, or `null` for the toolkit default ([SurfaceStyle.Depth]).
+         *
+         * A user appearance preference beside [selectionStyle], persisted with
+         * the fonts and read back by the Settings sidebar's Surfaces row
+         * through `LunamuxThemeManagerHost.surfaceStyle`.
+         */
+        val surfaceStyle: SurfaceStyle? = null,
+        /**
          * Which shell composition the toolkit draws (Classic / Clean), or
          * `null` for the toolkit default ([ShellStyle.Classic]).
          *
@@ -278,6 +287,21 @@ class AppBackingViewModel(
     @Throws(CancellationException::class, Exception::class)
     suspend fun setSelectionStyle(style: SelectionStyle?) {
         emit(_stateFlow.value.copy(selectionStyle = style))
+        persistFonts()
+    }
+
+    /**
+     * Update the surface style (Depth / Flat) and persist it.
+     *
+     * Called by `LunamuxThemeManagerHost.setSurfaceStyle` when the user picks
+     * a Surfaces option in the Appearance settings. Emits before the persist
+     * call suspends, like [setShellStyle].
+     *
+     * @param style the style; `null` restores [SurfaceStyle.Default] (Depth).
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setSurfaceStyle(style: SurfaceStyle?) {
+        emit(_stateFlow.value.copy(surfaceStyle = style))
         persistFonts()
     }
 
@@ -590,6 +614,7 @@ class AppBackingViewModel(
             s.cornerRadiusPx?.let { put("cornerRadiusPx", it.toString()) }
             s.uiDensity?.let { put("uiDensity", it.cssValue) }
             s.selectionStyle?.let { put("selectionStyle", it.cssValue) }
+            s.surfaceStyle?.let { put("surfaceStyle", it.cssValue) }
             s.shellStyle?.let { put("shellStyle", it.cssValue) }
             s.navigationMode?.let { put("navigationMode", it.cssValue) }
             put("electronCustomTitleBar", s.electronCustomTitleBar.toString())

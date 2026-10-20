@@ -1,6 +1,6 @@
 /**
- * Tests that the shell style (Classic / Clean) and navigation mode the
- * Appearance settings persist are read back by
+ * Tests that the shell style (Classic / Clean), navigation mode and surface
+ * style (Depth / Flat) the Appearance settings persist are read back by
  * [SettingsViewModel.applyServerUiSettings], the hydration path used at boot
  * and for settings pushed by another client.
  */
@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import se.soderbjorn.lunula.core.NavigationMode
 import se.soderbjorn.lunula.core.ShellStyle
+import se.soderbjorn.lunula.core.SurfaceStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -36,6 +37,7 @@ class ShellAppearanceSettingsTest {
         val hydrated = settings.applyServerUiSettings(AppBackingViewModel.State(), buildJsonObject {})
         assertNull(hydrated.shellStyle, "no stored style must resolve to the toolkit default (Classic)")
         assertNull(hydrated.navigationMode, "no stored mode must resolve to the toolkit default (Both)")
+        assertNull(hydrated.surfaceStyle, "no stored surfaces must resolve to the toolkit default (Depth)")
     }
 
     @Test
@@ -50,5 +52,23 @@ class ShellAppearanceSettingsTest {
         )
         assertEquals(ShellStyle.Clean, hydrated.shellStyle)
         assertEquals(NavigationMode.Sidebar, hydrated.navigationMode)
+    }
+
+    @Test
+    fun persistedSurfaceStyleIsReadBack() {
+        val hydrated = settings.applyServerUiSettings(
+            AppBackingViewModel.State(),
+            buildJsonObject { put("surfaceStyle", JsonPrimitive("flat")) },
+        )
+        assertEquals(SurfaceStyle.Flat, hydrated.surfaceStyle)
+    }
+
+    @Test
+    fun unknownSurfaceStylePreservesTheCurrentPick() {
+        val hydrated = settings.applyServerUiSettings(
+            AppBackingViewModel.State(surfaceStyle = SurfaceStyle.Flat),
+            buildJsonObject { put("surfaceStyle", JsonPrimitive("glass")) },
+        )
+        assertEquals(SurfaceStyle.Flat, hydrated.surfaceStyle)
     }
 }

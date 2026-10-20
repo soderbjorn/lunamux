@@ -595,9 +595,14 @@ private fun start() {
         var prevCornerRadius: Int? = appVm.stateFlow.value.cornerRadiusPx
         var prevDensity = appVm.stateFlow.value.uiDensity
         var prevSelection = appVm.stateFlow.value.selectionStyle
+        // Surfaces (Depth / Flat): `null` resolves to Depth, today's default.
+        // Lunamux supplies no app default shape, so the stored pick (or null)
+        // is exactly what the toolkit's host-apply pass would resolve too.
+        var prevSurface = appVm.stateFlow.value.surfaceStyle
         se.soderbjorn.lunula.web.applyCornerRadiusPx(prevCornerRadius)
         se.soderbjorn.lunula.web.applyUiDensity(prevDensity)
         applySelectionNow(prevSelection)
+        se.soderbjorn.lunula.web.applySurfaceStyle(prevSurface)
         // Shell style (Classic / Clean) and navigation mode are applied by the
         // toolkit itself (its host-apply pass reads them back through
         // `LunamuxThemeManagerHost`), so all this loop does is ask the shell
@@ -655,6 +660,10 @@ private fun start() {
             if (state.selectionStyle != prevSelection) {
                 prevSelection = state.selectionStyle
                 applySelectionNow(prevSelection)
+            }
+            if (state.surfaceStyle != prevSurface) {
+                prevSurface = state.surfaceStyle
+                se.soderbjorn.lunula.web.applySurfaceStyle(prevSurface)
             }
             if (state.shellStyle != prevShellStyle || state.navigationMode != prevNavigationMode) {
                 prevShellStyle = state.shellStyle

@@ -180,6 +180,13 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
     override val selectionStyle: SelectionStyle?
         get() = appVm.stateFlow.value.selectionStyle
     /**
+     * The user's surface style (Depth / Flat), or `null` when never picked,
+     * which the toolkit resolves to Depth. Read by the Appearance settings'
+     * Surfaces row and the shell's host-apply pass.
+     */
+    override val surfaceStyle: SurfaceStyle?
+        get() = appVm.stateFlow.value.surfaceStyle
+    /**
      * The user's shell style (Classic / Clean), or `null` when never picked,
      * which the toolkit resolves to Classic. Read by the Appearance settings'
      * Style row and by the shell's host-apply pass, which stamps
@@ -229,6 +236,16 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
     }
     override fun setSelectionStyle(value: SelectionStyle?) {
         launch { appVm.setSelectionStyle(value) }
+    }
+    /**
+     * Persists the Surfaces pick through [AppBackingViewModel.setSurfaceStyle].
+     * Started undispatched (see [launchNow]) so a host-apply pass right after
+     * the pick already reads the new value instead of reverting it.
+     *
+     * @param value the chosen style, or `null` to clear the preference.
+     */
+    override fun setSurfaceStyle(value: SurfaceStyle?) {
+        launchNow { appVm.setSurfaceStyle(value) }
     }
     /**
      * Persists the Style pick through [AppBackingViewModel.setShellStyle].

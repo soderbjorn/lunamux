@@ -26,6 +26,7 @@ import se.soderbjorn.lunula.core.ThemeSnapshotV2
 import se.soderbjorn.lunula.core.NavigationMode
 import se.soderbjorn.lunula.core.SelectionStyle
 import se.soderbjorn.lunula.core.ShellStyle
+import se.soderbjorn.lunula.core.SurfaceStyle
 import se.soderbjorn.lunula.core.UiDensity
 import kotlin.time.TimeSource
 
@@ -143,6 +144,7 @@ internal class SettingsViewModel(
             // config naming a scale this one doesn't have.
             uiDensity = UiDensity.fromRaw(str("uiDensity")) ?: cur.uiDensity,
             selectionStyle = SelectionStyle.fromRaw(str("selectionStyle")) ?: cur.selectionStyle,
+            surfaceStyle = SurfaceStyle.fromRaw(str("surfaceStyle")) ?: cur.surfaceStyle,
             shellStyle = ShellStyle.fromRaw(str("shellStyle")) ?: cur.shellStyle,
             navigationMode = NavigationMode.fromRaw(str("navigationMode")) ?: cur.navigationMode,
             sidebarWidth = int("sidebarWidth") ?: cur.sidebarWidth,
