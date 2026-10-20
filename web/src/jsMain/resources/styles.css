@@ -3482,3 +3482,62 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
         transition: none;
     }
 }
+
+/* ── Clean shell style ─────────────────────────────────────────────────
+   Lunula's Clean style (`:root[data-dt-style="clean"]`, stamped by the
+   toolkit when the user picks Style: Clean in Appearance settings) colours
+   each window body by focus: `--t-surface` for the active window and
+   `--t-window-idle` for the rest. That only reaches the pixels nobody else
+   paints, and Lunamux's pane roots each paint `--t-surface` (or `--t-bg`)
+   over the whole body, which would keep every window at the active colour.
+   Under Clean only, those roots step aside so the window colour shows
+   through; the xterm canvas does the same via a transparent theme
+   background (`buildPaneXtermTheme` in WebStateActions.kt).
+
+   Appearance only: nothing here changes what a pane shows, only which
+   surface it sits on. Inputs, toasts, popups and other floating cards keep
+   their own fill, and so does the git diff body (`--t-bg`), which is
+   content. Classic never matches these selectors, so it renders exactly as
+   before. */
+:root[data-dt-style="clean"] .terminal-cell,
+:root[data-dt-style="clean"] .terminal-cell[data-content-kind='terminal'],
+:root[data-dt-style="clean"] .terminal-inner,
+:root[data-dt-style="clean"] .md-view,
+:root[data-dt-style="clean"] .md-rendered,
+:root[data-dt-style="clean"] .git-view,
+:root[data-dt-style="clean"] .git-list,
+:root[data-dt-style="clean"] .git-diff-pane,
+:root[data-dt-style="clean"] .agent-view {
+    background: transparent;
+}
+/* The web pane's root sets its fill inline (WebBrowserPane.kt), so only
+   `!important` reaches it from a stylesheet. Scoped to Clean like the rest. */
+:root[data-dt-style="clean"] .web-pane {
+    background: transparent !important;
+}
+
+/* Sidebar footer (Claude usage, world status). Under Clean the toolkit's
+   footer slot already draws one hairline above itself and pads its content,
+   so Lunamux's own divider and inset would double both. The rows become plain
+   muted text in Clean's dim tone; their content, order and severity colours
+   are unchanged. */
+:root[data-dt-style="clean"] .tt-sidebar-footer {
+    border-top: none;
+    padding: 0;
+}
+:root[data-dt-style="clean"] .claude-usage-bar,
+:root[data-dt-style="clean"] .world-status-bar {
+    padding-left: 0;
+    padding-right: 0;
+    color: var(--dt-clean-text-dim, var(--t-text-dim, var(--text-secondary)));
+}
+/* The usage bar's own empty state collapses it to nothing; keep that. */
+:root[data-dt-style="clean"] .claude-usage-bar.claude-usage-bar-empty {
+    padding: 0;
+}
+:root[data-dt-style="clean"] .world-status-bar {
+    border-top-color: var(--t-border, rgba(255, 255, 255, 0.1));
+}
+:root[data-dt-style="clean"] .world-status-bar.world-status-empty {
+    border-top: none;
+}
