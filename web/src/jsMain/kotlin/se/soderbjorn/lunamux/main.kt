@@ -112,6 +112,29 @@ internal fun refreshAndApplyActiveTheme() {
 }
 
 /**
+ * Re-applies the user's shell style and navigation mode to the mounted shell
+ * and re-themes the live terminals to match.
+ *
+ * Pushing the effective theme snapshot is how Lunamux asks the toolkit to
+ * re-run its host-apply pass (`AppShellHandle.setThemeSnapshot` repaints the
+ * palette and then re-reads every appearance setting from
+ * `LunamuxThemeManagerHost`, restamping `data-dt-style` and redrawing the
+ * chrome when the navigation surfaces change). It does not persist anything,
+ * unlike `AppShellHandle.setShellStyle`, which would write the value back.
+ * The terminals are re-themed afterwards, so they read the new stamp.
+ *
+ * Called by the settings collector in [start] when `shellStyle` or
+ * `navigationMode` changes in [appVm], whether picked here or pushed by
+ * another client.
+ *
+ * @see buildPaneXtermTheme
+ */
+private fun reapplyShellAppearance() {
+    appShellHandle?.setThemeSnapshot(effectiveThemeSnapshot())
+    applyThemeToTerminals()
+}
+
+/**
  * Initializes the Lunamux web application.
  *
  * Steps:
@@ -575,6 +598,16 @@ private fun start() {
         se.soderbjorn.lunula.web.applyCornerRadiusPx(prevCornerRadius)
         se.soderbjorn.lunula.web.applyUiDensity(prevDensity)
         applySelectionNow(prevSelection)
+        // Shell style (Classic / Clean) and navigation mode are applied by the
+        // toolkit itself (its host-apply pass reads them back through
+        // `LunamuxThemeManagerHost`), so all this loop does is ask the shell
+        // to re-apply when they change underneath it — another client pushed
+        // a pick, or the user picked one here — and re-theme the terminals,
+        // whose background depends on the style (see [buildPaneXtermTheme]).
+        // Under Classic at boot nothing is touched, so Classic is unchanged.
+        var prevShellStyle = appVm.stateFlow.value.shellStyle
+        var prevNavigationMode = appVm.stateFlow.value.navigationMode
+        if (isCleanShellStyle()) applyThemeToTerminals()
         appVm.stateFlow.collect { state ->
             if (state.paneFontSize != prevPaneSize) {
                 prevPaneSize = state.paneFontSize
@@ -622,6 +655,11 @@ private fun start() {
             if (state.selectionStyle != prevSelection) {
                 prevSelection = state.selectionStyle
                 applySelectionNow(prevSelection)
+            }
+            if (state.shellStyle != prevShellStyle || state.navigationMode != prevNavigationMode) {
+                prevShellStyle = state.shellStyle
+                prevNavigationMode = state.navigationMode
+                reapplyShellAppearance()
             }
         }
     }

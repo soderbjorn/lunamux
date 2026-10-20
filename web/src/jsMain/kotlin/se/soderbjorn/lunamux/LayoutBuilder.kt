@@ -546,12 +546,12 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
         // from the server ring, so this is the ceiling on retained history
         // rather than a soft cap over a longer local buffer.
         "scrollback" to 10_000,
-        "theme" to buildXtermTheme()
+        "theme" to buildPaneXtermTheme()
     ))
     val fit = FitAddon()
     term.loadAddon(fit)
     term.open(inner)
-    term.options.theme = buildXtermTheme()
+    term.options.theme = buildPaneXtermTheme()
     // The one creation-time fit: a brand-new terminal has no socket and no server grid yet,
     // so this gives it a sane starting size (and seeds the natural grid below). From the
     // first `Size` frame on, the grid is the server's — see [applyServerSize].

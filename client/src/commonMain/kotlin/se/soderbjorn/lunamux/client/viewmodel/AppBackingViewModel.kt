@@ -112,6 +112,24 @@ class AppBackingViewModel(
         val uiDensity: UiDensity? = null,
         /** How selection is painted, or `null` for [SelectionStyle.Tint]. */
         val selectionStyle: SelectionStyle? = null,
+        /**
+         * Which shell composition the toolkit draws (Classic / Clean), or
+         * `null` for the toolkit default ([ShellStyle.Classic]).
+         *
+         * A user appearance preference beside [selectionStyle], persisted with
+         * the fonts and read back by the Settings sidebar's Style row through
+         * `LunamuxThemeManagerHost.shellStyle`.
+         */
+        val shellStyle: ShellStyle? = null,
+        /**
+         * How tabs are reached (sidebar, tab strip or both), or `null` for the
+         * toolkit default ([NavigationMode.Both]).
+         *
+         * A user appearance preference beside [shellStyle], persisted with the
+         * fonts and read back by the Settings sidebar's Navigation row through
+         * `LunamuxThemeManagerHost.navigationMode`.
+         */
+        val navigationMode: NavigationMode? = null,
         val sidebarWidth: Int? = null,
         val sidebarCollapsed: Boolean = false,
         val headerCollapsed: Boolean = false,
@@ -260,6 +278,39 @@ class AppBackingViewModel(
     @Throws(CancellationException::class, Exception::class)
     suspend fun setSelectionStyle(style: SelectionStyle?) {
         emit(_stateFlow.value.copy(selectionStyle = style))
+        persistFonts()
+    }
+
+    /**
+     * Update the shell style (Classic / Clean) and persist it.
+     *
+     * Called by `LunamuxThemeManagerHost.setShellStyle` when the user picks a
+     * Style in the Appearance settings. The state is emitted before the
+     * persist call suspends, so a caller that starts this coroutine
+     * undispatched can read the new value back at once.
+     *
+     * @param style the style; `null` restores [ShellStyle.Default] (Classic).
+     * @see setNavigationMode
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setShellStyle(style: ShellStyle?) {
+        emit(_stateFlow.value.copy(shellStyle = style))
+        persistFonts()
+    }
+
+    /**
+     * Update the navigation mode (sidebar / tab strip / both) and persist it.
+     *
+     * Called by `LunamuxThemeManagerHost.setNavigationMode` when the user picks
+     * a Navigation option in the Appearance settings. Emits before the persist
+     * call suspends, like [setShellStyle].
+     *
+     * @param mode the mode; `null` restores [NavigationMode.Default] (Both).
+     * @see setShellStyle
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setNavigationMode(mode: NavigationMode?) {
+        emit(_stateFlow.value.copy(navigationMode = mode))
         persistFonts()
     }
 
@@ -539,6 +590,8 @@ class AppBackingViewModel(
             s.cornerRadiusPx?.let { put("cornerRadiusPx", it.toString()) }
             s.uiDensity?.let { put("uiDensity", it.cssValue) }
             s.selectionStyle?.let { put("selectionStyle", it.cssValue) }
+            s.shellStyle?.let { put("shellStyle", it.cssValue) }
+            s.navigationMode?.let { put("navigationMode", it.cssValue) }
             put("electronCustomTitleBar", s.electronCustomTitleBar.toString())
         })
     }

@@ -23,7 +23,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import se.soderbjorn.lunula.core.Appearance
 import se.soderbjorn.lunula.core.PersistKeys
 import se.soderbjorn.lunula.core.ThemeSnapshotV2
+import se.soderbjorn.lunula.core.NavigationMode
 import se.soderbjorn.lunula.core.SelectionStyle
+import se.soderbjorn.lunula.core.ShellStyle
 import se.soderbjorn.lunula.core.UiDensity
 import kotlin.time.TimeSource
 
@@ -141,6 +143,8 @@ internal class SettingsViewModel(
             // config naming a scale this one doesn't have.
             uiDensity = UiDensity.fromRaw(str("uiDensity")) ?: cur.uiDensity,
             selectionStyle = SelectionStyle.fromRaw(str("selectionStyle")) ?: cur.selectionStyle,
+            shellStyle = ShellStyle.fromRaw(str("shellStyle")) ?: cur.shellStyle,
+            navigationMode = NavigationMode.fromRaw(str("navigationMode")) ?: cur.navigationMode,
             sidebarWidth = int("sidebarWidth") ?: cur.sidebarWidth,
             sidebarCollapsed = bool("sidebarCollapsed") ?: cur.sidebarCollapsed,
             headerCollapsed = bool("headerCollapsed") ?: cur.headerCollapsed,

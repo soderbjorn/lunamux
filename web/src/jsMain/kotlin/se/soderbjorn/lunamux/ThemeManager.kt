@@ -89,6 +89,25 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
         kotlinx.coroutines.GlobalScope.launch { block() }
     }
 
+    /**
+     * Like [launch], but runs [block] at once on the caller's stack up to its
+     * first suspension, instead of on the next dispatcher turn.
+     *
+     * Used by the Style and Navigation setters. The toolkit calls the host
+     * setter and then immediately re-reads the getter to apply the choice
+     * (`ShellState.setShellStyle` / `setNavigationMode` re-run
+     * `applyHostFontVars`), and [AppBackingViewModel]'s setters emit the new
+     * state before their persist call suspends, so starting them undispatched
+     * makes that re-read see the new value rather than the old one.
+     *
+     * @param block the suspending work; its persist step still completes
+     *   asynchronously.
+     */
+    private fun launchNow(block: suspend () -> Unit) {
+        @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+        kotlinx.coroutines.GlobalScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { block() }
+    }
+
     override fun setAppearance(appearance: Appearance) {
         launch { appVm.setAppearance(appearance) }
     }
@@ -160,6 +179,21 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
         get() = appVm.stateFlow.value.uiDensity
     override val selectionStyle: SelectionStyle?
         get() = appVm.stateFlow.value.selectionStyle
+    /**
+     * The user's shell style (Classic / Clean), or `null` when never picked,
+     * which the toolkit resolves to Classic. Read by the Appearance settings'
+     * Style row and by the shell's host-apply pass, which stamps
+     * `data-dt-style` on `:root`.
+     */
+    override val shellStyle: ShellStyle?
+        get() = appVm.stateFlow.value.shellStyle
+    /**
+     * The user's navigation mode (sidebar / tab strip / both), or `null` when
+     * never picked, which the toolkit resolves to Both. Read by the
+     * Appearance settings' Navigation row and the shell's host-apply pass.
+     */
+    override val navigationMode: NavigationMode?
+        get() = appVm.stateFlow.value.navigationMode
     override val useCustomTitleBar: Boolean
         get() = appVm.stateFlow.value.electronCustomTitleBar
 
@@ -195,6 +229,26 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
     }
     override fun setSelectionStyle(value: SelectionStyle?) {
         launch { appVm.setSelectionStyle(value) }
+    }
+    /**
+     * Persists the Style pick through [AppBackingViewModel.setShellStyle].
+     * Started undispatched (see [launchNow]) so the toolkit's re-apply right
+     * after this call already reads the new style.
+     *
+     * @param value the chosen style, or `null` to clear the preference.
+     */
+    override fun setShellStyle(value: ShellStyle?) {
+        launchNow { appVm.setShellStyle(value) }
+    }
+    /**
+     * Persists the Navigation pick through
+     * [AppBackingViewModel.setNavigationMode], undispatched for the same
+     * reason as [setShellStyle].
+     *
+     * @param value the chosen mode, or `null` to clear the preference.
+     */
+    override fun setNavigationMode(value: NavigationMode?) {
+        launchNow { appVm.setNavigationMode(value) }
     }
     override fun setUseCustomTitleBar(value: Boolean) {
         launch { appVm.setElectronCustomTitleBar(value) }

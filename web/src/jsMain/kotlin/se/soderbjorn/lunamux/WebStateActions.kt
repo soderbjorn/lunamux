@@ -336,6 +336,64 @@ internal fun buildXtermTheme(): dynamic {
 }
 
 /**
+ * Whether the toolkit's Clean shell style is in effect, read from the
+ * `data-dt-style` stamp the shell puts on `:root` (the resolved style: the
+ * user's pick, then the app default, then Classic).
+ *
+ * Read from the DOM rather than from [appVm] so it can never disagree with
+ * what the toolkit's CSS is actually drawing. Called by
+ * [buildPaneXtermTheme].
+ *
+ * @return `true` under Clean, `false` under Classic.
+ */
+internal fun isCleanShellStyle(): Boolean {
+    val root = kotlinx.browser.document.documentElement as? HTMLElement ?: return false
+    return se.soderbjorn.lunula.web.appliedShellStyle(root) == ShellStyle.Clean
+}
+
+/**
+ * The xterm.js theme for a live terminal window in the 2D layout: exactly
+ * [buildXtermTheme] under Classic, and the same theme with a fully
+ * transparent background under Clean.
+ *
+ * Under Clean the toolkit colours each window body by focus (`--t-surface`
+ * for the active window, `--t-window-idle` for the rest) and Lunamux's pane
+ * roots go transparent (see the Clean block in `styles.css`). xterm's DOM
+ * renderer paints `theme.background` on its viewport, so the canvas has to
+ * go transparent too for the terminal to dim and brighten with its window.
+ * Doing it in CSS keeps focus changes free: no per-focus theme pushes, and
+ * the colour follows the toolkit's own transitions.
+ *
+ * The transparent colour keeps the surface's RGB (`rgba(r, g, b, 0)`), so
+ * everything xterm derives from the background still matches Classic:
+ * inverse-video text (drawn in the opaque background colour), the opaque
+ * selection blend and the `minimumContrastRatio` check. Lunamux uses xterm's
+ * default DOM renderer, which honours an alpha background without
+ * `allowTransparency` (that option only concerns the canvas/WebGL addons,
+ * which Lunamux does not load).
+ *
+ * Called by [applyThemeToTerminals] and by the terminal factory in
+ * `LayoutBuilder.kt`. Other xterm instances (3D world, overview thumbnails,
+ * pane-type previews) keep [buildXtermTheme], since they do not sit on a
+ * Clean window body.
+ *
+ * @return a dynamic xterm.js `ITheme` object.
+ * @see buildXtermTheme
+ * @see isCleanShellStyle
+ */
+internal fun buildPaneXtermTheme(): dynamic {
+    val base = buildXtermTheme()
+    if (isCleanShellStyle()) {
+        val surface = currentWorldTheme().surface
+        val r = (surface shr 16) and 0xFFL
+        val g = (surface shr 8) and 0xFFL
+        val b = surface and 0xFFL
+        base["background"] = "rgba($r, $g, $b, 0)"
+    }
+    return base
+}
+
+/**
  * Updates the CSS appearance classes on `<body>` based on the current
  * theme/appearance state and emits all 19 semantic `--t-*` CSS custom
  * properties on `:root` via the toolkit's [applyTheme].
@@ -381,9 +439,15 @@ internal fun applyAppearanceClass() {
 
 /**
  * Applies the current xterm theme to all registered terminal instances.
+ *
+ * Called on every theme change ([applyAll]) and when the shell style changes
+ * (the shell-style collector in `main.kt`), since the background depends on
+ * Classic vs Clean.
  */
 internal fun applyThemeToTerminals() {
-    val globalTheme = buildXtermTheme()
+    // The pane variant: identical to [buildXtermTheme] under Classic, with a
+    // transparent background under Clean (see [buildPaneXtermTheme]).
+    val globalTheme = buildPaneXtermTheme()
     for ((_, entry) in terminals) {
         entry.term.options.theme = globalTheme
     }
