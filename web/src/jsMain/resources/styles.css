@@ -3496,9 +3496,8 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 
    Appearance only: nothing here changes what a pane shows, only which
    surface it sits on. Inputs, toasts, popups and other floating cards keep
-   their own fill, and so does the git diff body (`--t-bg`), which is
-   content. Classic never matches these selectors, so it renders exactly as
-   before. */
+   their own fill. Classic never matches these selectors, so it renders
+   exactly as before. */
 :root[data-dt-style="clean"] .terminal-cell,
 :root[data-dt-style="clean"] .terminal-cell[data-content-kind='terminal'],
 :root[data-dt-style="clean"] .terminal-inner,
@@ -3508,6 +3507,20 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
 :root[data-dt-style="clean"] .git-list,
 :root[data-dt-style="clean"] .git-diff-pane,
 :root[data-dt-style="clean"] .agent-view {
+    background: transparent;
+}
+/* Git diff body. The inline and split views paint `--t-bg` and the
+   graphical view's connector strip paints `--surface`, so an idle diff window
+   would stay at that colour instead of the window-idle grey. Under Clean they
+   go transparent like the other pane bodies. The added / removed / modified
+   marks stay as they are: the inline gutter bars are opaque but sit beside
+   the code, and every row tint (split `.git-split-mod`, graphical
+   `.highlight-*`, the connector's SVG bands) is already translucent rgba, so
+   it reads the same on the idle grey as on the active white. Syntax colours
+   (`.hl-*`) are text colours and are untouched. */
+:root[data-dt-style="clean"] .git-diff-inline,
+:root[data-dt-style="clean"] .git-diff-split,
+:root[data-dt-style="clean"] .git-graphical-connector {
     background: transparent;
 }
 /* The web pane's root sets its fill inline (WebBrowserPane.kt), so only
