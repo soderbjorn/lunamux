@@ -122,7 +122,7 @@ class AppBackingViewModel(
          */
         val surfaceStyle: SurfaceStyle? = null,
         /**
-         * Which shell composition the toolkit draws (Classic / Clean), or
+         * The legacy look shorthand (Classic / Calm), or
          * `null` for the toolkit default ([ShellStyle.Classic]).
          *
          * A user appearance preference beside [selectionStyle], persisted with
@@ -139,6 +139,19 @@ class AppBackingViewModel(
          * `LunamuxThemeManagerHost.navigationMode`.
          */
         val navigationMode: NavigationMode? = null,
+        /**
+         * The style settings remembered separately for dark and light mode
+         * (look, chrome, windows, active window, labels, selection, surfaces,
+         * corners, spacing), or `null` when never edited — the single-mode
+         * fields above ([cornerRadiusPx], [uiDensity], [selectionStyle],
+         * [surfaceStyle], [shellStyle]) then stand for both modes.
+         *
+         * Written by the Appearance settings through
+         * `LunamuxThemeManagerHost.setModeStyles` and read back by the
+         * toolkit's apply pass through `LunamuxThemeManagerHost.modeStyles`,
+         * which picks the entry for the active appearance.
+         */
+        val modeStyles: ModeStyles? = null,
         val sidebarWidth: Int? = null,
         val sidebarCollapsed: Boolean = false,
         val headerCollapsed: Boolean = false,
@@ -306,7 +319,7 @@ class AppBackingViewModel(
     }
 
     /**
-     * Update the shell style (Classic / Clean) and persist it.
+     * Update the legacy look shorthand (Classic / Calm) and persist it.
      *
      * Called by `LunamuxThemeManagerHost.setShellStyle` when the user picks a
      * Style in the Appearance settings. The state is emitted before the
@@ -335,6 +348,22 @@ class AppBackingViewModel(
     @Throws(CancellationException::class, Exception::class)
     suspend fun setNavigationMode(mode: NavigationMode?) {
         emit(_stateFlow.value.copy(navigationMode = mode))
+        persistFonts()
+    }
+
+    /**
+     * Update the per-mode style settings and persist them.
+     *
+     * Called by `LunamuxThemeManagerHost.setModeStyles` after every pick in the
+     * Appearance settings' "Style for this mode" group. Emits before the
+     * persist call suspends, like [setShellStyle], so the toolkit's re-apply
+     * right after the call reads the new values.
+     *
+     * @param styles both modes' settings; `null` forgets them.
+     */
+    @Throws(CancellationException::class, Exception::class)
+    suspend fun setModeStyles(styles: ModeStyles?) {
+        emit(_stateFlow.value.copy(modeStyles = styles))
         persistFonts()
     }
 
@@ -617,6 +646,8 @@ class AppBackingViewModel(
             s.surfaceStyle?.let { put("surfaceStyle", it.cssValue) }
             s.shellStyle?.let { put("shellStyle", it.cssValue) }
             s.navigationMode?.let { put("navigationMode", it.cssValue) }
+            // The per-mode style settings, as the toolkit's own JSON form.
+            s.modeStyles?.let { put("modeStyles", it.toJson()) }
             put("electronCustomTitleBar", s.electronCustomTitleBar.toString())
         })
     }

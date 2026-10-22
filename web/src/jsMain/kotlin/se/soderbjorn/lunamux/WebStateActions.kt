@@ -336,29 +336,31 @@ internal fun buildXtermTheme(): dynamic {
 }
 
 /**
- * Whether the toolkit's Clean shell style is in effect, read from the
- * `data-dt-style` stamp the shell puts on `:root` (the resolved style: the
- * user's pick, then the app default, then Classic).
+ * Whether the toolkit's Tone setting (Active window: Tone) is in effect, read
+ * from the `data-dt-focus` stamp the shell puts on `:root` for the active
+ * appearance mode (the user's pick, then the app default, then Accent).
  *
  * Read from the DOM rather than from [appVm] so it can never disagree with
- * what the toolkit's CSS is actually drawing. Called by
+ * what the toolkit's CSS is actually drawing — the stamp is the resolved
+ * value for whichever of dark and light mode is active. Called by
  * [buildPaneXtermTheme].
  *
- * @return `true` under Clean, `false` under Classic.
+ * @return `true` under Tone, `false` under Accent.
  */
-internal fun isCleanShellStyle(): Boolean {
+internal fun isToneFocusStyle(): Boolean {
     val root = kotlinx.browser.document.documentElement as? HTMLElement ?: return false
-    return se.soderbjorn.lunula.web.appliedShellStyle(root) == ShellStyle.Clean
+    return se.soderbjorn.lunula.web.appliedAppearance(root).focusStyle == FocusStyle.Tone
 }
 
 /**
  * The xterm.js theme for a live terminal window in the 2D layout: exactly
- * [buildXtermTheme] under Classic, and the same theme with a fully
- * transparent background under Clean.
+ * [buildXtermTheme] under an Accent active window, and the same theme with a
+ * fully transparent background under Tone.
  *
- * Under Clean the toolkit colours each window body by focus (`--t-surface`
- * for the active window, `--t-window-idle` for the rest) and Lunamux's pane
- * roots go transparent (see the Clean block in `styles.css`). xterm's DOM
+ * Under Tone the toolkit colours each window body by focus
+ * (`--t-window-active` for the active window, `--t-window-idle` for the rest)
+ * and Lunamux's pane roots follow it through `--dt-window-bg` (see
+ * `styles.css`). xterm's DOM
  * renderer paints `theme.background` on its viewport, so the canvas has to
  * go transparent too for the terminal to dim and brighten with its window.
  * Doing it in CSS keeps focus changes free: no per-focus theme pushes, and
@@ -375,15 +377,15 @@ internal fun isCleanShellStyle(): Boolean {
  * Called by [applyThemeToTerminals] and by the terminal factory in
  * `LayoutBuilder.kt`. Other xterm instances (3D world, overview thumbnails,
  * pane-type previews) keep [buildXtermTheme], since they do not sit on a
- * Clean window body.
+ * window body coloured by the Tone setting.
  *
  * @return a dynamic xterm.js `ITheme` object.
  * @see buildXtermTheme
- * @see isCleanShellStyle
+ * @see isToneFocusStyle
  */
 internal fun buildPaneXtermTheme(): dynamic {
     val base = buildXtermTheme()
-    if (isCleanShellStyle()) {
+    if (isToneFocusStyle()) {
         val surface = currentWorldTheme().surface
         val r = (surface shr 16) and 0xFFL
         val g = (surface shr 8) and 0xFFL
@@ -440,13 +442,14 @@ internal fun applyAppearanceClass() {
 /**
  * Applies the current xterm theme to all registered terminal instances.
  *
- * Called on every theme change ([applyAll]) and when the shell style changes
- * (the shell-style collector in `main.kt`), since the background depends on
- * Classic vs Clean.
+ * Called on every theme change ([applyAll], and again after the toolkit's
+ * apply pass in `refreshAndApplyActiveTheme`) and when a style setting
+ * changes (the settings collector in `main.kt`), since the background depends
+ * on the Active window setting.
  */
 internal fun applyThemeToTerminals() {
-    // The pane variant: identical to [buildXtermTheme] under Classic, with a
-    // transparent background under Clean (see [buildPaneXtermTheme]).
+    // The pane variant: identical to [buildXtermTheme] under Accent, with a
+    // transparent background under Tone (see [buildPaneXtermTheme]).
     val globalTheme = buildPaneXtermTheme()
     for ((_, entry) in terminals) {
         entry.term.options.theme = globalTheme

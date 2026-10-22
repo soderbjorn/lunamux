@@ -187,7 +187,7 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
     override val surfaceStyle: SurfaceStyle?
         get() = appVm.stateFlow.value.surfaceStyle
     /**
-     * The user's shell style (Classic / Clean), or `null` when never picked,
+     * The user's legacy look shorthand (Classic / Calm), or `null` when never picked,
      * which the toolkit resolves to Classic. Read by the Appearance settings'
      * Style row and by the shell's host-apply pass, which stamps
      * `data-dt-style` on `:root`.
@@ -201,6 +201,15 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
      */
     override val navigationMode: NavigationMode?
         get() = appVm.stateFlow.value.navigationMode
+    /**
+     * The user's style settings for dark and light mode, or `null` when never
+     * edited (the toolkit then reads the single-mode getters above for both
+     * modes). Read by the toolkit's apply pass, which picks the entry for the
+     * active appearance, and by the Appearance settings' "Style for this mode"
+     * group.
+     */
+    override val modeStyles: ModeStyles?
+        get() = appVm.stateFlow.value.modeStyles
     override val useCustomTitleBar: Boolean
         get() = appVm.stateFlow.value.electronCustomTitleBar
 
@@ -266,6 +275,16 @@ private object LunamuxThemeManagerHost : ThemeManagerHost {
      */
     override fun setNavigationMode(value: NavigationMode?) {
         launchNow { appVm.setNavigationMode(value) }
+    }
+    /**
+     * Persists both modes' style settings through
+     * [AppBackingViewModel.setModeStyles], undispatched (see [launchNow]) so
+     * the toolkit's re-apply right after this call already reads them.
+     *
+     * @param value both modes' settings, or `null` to forget them.
+     */
+    override fun setModeStyles(value: ModeStyles?) {
+        launchNow { appVm.setModeStyles(value) }
     }
     override fun setUseCustomTitleBar(value: Boolean) {
         launch { appVm.setElectronCustomTitleBar(value) }

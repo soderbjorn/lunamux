@@ -23,6 +23,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import se.soderbjorn.lunula.core.Appearance
 import se.soderbjorn.lunula.core.PersistKeys
 import se.soderbjorn.lunula.core.ThemeSnapshotV2
+import se.soderbjorn.lunula.core.ModeStyles
 import se.soderbjorn.lunula.core.NavigationMode
 import se.soderbjorn.lunula.core.SelectionStyle
 import se.soderbjorn.lunula.core.ShellStyle
@@ -147,6 +148,8 @@ internal class SettingsViewModel(
             surfaceStyle = SurfaceStyle.fromRaw(str("surfaceStyle")) ?: cur.surfaceStyle,
             shellStyle = ShellStyle.fromRaw(str("shellStyle")) ?: cur.shellStyle,
             navigationMode = NavigationMode.fromRaw(str("navigationMode")) ?: cur.navigationMode,
+            // Stored as the toolkit's own JSON string; unreadable keeps the current pair.
+            modeStyles = ModeStyles.fromJson(str("modeStyles")) ?: cur.modeStyles,
             sidebarWidth = int("sidebarWidth") ?: cur.sidebarWidth,
             sidebarCollapsed = bool("sidebarCollapsed") ?: cur.sidebarCollapsed,
             headerCollapsed = bool("headerCollapsed") ?: cur.headerCollapsed,

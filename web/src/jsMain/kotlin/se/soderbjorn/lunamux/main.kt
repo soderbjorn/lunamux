@@ -109,23 +109,28 @@ internal fun refreshAndApplyActiveTheme() {
     // theme pair overlaid, if any) so the toolkit chrome repaints in the
     // active world's theme too.
     appShellHandle?.setThemeSnapshot(effectiveThemeSnapshot())
+    // The push re-runs the toolkit's apply pass, which stamps the style
+    // settings of the (possibly new) active appearance mode. The terminals'
+    // background depends on one of them (Active window: Tone), so re-theme
+    // them now that the stamp is current; [applyAll] above ran before it.
+    applyThemeToTerminals()
 }
 
 /**
- * Re-applies the user's shell style and navigation mode to the mounted shell
- * and re-themes the live terminals to match.
+ * Re-applies the user's style settings and navigation mode to the mounted
+ * shell and re-themes the live terminals to match.
  *
  * Pushing the effective theme snapshot is how Lunamux asks the toolkit to
  * re-run its host-apply pass (`AppShellHandle.setThemeSnapshot` repaints the
  * palette and then re-reads every appearance setting from
- * `LunamuxThemeManagerHost`, restamping `data-dt-style` and redrawing the
- * chrome when the navigation surfaces change). It does not persist anything,
- * unlike `AppShellHandle.setShellStyle`, which would write the value back.
- * The terminals are re-themed afterwards, so they read the new stamp.
+ * `LunamuxThemeManagerHost`, restamping the style attributes for the active
+ * appearance mode and redrawing the chrome when the navigation surfaces
+ * change). It does not persist anything. The terminals are re-themed
+ * afterwards, so they read the new stamps.
  *
- * Called by the settings collector in [start] when `shellStyle` or
- * `navigationMode` changes in [appVm], whether picked here or pushed by
- * another client.
+ * Called by the settings collector in [start] when a style setting or the
+ * navigation mode changes in [appVm] (see [styleSettingsKey]), whether picked
+ * here or pushed by another client.
  *
  * @see buildPaneXtermTheme
  */
@@ -156,20 +161,26 @@ private fun reapplyShellAppearance() {
  * @see connectWindow
  */
 /**
- * Paints the selection language onto the document root.
+ * Everything in [state] that decides the toolkit's style settings or
+ * navigation, as one comparable value: the per-mode pair, the legacy
+ * single-mode values the toolkit falls back to while that pair is unset, and
+ * the shared navigation mode.
  *
- * A thin wrapper over the toolkit's `applySelectionStyle`, which takes the
- * element rather than finding it — the toolkit deliberately never assumes it
- * owns `documentElement`, since a host may scope a theme to a subtree. Lunamux
- * does own it, so the lookup is settled once here instead of at both call
- * sites in the settings collector.
+ * Called by the settings collector in [start], which re-applies the shell
+ * appearance whenever this changes.
  *
- * @param style the selection language, or `null` for the toolkit default.
+ * @param state the app state to read.
+ * @return a value equal for any two states that paint the same style.
  */
-private fun applySelectionNow(style: se.soderbjorn.lunula.core.SelectionStyle?) {
-    val root = kotlinx.browser.document.documentElement as? org.w3c.dom.HTMLElement ?: return
-    se.soderbjorn.lunula.web.applySelectionStyle(root, style)
-}
+private fun styleSettingsKey(state: AppBackingViewModel.State): List<Any?> = listOf(
+    state.modeStyles,
+    state.cornerRadiusPx,
+    state.uiDensity,
+    state.selectionStyle,
+    state.surfaceStyle,
+    state.shellStyle,
+    state.navigationMode,
+)
 
 private fun start() {
     injectLunulaStyles()
@@ -586,33 +597,18 @@ private fun start() {
         // round-trips it through `appVm`.)
         se.soderbjorn.lunula.web.applyPaneHeaderFontFamily(effectiveFontKey(prevPaneHeaderFamily))
         se.soderbjorn.lunula.web.applyPaneHeaderFontSizePx(effectiveChromeSize(prevPaneHeaderSize))
-        // Shape/density join this loop rather than the theme-apply path, and
-        // that placement is the point: they are user appearance preferences
-        // with the same lifecycle as the fonts above — restored at startup,
-        // re-applied when another client pushes a change — and they must NOT
-        // be reset when the theme changes. `null` means "toolkit default", so
-        // both appliers are safe to call with the unset value.
-        var prevCornerRadius: Int? = appVm.stateFlow.value.cornerRadiusPx
-        var prevDensity = appVm.stateFlow.value.uiDensity
-        var prevSelection = appVm.stateFlow.value.selectionStyle
-        // Surfaces (Depth / Flat): `null` resolves to Depth, today's default.
-        // Lunamux supplies no app default shape, so the stored pick (or null)
-        // is exactly what the toolkit's host-apply pass would resolve too.
-        var prevSurface = appVm.stateFlow.value.surfaceStyle
-        se.soderbjorn.lunula.web.applyCornerRadiusPx(prevCornerRadius)
-        se.soderbjorn.lunula.web.applyUiDensity(prevDensity)
-        applySelectionNow(prevSelection)
-        se.soderbjorn.lunula.web.applySurfaceStyle(prevSurface)
-        // Shell style (Classic / Clean) and navigation mode are applied by the
-        // toolkit itself (its host-apply pass reads them back through
-        // `LunamuxThemeManagerHost`), so all this loop does is ask the shell
-        // to re-apply when they change underneath it — another client pushed
-        // a pick, or the user picked one here — and re-theme the terminals,
-        // whose background depends on the style (see [buildPaneXtermTheme]).
-        // Under Classic at boot nothing is touched, so Classic is unchanged.
-        var prevShellStyle = appVm.stateFlow.value.shellStyle
-        var prevNavigationMode = appVm.stateFlow.value.navigationMode
-        if (isCleanShellStyle()) applyThemeToTerminals()
+        // The style settings (corners, spacing, selection, surfaces, chrome,
+        // windows, active window, labels) and navigation are applied by the
+        // toolkit itself: its host-apply pass reads them back through
+        // `LunamuxThemeManagerHost` and picks the active appearance mode's
+        // values, which this loop cannot know. So all it does is ask the shell
+        // to re-apply when one changes underneath it — another client pushed a
+        // pick, or the user picked one here — and re-theme the terminals,
+        // whose background depends on the Active window setting (see
+        // [buildPaneXtermTheme]). Painting them here as well, as this loop used
+        // to for the single-mode values, would overwrite the active mode's
+        // values with the legacy ones.
+        var prevStyleKey = styleSettingsKey(appVm.stateFlow.value)
         appVm.stateFlow.collect { state ->
             if (state.paneFontSize != prevPaneSize) {
                 prevPaneSize = state.paneFontSize
@@ -649,25 +645,9 @@ private fun start() {
                 prevPaneHeaderSize = state.paneHeaderFontSizePx
                 se.soderbjorn.lunula.web.applyPaneHeaderFontSizePx(effectiveChromeSize(prevPaneHeaderSize))
             }
-            if (state.cornerRadiusPx != prevCornerRadius) {
-                prevCornerRadius = state.cornerRadiusPx
-                se.soderbjorn.lunula.web.applyCornerRadiusPx(prevCornerRadius)
-            }
-            if (state.uiDensity != prevDensity) {
-                prevDensity = state.uiDensity
-                se.soderbjorn.lunula.web.applyUiDensity(prevDensity)
-            }
-            if (state.selectionStyle != prevSelection) {
-                prevSelection = state.selectionStyle
-                applySelectionNow(prevSelection)
-            }
-            if (state.surfaceStyle != prevSurface) {
-                prevSurface = state.surfaceStyle
-                se.soderbjorn.lunula.web.applySurfaceStyle(prevSurface)
-            }
-            if (state.shellStyle != prevShellStyle || state.navigationMode != prevNavigationMode) {
-                prevShellStyle = state.shellStyle
-                prevNavigationMode = state.navigationMode
+            val styleKey = styleSettingsKey(state)
+            if (styleKey != prevStyleKey) {
+                prevStyleKey = styleKey
                 reapplyShellAppearance()
             }
         }

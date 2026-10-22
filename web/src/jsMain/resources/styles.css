@@ -488,7 +488,7 @@ body.appearance-light .terminal-inner .xterm-viewport {
        to avoid a double frame. Uses `--t-surface` so the pane reads as one
        uniform surface (white on Termtastic Light) — the pane border, not a
        darker frame, delineates it. */
-    background: var(--t-surface, var(--surface));
+    background: var(--dt-window-bg, var(--t-surface, var(--surface)));
     border-radius: 6px;
     overflow: hidden;
 }
@@ -509,7 +509,7 @@ body.appearance-light .terminal-inner .xterm-viewport {
    the canvas from `bg`. When the canvas moved to `surface` this rule was left
    behind, so the strip has been a visibly darker band ever since.) */
 .terminal-cell[data-content-kind='terminal'] {
-    background: var(--t-surface, var(--surface));
+    background: var(--dt-window-bg, var(--t-surface, var(--surface)));
 }
 
 /* Inset body kinds on left + bottom to reveal the cell's chrome-titlebar
@@ -712,7 +712,7 @@ body.appearance-light .terminal-inner .xterm-viewport {
     min-height: 0;
     /* Terminal content sits on the pane surface (white on Termtastic Light),
        one level above the `--t-bg` canvas. */
-    background: var(--t-surface, var(--t-bg));
+    background: var(--dt-window-bg, var(--t-surface, var(--t-bg)));
     /* Fully rectangular: the .terminal-cell frame paints the rounded
        outer window via its own border-radius + overflow:hidden and the
        chrome-coloured frame sits between this rectangle and the cell
@@ -920,7 +920,7 @@ body.appearance-light .terminal-inner .xterm-viewport {
     min-height: 0;
     display: flex;
     flex-direction: row;
-    background: var(--background, #1e1e1e);
+    background: var(--dt-window-bg, var(--background, #1e1e1e));
 }
 
 
@@ -959,7 +959,7 @@ body.appearance-light .terminal-inner .xterm-viewport {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
     line-height: 1.6;
-    background: var(--surface, #252526);
+    background: var(--dt-window-bg, var(--surface, #252526));
 }
 /* Source code / binary view: drop the prose padding so .file-source can use
    the full viewport. Keeps the markdown padding intact for prose files. */
@@ -1756,7 +1756,7 @@ body.appearance-light .link-picker-card:hover {
     min-height: 0;
     display: flex;
     flex-direction: row;
-    background: var(--background, #1e1e1e);
+    background: var(--dt-window-bg, var(--background, #1e1e1e));
 }
 .git-list {
     display: flex;
@@ -1764,7 +1764,7 @@ body.appearance-light .link-picker-card:hover {
     min-height: 0;
     min-width: 0;
     overflow: hidden;
-    background: var(--surface, #252526);
+    background: var(--dt-window-bg, var(--surface, #252526));
     border-right: 1px solid var(--separator, #333);
 }
 .git-list-header {
@@ -1920,7 +1920,7 @@ body.appearance-light .link-picker-card:hover {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: var(--surface, #252526);
+    background: var(--dt-window-bg, var(--surface, #252526));
 }
 .git-mode-btn {
     padding: 3px 10px;
@@ -1971,7 +1971,7 @@ body.appearance-light .link-picker-card:hover {
     font-size: inherit;
     line-height: inherit;
     min-width: fit-content;
-    background: var(--t-bg, var(--surface, #252526));
+    background: var(--dt-window-bg, var(--t-bg, var(--surface, #252526)));
 }
 .git-diff-line {
     display: flex;
@@ -2026,7 +2026,7 @@ body.appearance-light .link-picker-card:hover {
     font-size: inherit;
     line-height: inherit;
     min-width: fit-content;
-    background: var(--t-bg, var(--surface, #252526));
+    background: var(--dt-window-bg, var(--t-bg, var(--surface, #252526)));
 }
 .git-split-row {
     display: flex;
@@ -2086,7 +2086,7 @@ body.appearance-light .link-picker-card:hover {
     flex-shrink: 0;
     position: relative;
     overflow: hidden;
-    background: var(--surface, #252526);
+    background: var(--dt-window-bg, var(--surface, #252526));
 }
 .git-graphical-svg {
     position: absolute;
@@ -3342,7 +3342,7 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     height: 100%;
     min-height: 0;
     margin: 0 0 4px 4px; /* same chrome inset as .terminal/.md-view */
-    background: var(--t-bg, var(--terminal-bg));
+    background: var(--dt-window-bg, var(--t-bg, var(--terminal-bg)));
     border-radius: 4px;
     overflow: hidden;
 }
@@ -3483,74 +3483,47 @@ body[data-tt-news-pulse="1"] .tt-news-topbar {
     }
 }
 
-/* ── Clean shell style ─────────────────────────────────────────────────
-   Lunula's Clean style (`:root[data-dt-style="clean"]`, stamped by the
-   toolkit when the user picks Style: Clean in Appearance settings) colours
-   each window body by focus: `--t-surface` for the active window and
-   `--t-window-idle` for the rest. That only reaches the pixels nobody else
-   paints, and Lunamux's pane roots each paint `--t-surface` (or `--t-bg`)
-   over the whole body, which would keep every window at the active colour.
-   Under Clean only, those roots step aside so the window colour shows
-   through; the xterm canvas does the same via a transparent theme
-   background (`buildPaneXtermTheme` in WebStateActions.kt).
+/* ── Window colour (Lunula's Active window: Tone) ─────────────────────
+   Under Lunula's Tone setting (`FocusStyle.Tone`) each window body is
+   coloured by focus: `--t-window-active` for the active window and
+   `--t-window-idle` for the rest. Lunamux's pane roots each paint their own
+   fill over the whole body, which would keep every window at one colour, so
+   each root paints `var(--dt-window-bg, <its own colour>)` instead (see the
+   rules above): the toolkit publishes `--dt-window-bg` on every window under
+   Tone, and leaves it unset otherwise, so with any other setting the roots
+   keep exactly the colours they always had. The xterm canvas does the same
+   via a transparent theme background (`buildPaneXtermTheme` in
+   WebStateActions.kt), and the web pane's inline root fill reads the same
+   variable (WebBrowserPane.kt).
 
    Appearance only: nothing here changes what a pane shows, only which
    surface it sits on. Inputs, toasts, popups and other floating cards keep
-   their own fill. Classic never matches these selectors, so it renders
-   exactly as before. */
-:root[data-dt-style="clean"] .terminal-cell,
-:root[data-dt-style="clean"] .terminal-cell[data-content-kind='terminal'],
-:root[data-dt-style="clean"] .terminal-inner,
-:root[data-dt-style="clean"] .md-view,
-:root[data-dt-style="clean"] .md-rendered,
-:root[data-dt-style="clean"] .git-view,
-:root[data-dt-style="clean"] .git-list,
-:root[data-dt-style="clean"] .git-diff-pane,
-:root[data-dt-style="clean"] .agent-view {
-    background: transparent;
-}
-/* Git diff body. The inline and split views paint `--t-bg` and the
-   graphical view's connector strip paints `--surface`, so an idle diff window
-   would stay at that colour instead of the window-idle grey. Under Clean they
-   go transparent like the other pane bodies. The added / removed / modified
-   marks stay as they are: the inline gutter bars are opaque but sit beside
-   the code, and every row tint (split `.git-split-mod`, graphical
-   `.highlight-*`, the connector's SVG bands) is already translucent rgba, so
-   it reads the same on the idle grey as on the active white. Syntax colours
-   (`.hl-*`) are text colours and are untouched. */
-:root[data-dt-style="clean"] .git-diff-inline,
-:root[data-dt-style="clean"] .git-diff-split,
-:root[data-dt-style="clean"] .git-graphical-connector {
-    background: transparent;
-}
-/* The web pane's root sets its fill inline (WebBrowserPane.kt), so only
-   `!important` reaches it from a stylesheet. Scoped to Clean like the rest. */
-:root[data-dt-style="clean"] .web-pane {
-    background: transparent !important;
-}
+   their own fill. Inside the git diff the added / removed / modified marks
+   stay as they are: the inline gutter bars sit beside the code, and every
+   row tint is translucent rgba, so it reads the same on either window tone. */
 
-/* Sidebar footer (Claude usage, world status). Under Clean the toolkit's
-   footer slot already draws one hairline above itself and pads its content,
-   so Lunamux's own divider and inset would double both. The rows become plain
-   muted text in Clean's dim tone; their content, order and severity colours
-   are unchanged. */
-:root[data-dt-style="clean"] .tt-sidebar-footer {
+/* Sidebar footer (Claude usage, world status). Under Lunula's Blended chrome
+   (`ChromeStyle.Blended`) the toolkit's footer slot already draws one hairline
+   above itself and pads its content, so Lunamux's own divider and inset would
+   double both. The rows become plain muted text in the toolkit's dim tone;
+   their content, order and severity colours are unchanged. */
+:root[data-dt-chrome="blended"] .tt-sidebar-footer {
     border-top: none;
     padding: 0;
 }
-:root[data-dt-style="clean"] .claude-usage-bar,
-:root[data-dt-style="clean"] .world-status-bar {
+:root[data-dt-chrome="blended"] .claude-usage-bar,
+:root[data-dt-chrome="blended"] .world-status-bar {
     padding-left: 0;
     padding-right: 0;
-    color: var(--dt-clean-text-dim, var(--t-text-dim, var(--text-secondary)));
+    color: var(--dt-dim-text, var(--t-text-dim, var(--text-secondary)));
 }
 /* The usage bar's own empty state collapses it to nothing; keep that. */
-:root[data-dt-style="clean"] .claude-usage-bar.claude-usage-bar-empty {
+:root[data-dt-chrome="blended"] .claude-usage-bar.claude-usage-bar-empty {
     padding: 0;
 }
-:root[data-dt-style="clean"] .world-status-bar {
+:root[data-dt-chrome="blended"] .world-status-bar {
     border-top-color: var(--t-border, rgba(255, 255, 255, 0.1));
 }
-:root[data-dt-style="clean"] .world-status-bar.world-status-empty {
+:root[data-dt-chrome="blended"] .world-status-bar.world-status-empty {
     border-top: none;
 }

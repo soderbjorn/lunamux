@@ -127,7 +127,8 @@ fun buildWebBrowserView(paneId: String, leaf: dynamic): HTMLElement {
     root.style.flexDirection = "column"
     root.style.height = "100%"
     root.style.minHeight = "0"
-    root.style.background = "var(--t-surface, #14181f)"
+    // `--dt-window-bg`: the window colour under Lunula's Tone setting, unset otherwise.
+    root.style.background = "var(--dt-window-bg, var(--t-surface, #14181f))"
 
     // ── Chrome bar ────────────────────────────────────────────────────
     val chrome = document.createElement("div") as HTMLElement

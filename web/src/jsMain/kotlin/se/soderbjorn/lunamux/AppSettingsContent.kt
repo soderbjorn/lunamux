@@ -19,11 +19,9 @@
  *         Rendered first, and only shown when running inside the bundled
  *         Electron app ([isElectronClient]) — the dialog opens on the
  *         server's desktop, which a remote browser can't see.
- *       - **"Themes"** / **"Appearance"** — activate the toolkit's topbar
- *         Theme Manager / Appearance buttons (via [activateTopbarButton]),
- *         so they have the exact same effect — including the mutual
- *         exclusion that closes this sidebar — as clicking those toolbar
- *         icons directly.
+ *       - **"Themes"** / **"Appearance"** — open the toolkit's Appearance
+ *         pane on its Themes / Appearance tab (via
+ *         `AppShellHandle.openAppearance`), which also closes this sidebar.
  *  2. A **General** section with persisted toggles for stable,
  *     enabled-by-default features that have graduated out of Experimental:
  *       - **Desktop notifications**: raise an OS notification when a session
@@ -70,6 +68,7 @@
  */
 package se.soderbjorn.lunamux
 
+import se.soderbjorn.lunula.web.themeeditor.AppearanceTab
 import kotlinx.browser.document
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -192,19 +191,6 @@ private const val KEY_WORLD3D_SOUND_EFFECTS = "world3dSoundEffects"
  * @see isDesktopNotificationsEnabled
  */
 private const val KEY_DESKTOP_NOTIFICATIONS = "desktopNotifications"
-
-/**
- * Tooltip/`title` of the toolkit's topbar Theme Manager (palette) button.
- * Used by [activateTopbarButton] to locate and click it. Mirrors the
- * default tooltip set by the toolkit's `buildThemeManagerButton`.
- */
-private const val TOPBAR_TITLE_THEMES = "Theme manager"
-
-/**
- * Tooltip/`title` of the toolkit's topbar Appearance ("Aa") button.
- * Mirrors the default tooltip set by the toolkit's `buildSettingsGearButton`.
- */
-private const val TOPBAR_TITLE_APPEARANCE = "Appearance"
 
 /**
  * Tooltip/`title` of the toolkit's topbar App Settings (gear) button — the
@@ -575,8 +561,8 @@ fun buildAppSettingsContent(): HTMLElement {
  *     when the client IS the server's desktop (the bundled Electron app);
  *     for a remote browser the dialog would pop on another machine, so the
  *     button is hidden and the section simply starts at "Themes".
- *  2. **"Themes"** — same effect as the toolkit's topbar palette button.
- *  3. **"Appearance"** — same effect as the toolkit's topbar "Aa" button.
+ *  2. **"Themes"** — the toolkit's Appearance pane, on its Themes tab.
+ *  3. **"Appearance"** — the same pane, on its Appearance tab.
  *  4. **"Keyboard Shortcuts"** — opens the toolkit's hotkeys sidebar.
  *
  * The last three are shown on every client (the toolkit panels they open
@@ -599,17 +585,17 @@ private fun buildNavigationSection(): HTMLElement {
     nav.appendChild(buildNavButton(
         label = "Themes",
         iconHtml = ICON_THEMES,
-        onClick = { activateTopbarButton(TOPBAR_TITLE_THEMES) },
+        onClick = { appShellHandle?.openAppearance(AppearanceTab.Themes) },
     ))
     nav.appendChild(buildNavButton(
         label = "Appearance",
         iconHtml = ICON_APPEARANCE,
-        onClick = { activateTopbarButton(TOPBAR_TITLE_APPEARANCE) },
+        onClick = { appShellHandle?.openAppearance(AppearanceTab.Appearance) },
     ))
-    // "Hotkeys" opens the dedicated keyboard-shortcuts sidebar. Unlike
-    // Themes / Appearance it isn't a topbar button, so we call the toolkit
-    // handle directly (via [openHotkeysSidebar]); the handle animates this
-    // App Settings sidebar closed as part of its mutual-exclusion hand-off.
+    // "Hotkeys" opens the dedicated keyboard-shortcuts sidebar through the
+    // toolkit handle (via [openHotkeysSidebar]), like Themes / Appearance
+    // above; the handle animates this App Settings sidebar closed as part of
+    // its mutual-exclusion hand-off.
     nav.appendChild(buildNavButton(
         label = "Keyboard Shortcuts",
         iconHtml = ICON_HOTKEYS,
@@ -652,29 +638,6 @@ private fun buildNavButton(
 }
 
 /**
- * Locates a toolkit topbar icon button by its tooltip/`title` and clicks
- * it, so a navigation button here produces the *exact* same effect as the
- * user clicking that toolbar icon — including the toolkit's mutual-exclusion
- * handling, which closes this App Settings sidebar before opening the target
- * panel.
- *
- * Dispatching a real click (rather than calling the toolkit's
- * `toggleThemeManagerSidebar` / `toggleSettingsSidebar` directly) is
- * deliberate: those functions need the shell's private `rerender` callback,
- * which isn't reachable from app code. The rendered button already closes
- * over it.
- *
- * @param title the topbar button's `title` attribute — one of
- *   [TOPBAR_TITLE_THEMES] or [TOPBAR_TITLE_APPEARANCE].
- */
-private fun activateTopbarButton(title: String) {
-    val button = document.querySelector(
-        ".dt-topbar-icon-button[title=\"$title\"]",
-    ) as? HTMLElement ?: return
-    button.click()
-}
-
-/**
  * Opens (never closes) the App Settings sidebar by activating the toolkit's
  * topbar "App settings" gear button.
  *
@@ -684,7 +647,6 @@ private fun activateTopbarButton(title: String) {
  * and clicking it again would *close* it — so we no-op when it's already
  * showing, making this a pure "open" rather than a toggle.
  *
- * @see activateTopbarButton
  */
 fun openAppSettingsSidebar() {
     val button = document.querySelector(
