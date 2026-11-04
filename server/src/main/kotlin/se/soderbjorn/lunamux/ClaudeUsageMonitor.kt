@@ -1,12 +1,20 @@
 /**
- * Monitors Claude CLI subscription usage by running a hidden PTY session.
+ * Monitors Claude CLI subscription usage by asking the CLI for it.
  *
- * This file contains [ClaudeUsageMonitor], which spawns a background `claude`
- * process, periodically types the `/usage` slash command, scrapes the rendered
- * screen output via [ScreenEmulator], and parses the result into a
+ * This file contains [ClaudeUsageMonitor], which periodically runs
+ * `claude -p /usage --output-format json` as a short-lived process, reads the
+ * plain-text usage report from the JSON `result` field, and parses it into a
  * [ClaudeUsageData] object. The parsed data is emitted on a [SharedFlow] that
  * the `/window` WebSocket pushes to connected clients as a
  * [WindowEnvelope.ClaudeUsage] message.
+ *
+ * Print mode is what makes this robust: `/usage` is answered locally (no model
+ * call, no tokens, no cost), and a print-mode run shows no interactive UI — no
+ * folder-trust dialog, no prompt to wait for, no screen to scrape. The monitor
+ * used to drive a hidden interactive session in a PTY instead, which broke
+ * whenever a Claude Code update changed a startup dialog (most recently by
+ * putting "No, exit" first in the trust dialog, which the blind Enter then
+ * chose).
  *
  * Lifecycle is controlled from [Application.main]: the monitor is started on
  * boot if the user has opted in via [SettingsRepository.isClaudeUsagePollEnabled],
@@ -17,19 +25,34 @@
  */
 package se.soderbjorn.lunamux
 
-import com.pty4j.PtyProcessBuilder
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.coroutines.coroutineContext
 import org.slf4j.LoggerFactory
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
- * Runs a hidden PTY session with the `claude` CLI and periodically types
- * `/usage` to scrape subscription usage data (session %, weekly %, reset
- * times). The parsed data is emitted as a [ClaudeUsageData] on [usageData].
+ * Periodically runs `claude -p /usage` and publishes the parsed subscription
+ * usage (session %, weekly %, per-model weekly rows, reset times) as a
+ * [ClaudeUsageData] on [usageData].
+ *
+ * Created once by [Application.main]; started and stopped from there and
+ * from the settings toggle in [SettingsDialog]; read by the `/window`
+ * WebSocket ([usageData]), its `RefreshUsage` command ([requestRefresh]) and
+ * the MCP `get_claude_usage` tool ([current]).
+ *
+ * @param workDir folder the CLI runs in. Defaults to a dedicated temp folder
+ *   ([defaultWorkDir]) so every poll shares one Claude Code project entry
+ *   instead of creating one per run, and never runs inside a real project.
  */
-class ClaudeUsageMonitor {
+class ClaudeUsageMonitor(private val workDir: File = defaultWorkDir()) {
 
     private val log = LoggerFactory.getLogger(ClaudeUsageMonitor::class.java)
 
@@ -54,7 +77,9 @@ class ClaudeUsageMonitor {
     fun current(): ClaudeUsageData? = latest
 
     private var scope: CoroutineScope? = null
-    @Volatile private var ptyProcess: Process? = null
+
+    /** The `claude -p` run in flight, killed by [stop]. */
+    @Volatile private var process: Process? = null
     private val refreshRequested = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     /** Request an immediate usage refresh (skips the 10-minute wait). */
@@ -63,9 +88,8 @@ class ClaudeUsageMonitor {
     }
 
     /**
-     * Start the background monitoring loop. Spawns a `claude` process in a
-     * hidden PTY and begins periodically issuing `/usage` commands.
-     * No-op if already running.
+     * Start the background polling loop. Polls immediately, then every
+     * [POLL_INTERVAL_MS]. No-op if already running.
      */
     fun start() {
         if (scope != null) return
@@ -76,249 +100,221 @@ class ClaudeUsageMonitor {
     }
 
     /**
-     * Stop the monitoring loop, destroy the hidden PTY process, and emit
-     * a null value on [usageData] to signal that usage data is no longer
-     * available.
+     * Stop the polling loop, kill a `claude` run in flight, and emit a null
+     * value on [usageData] to signal that usage data is no longer available.
      */
     fun stop() {
         log.info("ClaudeUsageMonitor: stopping")
         scope?.cancel()
         scope = null
-        ptyProcess?.let { proc ->
+        process?.let { proc ->
             runCatching { proc.destroyForcibly() }
-            ptyProcess = null
+            process = null
         }
         latest = null
         _usageData.tryEmit(null)
     }
 
     /**
-     * Top-level loop that keeps retrying [runSession] on failure with a
-     * 30-second back-off. Runs until the coroutine scope is cancelled.
+     * Polls until the scope is cancelled: [pollOnce], then wait — the full
+     * [POLL_INTERVAL_MS] after a poll that ran, [RETRY_INTERVAL_MS] after one
+     * that could not run the CLI at all — waking early on [requestRefresh].
      */
     private suspend fun runLoop() {
         while (coroutineContext.isActive) {
-            try {
-                runSession()
+            val ran = try {
+                pollOnce()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                log.warn("ClaudeUsageMonitor: session failed, retrying in 30s", e)
-                delay(30_000)
+                log.warn("ClaudeUsageMonitor: poll failed", e)
+                false
             }
+            val wait = if (ran) POLL_INTERVAL_MS else RETRY_INTERVAL_MS
+            withTimeoutOrNull(wait) { refreshRequested.receive() }
         }
     }
 
     /**
-     * Run a single Claude CLI session: find the `claude` binary, spawn it
-     * in a hidden PTY, wait for the prompt, then loop issuing `/usage`
-     * commands every 10 minutes (or sooner on [requestRefresh]).
+     * Runs the CLI once and publishes what it reports.
+     *
+     * Called by [runLoop]. A report that cannot be parsed (an older CLI, an
+     * API-key login with no subscription limits, a changed format) is logged
+     * with its text and leaves the previous snapshot in place.
+     *
+     * @return `true` when the CLI ran and answered (parsed or not), `false`
+     *   when it could not be found, failed or timed out — so [runLoop] retries
+     *   sooner.
      */
-    private suspend fun runSession() {
+    private suspend fun pollOnce(): Boolean {
         val claudePath = findClaude() ?: run {
             log.warn("ClaudeUsageMonitor: 'claude' not found on PATH")
-            delay(60_000)
-            return
+            return false
         }
-
-        // Use a dedicated temp directory to avoid the "trust this folder"
-        // prompt that appears for sensitive directories like $HOME.
-        val workDir = java.io.File(System.getProperty("java.io.tmpdir"), "lunamux-claude-usage").apply { mkdirs() }
-        val env = HashMap(System.getenv()).apply {
-            put("TERM", "xterm-256color")
-            // GUI launches (Electron from Finder/Dock) inherit a minimal
-            // PATH that usually lacks Node.  Append well-known directories
-            // so that npm-installed claude (#!/usr/bin/env node) still works.
-            val extra = listOf(
-                "/opt/homebrew/bin",
-                "/usr/local/bin",
-                "${System.getProperty("user.home")}/.nvm/versions/node/default/bin",
-                "${System.getProperty("user.home")}/.local/bin",
-            )
-            val current = getOrDefault("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-            put("PATH", (extra + current.split(":")).distinct().joinToString(":"))
+        val report = fetchUsageReport(claudePath) ?: return false
+        val parsed = parseUsageReport(report)
+        if (parsed == null) {
+            log.info("ClaudeUsageMonitor: could not parse usage report:\n{}", report)
+            return true
         }
-
-        // 60 rows: the /usage screen grew tall (per-model weekly bars plus the
-        // "What's contributing" / Skills / Subagents sections) and scrolls in
-        // a short terminal, which would push the Extra-usage section below the
-        // fold and out of the snapshot.
-        val pty = PtyProcessBuilder(arrayOf(claudePath))
-            .setDirectory(workDir.absolutePath)
-            .setEnvironment(env)
-            .setInitialColumns(100)
-            .setInitialRows(60)
-            .start()
-        ptyProcess = pty
-
-        val screen = ScreenEmulator(initialCols = 100, initialRows = 60)
-        val readJob = CoroutineScope(coroutineContext).launch {
-            val input = pty.inputStream
-            val buf = ByteArray(4096)
-            while (isActive) {
-                val n = input.read(buf)
-                if (n <= 0) break
-                val chunk = buf.copyOf(n)
-                screen.feed(chunk, n)
-            }
-        }
-
-        try {
-            // Wait for claude to start up (look for prompt)
-            waitForPrompt(screen, pty, timeoutMs = 15_000)
-            log.info("ClaudeUsageMonitor: claude prompt detected, starting poll loop")
-
-            while (coroutineContext.isActive) {
-                // Send /usage command.  Ink (Claude Code's UI framework)
-                // puts the terminal in raw mode, so Enter must be CR (\r),
-                // not LF (\n) — the PTY won't translate in raw mode.
-                // The first CR selects the autocomplete suggestion, the
-                // second CR actually submits the command.
-                pty.outputStream.write("/usage\r".toByteArray())
-                pty.outputStream.flush()
-                delay(500)
-                pty.outputStream.write("\r".toByteArray())
-                pty.outputStream.flush()
-
-                // Wait for the usage screen to render
-                delay(3_000)
-
-                // Read and parse the screen
-                val text = screen.snapshotVisibleText()
-                val parsed = parseUsageScreen(text)
-                if (parsed != null) {
-                    val stamped = parsed.copy(
-                        fetchedAt = java.time.Instant.now().toString()
-                    )
-                    latest = stamped
-                    _usageData.emit(stamped)
-                    log.debug("ClaudeUsageMonitor: parsed usage — session={}%, weekly={}%",
-                        parsed.sessionPercent, parsed.weeklyAllPercent)
-                } else {
-                    log.info("ClaudeUsageMonitor: could not parse usage screen. Snapshot:\n{}", text)
-                }
-
-                // Send ESC to dismiss the usage overlay
-                pty.outputStream.write(byteArrayOf(0x1B))
-                pty.outputStream.flush()
-
-                // Wait before next poll (10 minutes), but wake early on refresh request
-                withTimeoutOrNull(600_000) { refreshRequested.receive() }
-            }
-        } finally {
-            readJob.cancel()
-            runCatching { pty.destroyForcibly() }
-            ptyProcess = null
-        }
+        val stamped = parsed.copy(fetchedAt = java.time.Instant.now().toString())
+        latest = stamped
+        _usageData.emit(stamped)
+        log.debug("ClaudeUsageMonitor: parsed usage — session={}%, weekly={}%",
+            parsed.sessionPercent, parsed.weeklyAllPercent)
+        return true
     }
 
     /**
-     * Wait for the Claude CLI's input prompt to appear on [screen].
-     * If a "Quick safety check" trust prompt is detected, auto-confirms it
-     * by sending a carriage return.
+     * Runs `claude -p /usage --output-format json` in [workDir] and returns
+     * the report text from its `result` field.
      *
-     * @param screen the headless emulator tracking the CLI's output
-     * @param pty the Claude CLI process (used to write confirmation input)
-     * @param timeoutMs maximum time to wait for the prompt, in milliseconds
+     * Flags, each keeping a background poll from touching the user's setup:
+     *  - `--no-session-persistence`: no transcript is saved per poll;
+     *  - `--setting-sources project`: the user's own settings are not loaded,
+     *    so their hooks (SessionStart and the like) do not fire every poll —
+     *    [workDir] has no project settings, and the login is unaffected;
+     *  - `--strict-mcp-config`: no MCP servers are started.
+     *
+     * Stdin is closed at once so the CLI never waits for piped input; a run
+     * that takes longer than [RUN_TIMEOUT_MS] is killed.
+     *
+     * Called by [pollOnce].
+     *
+     * @param claudePath absolute path of the CLI, from [findClaude].
+     * @return the report text, or `null` when the run failed, timed out, or
+     *   answered with an error.
      */
-    private suspend fun waitForPrompt(screen: ScreenEmulator, pty: Process, timeoutMs: Long) {
-        var deadline = System.currentTimeMillis() + timeoutMs
-        var trustConfirmed = false
-        while (System.currentTimeMillis() < deadline && coroutineContext.isActive) {
-            val text = screen.snapshotVisibleText()
-
-            // If the "trust this folder" prompt appears, press Enter to confirm.
-            // The rendered text may contain escape code artifacts (e.g. "[1CI trust")
-            // so match on a stable substring from the dialog.
-            if (!trustConfirmed && text.contains("Quick safety check")) {
-                log.info("ClaudeUsageMonitor: trust prompt detected, auto-confirming")
-                pty.outputStream.write("\r".toByteArray())
-                pty.outputStream.flush()
-                trustConfirmed = true
-                // Reset deadline — Claude still needs time to fully start up
-                deadline = System.currentTimeMillis() + timeoutMs
-                delay(2_000)
-                continue
+    private suspend fun fetchUsageReport(claudePath: String): String? = coroutineScope {
+        workDir.mkdirs()
+        val proc = ProcessBuilder(
+            claudePath, "-p", "/usage", "--output-format", "json",
+            "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config",
+        )
+            .directory(workDir)
+            .apply { environment()["PATH"] = augmentedPath(environment()["PATH"]) }
+            .start()
+        process = proc
+        try {
+            proc.outputStream.close()
+            // Drain both pipes while waiting, so a chatty run can't block on a full pipe.
+            val stdout = async(Dispatchers.IO) { proc.inputStream.readBytes().decodeToString() }
+            val stderr = async(Dispatchers.IO) { proc.errorStream.readBytes().decodeToString() }
+            val finished = runInterruptible(Dispatchers.IO) { proc.waitFor(RUN_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
+            if (!finished) {
+                log.warn("ClaudeUsageMonitor: 'claude -p /usage' did not finish in {} ms", RUN_TIMEOUT_MS)
+                proc.destroyForcibly()
+                return@coroutineScope null
             }
-
-            // Claude Code shows "❯" as its input prompt — but ignore it if
-            // it's part of the trust dialog (which also uses ❯ as a selector)
-            if (text.contains("❯") && !text.contains("Quick safety check")) {
-                return
+            val out = stdout.await()
+            if (proc.exitValue() != 0) {
+                log.warn("ClaudeUsageMonitor: 'claude -p /usage' exited {}: {}",
+                    proc.exitValue(), stderr.await().ifBlank { out }.take(500))
+                return@coroutineScope null
             }
-            delay(500)
+            usageReportFromJson(out).also {
+                if (it == null) log.warn("ClaudeUsageMonitor: unexpected 'claude -p /usage' output: {}", out.take(500))
+            }
+        } finally {
+            if (proc.isAlive) proc.destroyForcibly()
+            process = null
         }
-        // Proceed anyway after timeout — the /usage command might still work
-        log.warn("ClaudeUsageMonitor: prompt not detected within {}ms, proceeding anyway", timeoutMs)
     }
 
     companion object {
-        private val PERCENT_REGEX = Regex("""(\d+)%\s*used""")
-        private val RESETS_REGEX = Regex("""[Rr]esets\s+(.+)""")
+        /** Time between polls. */
+        private const val POLL_INTERVAL_MS = 10 * 60_000L
+
+        /** Time before trying again after the CLI could not be run. */
+        private const val RETRY_INTERVAL_MS = 60_000L
+
+        /** Longest a single `claude -p /usage` run may take; it normally answers in a few seconds. */
+        private const val RUN_TIMEOUT_MS = 60_000L
+
         /**
-         * Matches a weekly section header and captures the parenthesized
+         * The folder the CLI runs in by default: a dedicated temp directory,
+         * so polls never run inside one of the user's projects.
+         *
+         * @return `<java.io.tmpdir>/lunamux-claude-usage`.
+         */
+        fun defaultWorkDir(): File = File(System.getProperty("java.io.tmpdir"), "lunamux-claude-usage")
+
+        private val json = Json { ignoreUnknownKeys = true }
+
+        /**
+         * One usage row of the report, e.g.
+         * `Current week (all models): 32% used · resets Nov 9 at 12am (Europe/Helsinki)`.
+         * Captures the label, the percentage and the optional reset text; the
+         * separator before "resets" is matched loosely (`·`, `-`, `|`, …).
+         */
+        private val USAGE_LINE_REGEX =
+            Regex("""^\s*(.+?):\s*(\d+)%\s*used(?:\s*\S\s*resets?\s+(.+?))?\s*$""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Matches a weekly row label and captures the parenthesized
          * qualifier, e.g. "Current week (all models)" → "all models",
          * "Current week (Fable)" → "Fable". The qualifier set varies with the
          * CLI version and the user's plan, so model names are not hardcoded.
          */
-        private val WEEK_HEADER_REGEX = Regex("""Current week\s*\(([^)]+)\)""", RegexOption.IGNORE_CASE)
+        private val WEEK_LABEL_REGEX = Regex("""week\s*\(([^)]+)\)""", RegexOption.IGNORE_CASE)
+
+        /** The extra-usage line and whatever follows its label. */
+        private val EXTRA_USAGE_REGEX = Regex("""^\s*Extra usage\b\s*:?\s*(.*)$""", RegexOption.IGNORE_CASE)
 
         /**
-         * Parse the rendered `/usage` screen text into a [ClaudeUsageData].
+         * Extracts the report text from `claude -p --output-format json` output.
          *
-         * Extracts session percentage, weekly (all models) percentage, one
-         * entry per model-specific weekly section (e.g. Fable, Sonnet — see
-         * [ClaudeModelUsage]), reset times, and extra-usage status from the
-         * screen output.
+         * Called by [fetchUsageReport].
          *
-         * @param text the full visible text from the [ScreenEmulator] after
-         *             the `/usage` command has rendered
-         * @return parsed usage data, or null if the "Current session" section
-         *         was not found in the text
+         * @param output the CLI's stdout: one JSON object.
+         * @return its `result` string, or `null` when the output is not that
+         *   JSON, has no `result`, or is flagged `is_error`.
          */
-        fun parseUsageScreen(text: String): ClaudeUsageData? {
-            val lines = text.lines()
+        internal fun usageReportFromJson(output: String): String? {
+            val obj = runCatching { json.parseToJsonElement(output.trim()) as? JsonObject }.getOrNull()
+                ?: return null
+            if (obj["is_error"]?.jsonPrimitive?.booleanOrNull == true) return null
+            return obj["result"]?.jsonPrimitive?.contentOrNull
+        }
 
-            // Find section indices
-            val sessionIdx = lines.indexOfFirst { it.contains("Current session", ignoreCase = true) }
-            val extraIdx = lines.indexOfFirst { it.contains("Extra usage", ignoreCase = true) }
-
-            if (sessionIdx < 0) return null
-
-            // All weekly section headers in screen order, with their captured
-            // qualifier ("all models" or a model name).
-            val weekSections = lines.withIndex().mapNotNull { (idx, line) ->
-                WEEK_HEADER_REGEX.find(line)?.let { idx to it.groupValues[1].trim() }
+        /**
+         * Parse the `/usage` report text into a [ClaudeUsageData].
+         *
+         * Reads one row per `<label>: N% used · resets <when>` line: the
+         * current session, the all-models weekly pool, and one
+         * [ClaudeModelUsage] per model-specific weekly row (e.g. Fable,
+         * Sonnet), plus the extra-usage line when there is one. The advisory
+         * sections that follow ("What's contributing to your usage?") carry
+         * no "% used" rows and are ignored.
+         *
+         * @param text the report from [usageReportFromJson]
+         * @return parsed usage data, or null if the report has no current
+         *   session row (not a subscription login, or an unknown format)
+         */
+        fun parseUsageReport(text: String): ClaudeUsageData? {
+            data class Row(val label: String, val percent: Int, val reset: String)
+            val rows = text.lines().mapNotNull { line ->
+                USAGE_LINE_REGEX.find(line)?.let { m ->
+                    Row(m.groupValues[1].trim(), m.groupValues[2].toInt(), m.groupValues[3].trim())
+                }
             }
-            val weeklyAllIdx = weekSections.firstOrNull {
-                it.second.equals("all models", ignoreCase = true)
-            }?.first ?: -1
 
-            /** Line index of the section header following [idx], bounding its reset search. */
-            fun nextSectionAfter(idx: Int): Int? =
-                weekSections.map { it.first }.firstOrNull { it > idx }
+            val session = rows.firstOrNull { it.label.contains("session", ignoreCase = true) } ?: return null
+            val weekly = rows.mapNotNull { row ->
+                WEEK_LABEL_REGEX.find(row.label)?.let { row to it.groupValues[1].trim() }
+            }
+            val allModels = weekly.firstOrNull { it.second.equals("all models", ignoreCase = true) }?.first
 
-            // Parse each section
-            val sessionPercent = findPercent(lines, sessionIdx) ?: return null
-            val sessionReset = findReset(lines, sessionIdx, nextSectionAfter(sessionIdx))
-
-            val weeklyAllPercent = if (weeklyAllIdx >= 0) findPercent(lines, weeklyAllIdx) ?: 0 else 0
-            val weeklyAllReset = if (weeklyAllIdx >= 0)
-                findReset(lines, weeklyAllIdx, nextSectionAfter(weeklyAllIdx))
-            else ""
-
-            // Every weekly section that isn't the all-models pool is a
+            // Every weekly row that isn't the all-models pool is a
             // model-specific row ("Fable", "Sonnet", "Opus", ...). A trailing
             // " only" (older CLIs printed "Sonnet only") is stripped.
-            val modelUsages = weekSections
-                .filter { it.first != weeklyAllIdx }
-                .mapNotNull { (idx, qualifier) ->
-                    val label = qualifier.removeSuffix(" only").trim()
-                    val percent = findPercent(lines, idx) ?: return@mapNotNull null
+            val modelUsages = weekly
+                .filter { it.first !== allModels }
+                .map { (row, qualifier) ->
                     ClaudeModelUsage(
-                        label = label,
-                        percent = percent,
-                        resetTime = findReset(lines, idx, nextSectionAfter(idx)),
+                        label = qualifier.removeSuffix(" only").trim(),
+                        percent = row.percent,
+                        resetTime = row.reset,
                     )
                 }
 
@@ -328,22 +324,15 @@ class ClaudeUsageMonitor {
                 .firstOrNull { it.label.equals("Sonnet", ignoreCase = true) }
                 ?.percent ?: 0
 
-            val extraEnabled = if (extraIdx >= 0) {
-                val extraSection = lines.drop(extraIdx).take(3).joinToString(" ")
-                !extraSection.contains("not enabled", ignoreCase = true)
-            } else false
-
-            val extraInfo = if (extraIdx >= 0) {
-                lines.drop(extraIdx + 1).take(2)
-                    .joinToString(" ").trim()
-                    .takeIf { it.isNotBlank() }
-            } else null
+            val extra = text.lines().firstNotNullOfOrNull { EXTRA_USAGE_REGEX.find(it) }
+            val extraInfo = extra?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
+            val extraEnabled = extra != null && extraInfo?.contains("not enabled", ignoreCase = true) != true
 
             return ClaudeUsageData(
-                sessionPercent = sessionPercent,
-                sessionResetTime = sessionReset,
-                weeklyAllPercent = weeklyAllPercent,
-                weeklyAllResetTime = weeklyAllReset,
+                sessionPercent = session.percent,
+                sessionResetTime = session.reset,
+                weeklyAllPercent = allModels?.percent ?: 0,
+                weeklyAllResetTime = allModels?.reset ?: "",
                 weeklySonnetPercent = weeklySonnetPercent,
                 extraUsageEnabled = extraEnabled,
                 extraUsageInfo = extraInfo,
@@ -352,37 +341,25 @@ class ClaudeUsageMonitor {
         }
 
         /**
-         * Search for a `"N% used"` pattern in [lines] starting at [startIdx],
-         * checking up to 4 lines ahead.
+         * Returns [current] with well-known install directories put first, so
+         * an npm-installed `claude` (`#!/usr/bin/env node`) still finds Node
+         * when the server was launched from Finder/Dock with a minimal PATH.
          *
-         * @param lines all screen lines
-         * @param startIdx the line index of the section header
-         * @return the extracted percentage, or null if not found
-         */
-        private fun findPercent(lines: List<String>, startIdx: Int): Int? {
-            for (i in startIdx until minOf(startIdx + 4, lines.size)) {
-                val match = PERCENT_REGEX.find(lines[i])
-                if (match != null) return match.groupValues[1].toIntOrNull()
-            }
-            return null
-        }
-
-        /**
-         * Search for a `"Resets ..."` line in [lines] between [startIdx] and
-         * [endIdx] (or up to 4 lines ahead if [endIdx] is null).
+         * Called by [fetchUsageReport] for the CLI's environment.
          *
-         * @param lines all screen lines
-         * @param startIdx the line index of the section header
-         * @param endIdx optional upper bound (exclusive) for the search window
-         * @return the reset time text, or an empty string if not found
+         * @param current the inherited PATH, or `null` when unset.
+         * @return the PATH to run the CLI with.
          */
-        private fun findReset(lines: List<String>, startIdx: Int, endIdx: Int?): String {
-            val end = endIdx ?: minOf(startIdx + 4, lines.size)
-            for (i in startIdx until minOf(end, lines.size)) {
-                val match = RESETS_REGEX.find(lines[i])
-                if (match != null) return match.groupValues[1].trim()
-            }
-            return ""
+        private fun augmentedPath(current: String?): String {
+            val home = System.getProperty("user.home")
+            val extra = listOf(
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "$home/.nvm/versions/node/default/bin",
+                "$home/.local/bin",
+            )
+            val inherited = (current ?: "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
+            return (extra + inherited).distinct().joinToString(":")
         }
 
         /**
@@ -408,7 +385,7 @@ class ClaudeUsageMonitor {
                 "$home/.npm-global/bin/claude",
             )
             for (path in candidates) {
-                if (java.io.File(path).canExecute()) return path
+                if (File(path).canExecute()) return path
             }
             // Try PATH via which
             return try {
