@@ -1,157 +1,104 @@
 /**
- * Tests for [ClaudeUsageMonitor.parseUsageScreen] — scraping the Claude CLI's
- * `/usage` screen into a [ClaudeUsageData]:
- *  - the 2026-07 screen layout, where the model-specific weekly section is
- *    labelled per model (e.g. "Current week (Fable)"), reset lines carry a
- *    timezone suffix, and long advisory sections follow the bars;
- *  - the older layout with a "Current week (Sonnet)" section, including the
- *    legacy [ClaudeUsageData.weeklySonnetPercent] mirror;
- *  - screens with multiple model-specific sections at once;
- *  - degenerate screens (no session section → null).
+ * Tests for [ClaudeUsageMonitor]'s parsing of `claude -p /usage --output-format json`:
+ *  - [ClaudeUsageMonitor.usageReportFromJson] — taking the report text out of
+ *    the JSON envelope, and refusing error results and non-JSON output;
+ *  - [ClaudeUsageMonitor.parseUsageReport] — the 2026-11 report (one
+ *    `<label>: N% used · resets <when>` line per limit, then an advisory
+ *    "What's contributing" section), per-model weekly rows including the
+ *    legacy Sonnet mirror and " only" suffix, the extra-usage line, and
+ *    reports without a session row (→ null).
  */
 package se.soderbjorn.lunamux
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ClaudeUsageMonitorTest {
 
-    /** The 2026-07 screen: per-model "Fable" section, TZ suffixes, advisory tail. */
-    private val newFormatScreen = """
-        Claude Code v2.1.201
+    /** The report Claude Code 2.1.318 prints for a subscription login. */
+    private val report = """
+        You are currently using your subscription to power your Claude Code usage
 
-        Settings  Status  Config  Usage  Stats
+        Current session: 25% used · resets Nov 5 at 12am (Europe/Helsinki)
+        Current week (all models): 32% used · resets Nov 9 at 12am (Europe/Helsinki)
+        Current week (Fable): 0% used · resets Nov 9 at 12am (Europe/Helsinki)
 
-        Session
+        What's contributing to your usage?
+        Approximate · sessions on this machine only · shares overlap
 
-        Total cost:            $0.0000
-        Total duration (API):  0s
-        Total duration (wall): 1s
-        Total code changes:    0 lines added, 0 lines removed
-        Usage:                 0 input, 0 output, 0 cache read, 0 cache
-        write
-
-        Current session
-        ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  16% used
-        Resets 3:30pm (Europe/Stockholm)
-
-        Current week (all models)
-        ██████████████████████░░░░░░░░░░░░░░░░░░  55% used
-        Resets Jul 6 at 11am (Europe/Stockholm)
-
-        Current week (Fable)
-        ████████████████████████████░░░░░░░░░░░░  70% used
-        Resets Jul 6 at 11am (Europe/Stockholm)
-
-        What's contributing to your limits usage?
-        Approximate, based on local sessions on this machine — does not
-        include other devices or claude.ai
-
-        54% of your usage came from subagent-heavy sessions
-         Each subagent runs its own requests.
-
-        Skills                 % of usage
-        /verify                        1%
-    """.trimIndent()
-
-    /** The pre-2026-07 screen with a Sonnet-specific weekly section. */
-    private val oldFormatScreen = """
-        Current session
-        ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  37% used
-        Resets Jun 11, 1:00 AM
-
-        Current week (all models)
-        ██████████████████████░░░░░░░░░░░░░░░░░░  62% used
-        Resets Jun 16, 9:00 AM
-
-        Current week (Sonnet)
-        ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  41% used
-
-        Extra usage
-        Extra usage is not enabled
+        Last 24h · 3215 requests · 38 sessions
+          40%  Start fresh when you switch tasks · run /clear
+          25%  Run /feature-implement on a cheaper model
+          Top skills: /feature-implement 25%, /feature-plan 12%
     """.trimIndent()
 
     @Test
-    fun parsesNewFormatWithFableSection() {
-        val parsed = ClaudeUsageMonitor.parseUsageScreen(newFormatScreen)
+    fun takesTheReportOutOfTheJsonEnvelope() {
+        val out = """{"is_error":false,"num_turns":0,"total_cost_usd":0,"subtype":"success",""" +
+            """"result":"Current session: 25% used · resets 12am\nCurrent week (all models): 32% used"}"""
+        assertEquals(
+            "Current session: 25% used · resets 12am\nCurrent week (all models): 32% used",
+            ClaudeUsageMonitor.usageReportFromJson(out),
+        )
+    }
+
+    @Test
+    fun refusesErrorResultsAndNonJsonOutput() {
+        assertNull(ClaudeUsageMonitor.usageReportFromJson("""{"is_error":true,"result":"Not logged in"}"""))
+        assertNull(ClaudeUsageMonitor.usageReportFromJson("Error: unknown option '--no-session-persistence'"))
+        assertNull(ClaudeUsageMonitor.usageReportFromJson("""{"is_error":false}"""))
+    }
+
+    @Test
+    fun parsesTheReport() {
+        val parsed = ClaudeUsageMonitor.parseUsageReport(report)
         assertNotNull(parsed)
-        assertEquals(16, parsed.sessionPercent)
-        assertEquals("3:30pm (Europe/Stockholm)", parsed.sessionResetTime)
-        assertEquals(55, parsed.weeklyAllPercent)
-        assertEquals("Jul 6 at 11am (Europe/Stockholm)", parsed.weeklyAllResetTime)
-        assertEquals(listOf(ClaudeModelUsage("Fable", 70, "Jul 6 at 11am (Europe/Stockholm)")), parsed.modelUsages)
-        // No Sonnet section on this screen — the legacy mirror stays 0.
+        assertEquals(25, parsed.sessionPercent)
+        assertEquals("Nov 5 at 12am (Europe/Helsinki)", parsed.sessionResetTime)
+        assertEquals(32, parsed.weeklyAllPercent)
+        assertEquals("Nov 9 at 12am (Europe/Helsinki)", parsed.weeklyAllResetTime)
+        assertEquals(listOf(ClaudeModelUsage("Fable", 0, "Nov 9 at 12am (Europe/Helsinki)")), parsed.modelUsages)
+        // No Sonnet row in this report — the legacy mirror stays 0.
         assertEquals(0, parsed.weeklySonnetPercent)
+        assertFalse(parsed.extraUsageEnabled)
+        assertNull(parsed.extraUsageInfo)
     }
 
     @Test
-    fun parsesOldFormatAndMirrorsSonnetIntoLegacyField() {
-        val parsed = ClaudeUsageMonitor.parseUsageScreen(oldFormatScreen)
-        assertNotNull(parsed)
-        assertEquals(37, parsed.sessionPercent)
-        assertEquals(62, parsed.weeklyAllPercent)
-        assertEquals(listOf(ClaudeModelUsage("Sonnet", 41, "")), parsed.modelUsages)
-        assertEquals(41, parsed.weeklySonnetPercent)
-        assertEquals(false, parsed.extraUsageEnabled)
-    }
-
-    @Test
-    fun parsesMultipleModelSectionsInScreenOrder() {
-        val screen = """
-            Current session
-            ██  10% used
-            Resets 3:30pm (Europe/Stockholm)
-
-            Current week (all models)
-            ██  55% used
-            Resets Jul 6 at 11am (Europe/Stockholm)
-
-            Current week (Fable)
-            ██  70% used
-            Resets Jul 6 at 11am (Europe/Stockholm)
-
-            Current week (Sonnet)
-            ██  41% used
-            Resets Jul 6 at 11am (Europe/Stockholm)
+    fun parsesMultipleModelRowsInOrderAndMirrorsSonnet() {
+        val text = """
+            Current session: 10% used · resets 3:30pm
+            Current week (all models): 55% used · resets Jul 6 at 11am
+            Current week (Fable): 70% used · resets Jul 6 at 11am
+            Current week (Sonnet only): 41% used
         """.trimIndent()
-        val parsed = ClaudeUsageMonitor.parseUsageScreen(screen)
+        val parsed = ClaudeUsageMonitor.parseUsageReport(text)
         assertNotNull(parsed)
         assertEquals(listOf("Fable", "Sonnet"), parsed.modelUsages.map { it.label })
         assertEquals(listOf(70, 41), parsed.modelUsages.map { it.percent })
+        assertEquals("", parsed.modelUsages[1].resetTime)
         assertEquals(41, parsed.weeklySonnetPercent)
     }
 
     @Test
-    fun stripsLegacyOnlySuffixFromModelLabel() {
-        val screen = """
-            Current session
-            ██  10% used
-            Resets 3:30pm
+    fun readsTheExtraUsageLine() {
+        val off = ClaudeUsageMonitor.parseUsageReport("Current session: 1% used\nExtra usage: not enabled")
+        assertNotNull(off)
+        assertFalse(off.extraUsageEnabled)
 
-            Current week (all models)
-            ██  55% used
-            Resets Jul 6 at 11am
-
-            Current week (Sonnet only)
-            ██  41% used
-        """.trimIndent()
-        val parsed = ClaudeUsageMonitor.parseUsageScreen(screen)
-        assertNotNull(parsed)
-        assertEquals(listOf(ClaudeModelUsage("Sonnet", 41, "")), parsed.modelUsages)
-        assertEquals(41, parsed.weeklySonnetPercent)
+        val on = ClaudeUsageMonitor.parseUsageReport("Current session: 1% used\nExtra usage: \$4.20 of \$50 spent")
+        assertNotNull(on)
+        assertTrue(on.extraUsageEnabled)
+        assertEquals("\$4.20 of \$50 spent", on.extraUsageInfo)
     }
 
     @Test
-    fun sessionOnlyScreenParsesWithEmptyModelRows() {
-        val screen = """
-            Current session
-            ██  16% used
-            Resets 3:30pm (Europe/Stockholm)
-        """.trimIndent()
-        val parsed = ClaudeUsageMonitor.parseUsageScreen(screen)
+    fun sessionOnlyReportParsesWithEmptyWeeklyRows() {
+        val parsed = ClaudeUsageMonitor.parseUsageReport("Current session: 16% used · resets 3:30pm")
         assertNotNull(parsed)
         assertEquals(16, parsed.sessionPercent)
         assertEquals(0, parsed.weeklyAllPercent)
@@ -159,7 +106,7 @@ class ClaudeUsageMonitorTest {
     }
 
     @Test
-    fun returnsNullWithoutSessionSection() {
-        assertNull(ClaudeUsageMonitor.parseUsageScreen("Settings  Status  Config"))
+    fun returnsNullWithoutASessionRow() {
+        assertNull(ClaudeUsageMonitor.parseUsageReport("You are using an API key; usage limits do not apply."))
     }
 }
