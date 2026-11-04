@@ -76,10 +76,20 @@ class ScreenEmulator(initialCols: Int, initialRows: Int) {
     private val charBuf: CharBuffer = CharBuffer.allocate(16 * 1024)
 
     /**
+     * Decoded chars of an escape sequence the last read ended in the middle
+     * of, held back until the rest arrives. JediTerm cannot resume a sequence
+     * it ran out of input for — it drops what it read and prints the rest as
+     * text (`[2G…`) — so a sequence is only handed to [stream] once it is
+     * complete. @see EscapeSequenceBoundary
+     */
+    private val heldSequence = StringBuilder()
+
+    /**
      * Feed [length] bytes of raw PTY output into the emulator. Safe to call
      * from the PTY read coroutine. Returns after all parseable chars have been
      * applied to the screen buffer; any trailing partial UTF-8 codepoint is
-     * kept for the next call.
+     * kept for the next call, and so is any trailing unterminated escape
+     * sequence ([heldSequence]).
      */
     fun feed(bytes: ByteArray, length: Int) {
         if (length <= 0) return
@@ -105,7 +115,7 @@ class ScreenEmulator(initialCols: Int, initialRows: Int) {
                 decoder.decode(pendingBytes, charBuf, false)
                 charBuf.flip()
                 if (charBuf.hasRemaining()) {
-                    stream.append(charBuf)
+                    appendCompleteSequences(charBuf)
                 }
                 // Compact keeps any bytes that the decoder left unconsumed
                 // (i.e. a partial multi-byte codepoint at the tail) at the
@@ -117,6 +127,29 @@ class ScreenEmulator(initialCols: Int, initialRows: Int) {
         } finally {
             textBuffer.unlock()
         }
+    }
+
+    /**
+     * Hands [chars] to the emulator's stream, preceded by any [heldSequence]
+     * and minus a trailing escape sequence that is not finished yet, which is
+     * kept in [heldSequence] for the next read.
+     *
+     * A held tail longer than [MAX_HELD_SEQUENCE_CHARS] is released as-is: a
+     * program that never terminates a sequence must not freeze the screen.
+     *
+     * Called by [feed] for each decoded run.
+     *
+     * @param chars freshly decoded PTY output, positioned for reading.
+     * @see EscapeSequenceBoundary.incompleteTailStart
+     */
+    private fun appendCompleteSequences(chars: CharBuffer) {
+        val run: CharSequence = if (heldSequence.isEmpty()) chars else heldSequence.append(chars)
+        val cut = EscapeSequenceBoundary.incompleteTailStart(run)
+        val completeUpTo = if (cut < 0 || run.length - cut > MAX_HELD_SEQUENCE_CHARS) run.length else cut
+        if (completeUpTo > 0) stream.append(CharBuffer.wrap(run, 0, completeUpTo))
+        val tail = run.subSequence(completeUpTo, run.length).toString()
+        heldSequence.setLength(0)
+        heldSequence.append(tail)
     }
 
     /** Run the emulator loop until the internal char stream is exhausted. */
@@ -161,6 +194,15 @@ class ScreenEmulator(initialCols: Int, initialRows: Int) {
         } finally {
             textBuffer.unlock()
         }
+    }
+
+    private companion object {
+        /**
+         * Longest unterminated escape sequence [appendCompleteSequences] holds
+         * back. Real sequences are a few dozen chars; OSC payloads (titles,
+         * hyperlinks, clipboard) can run to a few KB.
+         */
+        const val MAX_HELD_SEQUENCE_CHARS = 64 * 1024
     }
 
     /**
