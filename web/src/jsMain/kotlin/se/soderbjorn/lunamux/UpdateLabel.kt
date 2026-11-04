@@ -21,7 +21,8 @@ import kotlinx.browser.window
  * IPC bridge, falling back to `window.open` if the bridge is unavailable.
  *
  * Called by the News & Updates screen's Download button and each news card's
- * "Learn more" link (see [showNewsDialog]).
+ * "Learn more" link (see [showNewsDialog]), and by [terminalLinkHandler] when
+ * the user Cmd-clicks a link in a terminal.
  *
  * @param url the absolute http(s) URL to open externally.
  */
@@ -30,6 +31,8 @@ internal fun openExternalUrl(url: String) {
     if (electronApi?.openExternalUrl != null) {
         electronApi.openExternalUrl(url)
     } else {
-        window.open(url, "_blank")
+        // `noopener` so the opened page cannot reach back into Lunamux
+        // through `window.opener` — terminal links carry program-chosen URLs.
+        window.open(url, "_blank", "noopener,noreferrer")
     }
 }

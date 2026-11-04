@@ -546,7 +546,10 @@ fun ensureTerminal(paneId: String, sessionId: String): TerminalEntry {
         // from the server ring, so this is the ceiling on retained history
         // rather than a soft cap over a longer local buffer.
         "scrollback" to 10_000,
-        "theme" to buildPaneXtermTheme()
+        "theme" to buildPaneXtermTheme(),
+        // Cmd-click opens OSC 8 links in the default browser; xterm's own
+        // handler confirms and then opens nothing. @see terminalLinkHandler
+        "linkHandler" to terminalLinkHandler(),
     ))
     val fit = FitAddon()
     term.loadAddon(fit)

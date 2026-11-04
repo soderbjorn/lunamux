@@ -258,6 +258,8 @@ internal fun buildRingPane(spec: PaneSpec, n: Int, scene: Scene, chrome: SpikeCh
                 "cursorBlink" to false, "disableStdin" to true,
                 "fontFamily" to "Menlo, Monaco, 'Courier New', monospace",
                 "fontSize" to 13, "scrollback" to 400, "theme" to runCatching { buildXtermTheme() }.getOrNull(),
+                // Same link behaviour as a 2D pane, rather than xterm's native confirm.
+                "linkHandler" to terminalLinkHandler(),
             ),
         )
         val mFit = FitAddon()
