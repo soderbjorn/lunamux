@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build an UNSIGNED, un-notarized release of the Lunamux Electron desktop app.
+# Build an un-notarized release of the Lunamux Electron desktop app, ad-hoc signed
+# rather than signed with a Developer ID certificate.
 #
 # Same artifact as build-release-electron.sh minus all the Apple code-signing
 # and notarization round trips: useful for fast local/test builds where you just
@@ -17,7 +18,14 @@
 #      skip signing, and `-c.mac.notarize=false` overrides the package.json
 #      `notarize` block.
 #
-# The resulting app is neither signed nor notarized, so Gatekeeper will block it
+#   3. Ad-hoc sign the packed app through the electron/adhoc-sign.js afterPack
+#      hook. Left unsigned, the app keeps stock Electron's identity, and macOS
+#      applies Electron's local network permission instead of Lunamux's: LAN
+#      connections from its terminals then fail with "No route to host" whatever
+#      the Lunamux toggle in System Settings says. The ad-hoc signature carries
+#      the bundle identifier and no certificate.
+#
+# The resulting app is not Developer ID signed nor notarized, so Gatekeeper will block it
 # on other machines (and even locally it needs a right-click -> Open or a
 # quarantine-attr removal). This build is intended for local verification only.
 #
@@ -41,7 +49,8 @@ cd electron
 CSC_IDENTITY_AUTO_DISCOVERY=false \
     ./node_modules/.bin/electron-builder \
     -c.mac.identity=null \
-    -c.mac.notarize=false
+    -c.mac.notarize=false \
+    -c.afterPack=adhoc-sign.js
 
 DMG="$(ls -t dist/Lunamux-*.dmg | head -1)"
-echo "==> Done (unsigned, NOT notarized): electron/$DMG"
+echo "==> Done (ad-hoc signed, NOT notarized): electron/$DMG"
