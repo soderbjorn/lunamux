@@ -47,6 +47,9 @@
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Lunamux needs this so commands you run in its terminals, such as ssh, can reach devices on your local network."
+      },
       "notarize": {
         "teamId": "CCJP95ZXG4"
       }
